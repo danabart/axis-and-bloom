@@ -39,7 +39,7 @@ import roasteryPortalAdminRouter from './routes/roasteryPortalAdmin.js';
 import roasteryRemarkAdminRouter from './routes/roasteryRemarkAdmin.js';
 import evidenceAdminRouter from './routes/evidenceAdmin.js';
 import checkoutRouter from './routes/checkout.js';
-import commerceAdminRouter from './routes/commerceAdmin.js';
+import commerceAdminRouter, { adminOrdersRouter, adminSubscriptionsRouter } from './routes/commerceAdmin.js';
 import subscriptionsRouter from './routes/subscriptions.js';
 import { handleStripeWebhook } from './routes/stripeWebhook.js';
 import { stripeMode } from './services/stripe.js';
@@ -159,6 +159,8 @@ app.use('/api/admin/evidence', evidenceAdminRouter);
 app.use('/api/checkout', checkoutRouter);
 app.use('/api/subscriptions', subscriptionsRouter);
 app.use('/api/admin/commerce', commerceAdminRouter);
+app.use('/api/admin/orders', adminOrdersRouter);          // Commerce 3
+app.use('/api/admin/subscriptions', adminSubscriptionsRouter); // Commerce 3
 
 // Observability Foundation Part B -- central boundary handler, mounted AFTER
 // every router so it only sees what Express itself routes here: a

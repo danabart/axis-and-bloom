@@ -17,10 +17,11 @@
 // Every write stamps subscription.updated_at, so Liam's customer block
 // (customerReads watermark) rebuilds when a subscription changes.
 import { db, withTransaction, type Tx } from '../db/client.js';
-import { commerceParam } from './commerceParameters.js';
+import { commerceParam, commerceParamText } from './commerceParameters.js';
 import { refreshLifecycleState } from './userLifecycle.js';
-import { stripe, STRIPE_ENABLED } from './stripe.js';
+import { stripe, STRIPE_ENABLED, getOrCreateStripeCustomer } from './stripe.js';
 import { resolveSubscriptionShipment, subscriptionDiscountPct } from './subscriptionShipment.js';
+import { sendSelfServiceEmail, type SelfServiceEmailKind, type SelfServiceFacts } from './subscriptionEmails.js';
 
 type Runner = Pick<Tx, 'query'>;
 
@@ -350,16 +351,7 @@ export async function lapseIfOverdue(today: string = todayEastern()): Promise<st
   const lapsed: string[] = [];
   for (const { id } of due) {
     try {
-      const invoiceIds = (await db.query<{ stripe_invoice_id: string }>(
-        `SELECT DISTINCT stripe_invoice_id FROM subscription_event
-         WHERE subscription_id = $1 AND event_kind = 'renewal_failed' AND stripe_invoice_id IS NOT NULL`, [id]
-      )).rows.map(r => r.stripe_invoice_id);
-      if (STRIPE_ENABLED) {
-        for (const invoiceId of invoiceIds) {
-          const inv = await stripe().invoices.retrieve(invoiceId);
-          if (inv.status === 'open') await stripe().invoices.voidInvoice(invoiceId, {}, { idempotencyKey: `sub:${id}:void:${invoiceId}` });
-        }
-      }
+      await voidOpenRenewalInvoices(id);
       const uid = await withTransaction(async tx => {
         const r = await tx.query(`UPDATE subscription SET status = 'lapsed', updated_at = now() WHERE id = $1 AND status = 'past_due'`, [id]);
         if (!r.rowCount) return null;
@@ -377,6 +369,339 @@ export async function lapseIfOverdue(today: string = todayEastern()): Promise<st
   return lapsed;
 }
 
+// ── open renewal invoices (shared by lapse, cancel, card update) ─────────────
+
+/**
+ * Stripe's still-open renewal invoices for a subscription: the ones a
+ * renewal_failed event names (a declined cycle stays open for Stripe's
+ * retries), newest first.
+ */
+export async function openRenewalInvoices(subscriptionId: string, runner: Runner = db): Promise<Array<{ id: string; amountDue: number }>> {
+  if (!STRIPE_ENABLED) return [];
+  const ids = (await runner.query<{ stripe_invoice_id: string }>(
+    `SELECT stripe_invoice_id FROM subscription_event
+     WHERE subscription_id = $1 AND event_kind = 'renewal_failed' AND stripe_invoice_id IS NOT NULL
+     GROUP BY stripe_invoice_id ORDER BY MAX(id) DESC`, [subscriptionId]
+  )).rows.map(r => r.stripe_invoice_id);
+  const open: Array<{ id: string; amountDue: number }> = [];
+  for (const invoiceId of ids) {
+    const inv = await stripe().invoices.retrieve(invoiceId);
+    if (inv.status === 'open') open.push({ id: invoiceId, amountDue: inv.amount_due });
+  }
+  return open;
+}
+
+/** Void every open renewal invoice, so Stripe's retries can never charge an ended subscription (lapse, cancel). */
+export async function voidOpenRenewalInvoices(subscriptionId: string): Promise<string[]> {
+  const open = await openRenewalInvoices(subscriptionId);
+  for (const inv of open) {
+    await stripe().invoices.voidInvoice(inv.id, {}, { idempotencyKey: `sub:${subscriptionId}:void:${inv.id}` });
+  }
+  return open.map(i => i.id);
+}
+
+// ── self-service (Commerce 3, B1) ────────────────────────────────────────────
+// The customer's buttons on Profile (source customer) and admin's cancel
+// (source admin), one function each, every change an event. Ownership is the
+// route's job; these take the subscription id. Each is idempotent: asking for
+// what is already true changes nothing and returns changed: false. A request
+// the subscription's state does not allow is a SelfServiceError (the route
+// answers its status with the friendly message). Emails go after the commit,
+// once per event (the event id is in the template key).
+
+export class SelfServiceError extends Error {
+  constructor(public status: 400 | 404 | 409 | 422, public code: string, message: string) { super(message); }
+}
+
+export interface SelfServiceResult { changed: boolean; eventId: number | null }
+
+interface SelfRow {
+  id: string; user_id: string; kind: string; status: SubscriptionStatus; frequency_weeks: number | null;
+  next_delivery_date: string | null; paused_until: string | null; skip_next_until: string | null; stripe_payment_method_id: string | null;
+}
+
+async function lockPaid(tx: Runner, subscriptionId: string): Promise<SelfRow> {
+  if (!/^[0-9a-f-]{36}$/i.test(subscriptionId)) throw new SelfServiceError(404, 'subscription_not_found', 'We could not find that subscription.');
+  const row = (await tx.query<SelfRow>(
+    `SELECT id, user_id, kind, status, frequency_weeks, next_delivery_date::text AS next_delivery_date,
+            paused_until::text AS paused_until, skip_next_until::text AS skip_next_until, stripe_payment_method_id
+     FROM subscription WHERE id = $1 FOR UPDATE`, [subscriptionId]
+  )).rows[0];
+  if (!row || row.kind !== 'paid') throw new SelfServiceError(404, 'subscription_not_found', 'We could not find that subscription.');
+  return row;
+}
+
+const ENDED: SubscriptionStatus[] = ['canceled', 'lapsed'];
+function requireOpen(row: SelfRow): void {
+  if (ENDED.includes(row.status)) throw new SelfServiceError(409, 'subscription_ended', 'This subscription has ended. Start a new one from your cart any time.');
+}
+
+const addDays = async (runner: Runner, date: string, days: number) =>
+  (await runner.query<{ d: string }>(`SELECT ($1::date + $2::int)::text AS d`, [date, days])).rows[0].d;
+
+/** Run a self-service change, then (after the commit) its customer email and lifecycle refresh. */
+async function selfService(
+  subscriptionId: string,
+  change: (tx: Tx, row: SelfRow) => Promise<SelfServiceResult & { emailKind?: SelfServiceEmailKind; refreshLifecycle?: boolean }>,
+): Promise<SelfServiceResult> {
+  const { result, uid } = await withTransaction(async tx => {
+    const row = await lockPaid(tx, subscriptionId);
+    const r = await change(tx, row);
+    return { result: r, uid: r.refreshLifecycle ? await firebaseUidOf(subscriptionId, tx) : null };
+  });
+  if (result.changed && result.eventId !== null && result.emailKind) {
+    const eventId = result.eventId, kind = result.emailKind;
+    await selfServiceFacts(subscriptionId)
+      .then(facts => sendSelfServiceEmail(kind, subscriptionId, eventId, facts))
+      .catch(err => console.error('[subscriptionService] self-service email failed', subscriptionId, err instanceof Error ? err.message : err));
+  }
+  if (uid) await refreshLifecycleState(uid).catch(err => console.error('[subscriptionService] lifecycle refresh failed', subscriptionId, err));
+  return { changed: result.changed, eventId: result.eventId };
+}
+
+/** What a self-service email states, read after the change committed. */
+async function selfServiceFacts(subscriptionId: string): Promise<SelfServiceFacts> {
+  const r = (await db.query<{ frequency_weeks: number | null; next_delivery_date: string | null; paused_until: string | null; skip_next_until: string | null; resumes_on: string | null }>(
+    `SELECT frequency_weeks, next_delivery_date::text AS next_delivery_date, paused_until::text AS paused_until,
+            skip_next_until::text AS skip_next_until, (paused_until + 1)::text AS resumes_on
+     FROM subscription WHERE id = $1`, [subscriptionId]
+  )).rows[0];
+  return {
+    frequencyWeeks: r?.frequency_weeks ?? null,
+    nextDeliveryDate: r ? await effectiveNextDelivery(r) : null,
+    skippedDate: r?.skip_next_until && r.next_delivery_date && r.skip_next_until >= r.next_delivery_date ? r.next_delivery_date : null,
+    resumesOn: r?.resumes_on ?? null,
+  };
+}
+
+/** Every N weeks from the next delivery on: the next date stays (decision 4), the spacing after it changes. */
+export async function changeFrequency(subscriptionId: string, weeks: number, source: SubscriptionEventSource = 'customer'): Promise<SelfServiceResult> {
+  const allowed = await allowedFrequencies();
+  if (!Number.isInteger(weeks) || !allowed.includes(weeks)) {
+    throw new SelfServiceError(400, 'invalid_frequency', `Choose every ${allowed.join(', ')} weeks.`);
+  }
+  return selfService(subscriptionId, async (tx, row) => {
+    requireOpen(row);
+    if (row.frequency_weeks === weeks) return { changed: false, eventId: null };
+    await tx.query(`UPDATE subscription SET frequency_weeks = $2, frequency_days = $2 * 7, updated_at = now() WHERE id = $1`, [subscriptionId, weeks]);
+    const eventId = await recordSubscriptionEvent({ subscriptionId, kind: 'frequency_changed', note: `every ${row.frequency_weeks} → ${weeks} weeks`, source }, tx);
+    return { changed: true, eventId, emailKind: 'frequency_changed' };
+  });
+}
+
+/**
+ * Skip the next delivery: skip_next_until = next delivery + 1 day; the daily
+ * job's coveredBy / skipCoveredCycle move the date on without charging. One
+ * pending skip at a time (409).
+ */
+export async function skipNext(subscriptionId: string, source: SubscriptionEventSource = 'customer'): Promise<SelfServiceResult> {
+  return selfService(subscriptionId, async (tx, row) => {
+    requireOpen(row);
+    if (row.status !== 'active') throw new SelfServiceError(409, 'skip_not_available', row.status === 'paused'
+      ? 'Your subscription is paused, so nothing ships until it resumes.'
+      : 'Update your card first; then you can skip a delivery.');
+    if (!row.next_delivery_date) throw new SelfServiceError(409, 'skip_not_available', 'There is no delivery scheduled to skip yet.');
+    if (row.skip_next_until && row.skip_next_until >= row.next_delivery_date) {
+      throw new SelfServiceError(409, 'skip_pending', "Your next delivery is already skipped. We'll pick up again after it.");
+    }
+    const until = await addDays(tx, row.next_delivery_date, 1);
+    await tx.query(`UPDATE subscription SET skip_next_until = $2::date, updated_at = now() WHERE id = $1`, [subscriptionId, until]);
+    const eventId = await recordSubscriptionEvent({ subscriptionId, kind: 'skip_requested', note: `delivery ${row.next_delivery_date} skipped`, source }, tx);
+    return { changed: true, eventId, emailKind: 'skipped' };
+  });
+}
+
+/**
+ * Pause until a resume date the customer picks (decision 3): after today and
+ * at most subscription_pause_max_weeks ahead (422 otherwise). Deliveries
+ * through the day before resumeOn are skipped; the daily job resumes it on
+ * resumeOn (resumeDuePauses), or the customer does earlier. A paused
+ * subscription can move its resume date; a past_due one updates its card first.
+ */
+export async function pause(subscriptionId: string, resumeOn: string, source: SubscriptionEventSource = 'customer', today: string = todayEastern()): Promise<SelfServiceResult> {
+  const bounds = await pauseBounds(today);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(resumeOn) || resumeOn < bounds.earliest || resumeOn > bounds.latest) {
+    throw new SelfServiceError(422, 'invalid_resume_date', `Pick a resume date between ${bounds.earliest} and ${bounds.latest}.`);
+  }
+  return selfService(subscriptionId, async (tx, row) => {
+    requireOpen(row);
+    if (row.status === 'past_due') throw new SelfServiceError(409, 'pause_not_available', 'Update your card first; then you can pause.');
+    const pausedUntil = await addDays(tx, resumeOn, -1);
+    if (row.status === 'paused' && row.paused_until === pausedUntil) return { changed: false, eventId: null };
+    await tx.query(`UPDATE subscription SET status = 'paused', paused_until = $2::date, updated_at = now() WHERE id = $1`, [subscriptionId, pausedUntil]);
+    const eventId = await recordSubscriptionEvent({ subscriptionId, kind: 'paused', note: `resumes ${resumeOn}`, source }, tx);
+    return { changed: true, eventId, emailKind: 'paused', refreshLifecycle: true };
+  });
+}
+
+/**
+ * Resume a paused subscription (any time; the daily job on the resume date).
+ * Status active, the pause window cleared; a next delivery that fell before
+ * tomorrow moves to tomorrow (the job runs once in the morning), a later one
+ * stays.
+ */
+export async function resume(subscriptionId: string, source: SubscriptionEventSource = 'customer', today: string = todayEastern()): Promise<SelfServiceResult> {
+  return selfService(subscriptionId, async (tx, row) => {
+    requireOpen(row);
+    if (row.status !== 'paused') return { changed: false, eventId: null };
+    const tomorrow = await addDays(tx, today, 1);
+    const next = !row.next_delivery_date || row.next_delivery_date < tomorrow ? tomorrow : row.next_delivery_date;
+    await tx.query(
+      `UPDATE subscription SET status = 'active', paused_until = NULL, next_delivery_date = $2::date, updated_at = now() WHERE id = $1`,
+      [subscriptionId, next]
+    );
+    const eventId = await recordSubscriptionEvent({ subscriptionId, kind: 'resumed', note: `next delivery ${next}`, source }, tx);
+    return { changed: true, eventId, emailKind: 'resumed', refreshLifecycle: true };
+  });
+}
+
+/** Daily job step 0 (Dana, 2026-10-31): every pause whose resume date has come resumes through resume(), source cron. */
+export async function resumeDuePauses(today: string = todayEastern()): Promise<string[]> {
+  const due = (await db.query<{ id: string }>(
+    `SELECT id FROM subscription WHERE kind = 'paid' AND status = 'paused' AND paused_until < $1::date ORDER BY paused_until, id`, [today]
+  )).rows;
+  const resumed: string[] = [];
+  for (const { id } of due) {
+    try {
+      if ((await resume(id, 'cron', today)).changed) resumed.push(id);
+    } catch (err) {
+      console.error(`[subscriptionService] resumeDuePauses failed for subscription ${id}:`, err instanceof Error ? err.message : err);
+    }
+  }
+  return resumed;
+}
+
+/**
+ * Cancel now (decision 2): no further charges. Any open renewal invoice is
+ * voided first (Stripe's retries must never charge a canceled customer; if
+ * the void fails, nothing is canceled and the error goes to the caller).
+ * Status canceled, cancel_at today, the event, the lifecycle refresh (Liam
+ * access ends with counts_as_subscriber). A paid bag already ordered still ships.
+ */
+export async function cancel(subscriptionId: string, source: SubscriptionEventSource = 'customer', today: string = todayEastern()): Promise<SelfServiceResult> {
+  const pre = (await db.query<{ status: SubscriptionStatus; kind: string }>(`SELECT status, kind FROM subscription WHERE id = $1`,
+    [/^[0-9a-f-]{36}$/i.test(subscriptionId) ? subscriptionId : '00000000-0000-0000-0000-000000000000'])).rows[0];
+  if (pre && pre.kind === 'paid' && !ENDED.includes(pre.status)) await voidOpenRenewalInvoices(subscriptionId);
+  return selfService(subscriptionId, async (tx, row) => {
+    if (ENDED.includes(row.status)) return { changed: false, eventId: null };
+    await tx.query(
+      `UPDATE subscription SET status = 'canceled', cancel_at = $2::date, paused_until = NULL, skip_next_until = NULL, updated_at = now() WHERE id = $1`,
+      [subscriptionId, today]
+    );
+    const eventId = await recordSubscriptionEvent({ subscriptionId, kind: 'canceled', note: `was ${row.status}`, source }, tx);
+    return { changed: true, eventId, emailKind: 'canceled', refreshLifecycle: true };
+  });
+}
+
+/**
+ * A new card from the setup-mode Checkout (decision 5): the Stripe customer's
+ * default payment method and the subscription's, the event, the email. If
+ * the subscription is past_due, its open renewal invoice is paid once, now,
+ * with the new card named (the invoice was created with the old one as its
+ * default; Task 0 finding 7). A success arrives as invoice.paid and goes the
+ * normal way (order, back to active); a decline arrives as
+ * invoice.payment_failed. The same card again changes nothing.
+ */
+export async function attachPaymentMethod(
+  subscriptionId: string, paymentMethodId: string, source: SubscriptionEventSource = 'customer'
+): Promise<SelfServiceResult & { recovery: 'none' | 'paid' | 'declined' | 'pending' }> {
+  if (!/^pm_[A-Za-z0-9_]+$/.test(paymentMethodId)) throw new SelfServiceError(400, 'invalid_payment_method', 'That card could not be read.');
+  const r = await selfService(subscriptionId, async (tx, row) => {
+    requireOpen(row);
+    if (row.stripe_payment_method_id === paymentMethodId) return { changed: false, eventId: null };
+    await tx.query(`UPDATE subscription SET stripe_payment_method_id = $2, updated_at = now() WHERE id = $1`, [subscriptionId, paymentMethodId]);
+    const eventId = await recordSubscriptionEvent({ subscriptionId, kind: 'payment_method_updated', note: paymentMethodId, source }, tx);
+    return { changed: true, eventId, emailKind: 'card_updated' };
+  });
+  if (!STRIPE_ENABLED) return { ...r, recovery: 'none' };
+
+  const sub = (await db.query<{ user_id: string; status: SubscriptionStatus }>(`SELECT user_id, status FROM subscription WHERE id = $1`, [subscriptionId])).rows[0];
+  const customer = await getOrCreateStripeCustomer(sub.user_id, null);
+  await stripe().customers.update(customer, { invoice_settings: { default_payment_method: paymentMethodId } });
+  if (sub.status !== 'past_due') return { ...r, recovery: 'none' };
+
+  const [open] = await openRenewalInvoices(subscriptionId);
+  if (!open) return { ...r, recovery: 'none' };
+  try {
+    const paid = await stripe().invoices.pay(open.id, { payment_method: paymentMethodId, off_session: true },
+      { idempotencyKey: `sub:${subscriptionId}:recover:${open.id}:${paymentMethodId}` });
+    return { ...r, recovery: paid.status === 'paid' ? 'paid' : 'pending' };
+  } catch (err) {
+    const t = (err as { type?: string }).type;
+    if (t === 'StripeCardError') return { ...r, recovery: 'declined' };
+    throw err;
+  }
+}
+
+/**
+ * B2: a Stripe Checkout Session in setup mode (decision 5), the same embedded
+ * component /checkout uses (ui_mode embedded_page, as Commerce 1). Nothing is
+ * written here: checkout.session.completed (mode setup) carries
+ * metadata.subscription_id to attachPaymentMethod.
+ */
+export async function createPaymentMethodSession(subscriptionId: string, email: string | null): Promise<{ clientSecret: string }> {
+  if (!STRIPE_ENABLED) throw new SelfServiceError(409, 'card_update_unavailable', 'Card updates are not available right now.');
+  const sub = (await db.query<{ user_id: string; status: SubscriptionStatus }>(`SELECT user_id, status FROM subscription WHERE id = $1`, [subscriptionId])).rows[0];
+  if (!sub) throw new SelfServiceError(404, 'subscription_not_found', 'We could not find that subscription.');
+  if (ENDED.includes(sub.status)) throw new SelfServiceError(409, 'subscription_ended', 'This subscription has ended. Start a new one from your cart any time.');
+  const customer = await getOrCreateStripeCustomer(sub.user_id, email);
+  const frontend = (process.env.FRONTEND_URL ?? 'http://localhost:5173').replace(/\/$/, '');
+  const session = await stripe().checkout.sessions.create({
+    ui_mode: 'embedded_page',
+    mode: 'setup',
+    currency: 'usd',
+    customer,
+    metadata: { subscription_id: subscriptionId },
+    setup_intent_data: { metadata: { subscription_id: subscriptionId } },
+    return_url: `${frontend}/profile?tab=orders&card=updated&session_id={CHECKOUT_SESSION_ID}`,
+  });
+  if (!session.client_secret) throw new Error('Stripe returned no client_secret for the setup session');
+  return { clientSecret: session.client_secret };
+}
+
+/** Ownership for the customer routes: is this subscription the signed-in customer's? */
+export async function subscriptionOwnedBy(uid: string, subscriptionId: string): Promise<boolean> {
+  if (!/^[0-9a-f-]{36}$/i.test(subscriptionId)) return false;
+  return (await db.query(
+    `SELECT 1 FROM subscription s JOIN user_profile up ON up.id = s.user_id WHERE s.id = $1 AND up.firebase_uid = $2`, [subscriptionId, uid]
+  )).rows.length > 0;
+}
+
+// ── reads for the panel ──────────────────────────────────────────────────────
+
+/** The frequencies on offer (commerce_parameter subscription_frequency_weeks). */
+export async function allowedFrequencies(): Promise<number[]> {
+  return (await commerceParamText('subscription_frequency_weeks')).split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n > 0);
+}
+
+/** The resume dates a pause may pick: tomorrow through subscription_pause_max_weeks from today. */
+export async function pauseBounds(today: string = todayEastern()): Promise<{ earliest: string; latest: string; maxWeeks: number }> {
+  const maxWeeks = await commerceParam('subscription_pause_max_weeks');
+  const r = (await db.query<{ earliest: string; latest: string }>(
+    `SELECT ($1::date + 1)::text AS earliest, ($1::date + $2::int * 7)::text AS latest`, [today, maxWeeks]
+  )).rows[0];
+  return { ...r, maxWeeks };
+}
+
+/**
+ * The delivery that will actually ship next: next_delivery_date, stepped by
+ * the frequency past a pending skip or pause window (finding 8; the stored
+ * date moves only when the daily job reaches it). NULL with no date.
+ */
+export async function effectiveNextDelivery(
+  row: { next_delivery_date: string | null; frequency_weeks: number | null; paused_until: string | null; skip_next_until: string | null },
+  runner: Runner = db,
+): Promise<string | null> {
+  if (!row.next_delivery_date || !row.frequency_weeks) return row.next_delivery_date;
+  const r = await runner.query<{ d: string | null }>(
+    `SELECT MIN(d)::date::text AS d
+     FROM generate_series($1::date, $1::date + 520 * 7, make_interval(days => $2::int * 7)) AS d
+     WHERE ($3::date IS NULL OR d::date > $3::date) AND ($4::date IS NULL OR d::date > $4::date)`,
+    [row.next_delivery_date, row.frequency_weeks, row.paused_until, row.skip_next_until]
+  );
+  return r.rows[0]?.d ?? row.next_delivery_date;
+}
+
 // ── reads (B6) ───────────────────────────────────────────────────────────────
 
 export interface MySubscription {
@@ -386,7 +711,16 @@ export interface MySubscription {
   statusLabel: string;
   countsAsSubscriber: boolean;
   frequencyWeeks: number | null;
+  /** The delivery that will actually ship next (past a pending skip or pause; Commerce 3). */
   nextDeliveryDate: string | null;
+  /** Commerce 3: the scheduled date a pending skip passes over; null when no skip is pending. */
+  skippedDate: string | null;
+  /** Commerce 3: the day a pause ends (paused_until + 1); null when not paused. */
+  resumesOn: string | null;
+  canceledAt: string | null;
+  hasPaymentMethod: boolean;
+  /** Commerce 3: which buttons apply in this state, decided here so the UI types no rule. */
+  actions: { frequency: boolean; skip: boolean; pause: boolean; resume: boolean; cancel: boolean; updateCard: boolean };
   /** House names lined up for the next delivery (dial-aware, B2); the signup names when it cannot be resolved right now. */
   nextCoffees: Array<{ displayName: string; weightOz: number | null; quantity: number }>;
   /** True when at least one item follows the Bloom Dial. */
@@ -401,10 +735,12 @@ export async function getSubscriptionsForCustomer(uid: string): Promise<MySubscr
   const rows = (await db.query<{
     subscription_id: string; status: string; customer_label: string | null; counts_as_subscriber: boolean | null;
     frequency_weeks: number | null; next_delivery_date: string | null; bag_count: string; last_order_id: string | null;
-    signup_names: string[] | null;
+    signup_names: string[] | null; paused_until: string | null; skip_next_until: string | null; canceled_at: string | null;
+    has_payment_method: boolean;
   }>(
     `SELECT v.subscription_id, v.status, v.customer_label, v.counts_as_subscriber, v.frequency_weeks,
-            v.next_delivery_date::text AS next_delivery_date, v.bag_count, v.last_order_id, v.signup_names
+            v.next_delivery_date::text AS next_delivery_date, v.bag_count, v.last_order_id, v.signup_names,
+            v.paused_until::text AS paused_until, v.skip_next_until::text AS skip_next_until, v.canceled_at, v.has_payment_method
      FROM v_subscription_status v JOIN user_profile up ON up.id = v.user_id
      WHERE up.firebase_uid = $1 AND v.kind = 'paid'
      ORDER BY v.created_at DESC`, [uid]
@@ -422,9 +758,20 @@ export async function getSubscriptionsForCustomer(uid: string): Promise<MySubscr
         followsDial = shipment.lines.some(l => l.archetype !== null);
       }
     }
+    const ended = r.status === 'canceled' || r.status === 'lapsed';
+    const skipPending = Boolean(r.skip_next_until && r.next_delivery_date && r.skip_next_until >= r.next_delivery_date);
     out.push({
       id: r.subscription_id, status: r.status, statusLabel: r.customer_label ?? r.status, countsAsSubscriber: Boolean(r.counts_as_subscriber),
-      frequencyWeeks: r.frequency_weeks, nextDeliveryDate: r.next_delivery_date, nextCoffees, followsDial,
+      frequencyWeeks: r.frequency_weeks,
+      nextDeliveryDate: ended ? null : await effectiveNextDelivery(r),
+      skippedDate: skipPending ? r.next_delivery_date : null,
+      resumesOn: r.status === 'paused' && r.paused_until ? (await db.query<{ d: string }>(`SELECT ($1::date + 1)::text AS d`, [r.paused_until])).rows[0].d : null,
+      canceledAt: r.canceled_at, hasPaymentMethod: Boolean(r.has_payment_method),
+      actions: {
+        frequency: !ended, skip: r.status === 'active' && !skipPending && Boolean(r.next_delivery_date),
+        pause: r.status === 'active' || r.status === 'paused', resume: r.status === 'paused', cancel: !ended, updateCard: !ended,
+      },
+      nextCoffees, followsDial,
       bagCount, discountPct: await subscriptionDiscountPct(bagCount), lastOrderId: r.last_order_id,
     });
   }

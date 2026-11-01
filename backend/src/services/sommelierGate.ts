@@ -214,7 +214,7 @@ export interface GateDeps {
 /** The customer reads the gate makes; the eval runner substitutes fixture reads (Liam answer evals, C1). */
 export interface CustomerReadsForGate {
   getLastRecommendation: (sessionId: number, runner: Runner) => Promise<number[]>;
-  getSubscriptionCurrent: (uid: string, runner: Runner) => Promise<{ status: string; sponsored: boolean } | null>;
+  getSubscriptionCurrent: (uid: string, runner: Runner) => Promise<{ status: string; sponsored: boolean; label?: string } | null>;
   getCustomerIdentity: (uid: string, runner: Runner) => Promise<{ firstName: string | null } | null>;
   getRecentOrders: (uid: string, limit: number, runner: Runner) => Promise<RecentOrders>;
 }
@@ -334,7 +334,7 @@ export async function resolveRule(args: {
   if (rule.resolver === 'customer_subscription') {
     const sub = await customer.getSubscriptionCurrent(args.uid, args.runner);
     if (!sub) return null;
-    return { text: `The customer's subscription status: ${sub.status}${sub.sponsored ? ' (a sponsored subscription)' : ''}`, phrased: true, coffeeId: null, answerId: null };
+    return { text: `The customer's subscription status: ${sub.label ?? sub.status}${sub.sponsored ? ' (a sponsored subscription)' : ''}`, phrased: true, coffeeId: null, answerId: null };
   }
   return null;
 }

@@ -355,7 +355,7 @@ function buildBrewCardsLine(cards: BrewCardCurrent[] | undefined, aliasByCoffee:
 
 function buildSubscriptionLine(sub: SubscriptionCurrent | null | undefined): string | null {
   if (!sub) return null;
-  return `Subscription: ${sub.status}${sub.sponsored ? ' (sponsored)' : ''}`;
+  return `Subscription: ${sub.label ?? sub.status}${sub.sponsored ? ' (sponsored)' : ''}`;
 }
 
 function buildShipsToLine(shipsTo: { city: string | null; state: string | null } | null | undefined): string | null {

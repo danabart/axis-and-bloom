@@ -5,6 +5,8 @@
 // (checkoutService.createSubscriptionOrder; the webhook is the truth, the
 // cron only records the attempt).
 //
+//   0. resume (Commerce 3, Dana 2026-10-31): paused subscriptions whose resume
+//      date has come resume through subscriptionService.resume (source cron).
 //   1. lapse: past_due longer than subscription_past_due_lapse_days → lapsed,
 //      the cycle's open invoice voided (subscriptionService.lapseIfOverdue).
 //   2. upcoming notices: active subscriptions whose next delivery is
@@ -29,7 +31,7 @@ import { commerceParam, commerceParamText } from './commerceParameters.js';
 import { stripe, STRIPE_ENABLED, getOrCreateStripeCustomer } from './stripe.js';
 import { resolveSubscriptionShipment, type ShipmentLine } from './subscriptionShipment.js';
 import {
-  todayEastern, lapseIfOverdue, coveredBy, skipCoveredCycle, recordChargeAttempt, releaseChargeAttempt,
+  todayEastern, lapseIfOverdue, resumeDuePauses, coveredBy, skipCoveredCycle, recordChargeAttempt, releaseChargeAttempt,
   markRenewalFailed, recordSubscriptionEvent, type ChargeClaim,
 } from './subscriptionService.js';
 import { sendSubscriptionUpcomingEmail, sendPaymentTroubleEmail, sendAdminSubscriptionAttentionEmail } from './subscriptionEmails.js';
@@ -39,6 +41,7 @@ export type ChargeOutcome = 'charged' | 'declined' | 'skipped_paused' | 'skipped
 
 export interface DailyResult {
   today: string;
+  resumed: string[];
   lapsed: string[];
   upcomingSent: number;
   charges: Array<{ subscriptionId: string; outcome: ChargeOutcome; invoiceId?: string; detail?: string }>;
@@ -231,6 +234,7 @@ async function sendUpcomingNotices(today: string): Promise<number> {
 }
 
 export async function runSubscriptionDaily(today: string = todayEastern()): Promise<DailyResult> {
+  const resumed = await resumeDuePauses(today);
   const lapsed = await lapseIfOverdue(today);
   const upcomingSent = await sendUpcomingNotices(today);
 
@@ -251,5 +255,5 @@ export async function runSubscriptionDaily(today: string = todayEastern()): Prom
       console.error(`[cron/subscription-daily] subscription ${sub.id} failed:`, detail);
     }
   }
-  return { today, lapsed, upcomingSent, charges };
+  return { today, resumed, lapsed, upcomingSent, charges };
 }

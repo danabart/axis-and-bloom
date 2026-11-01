@@ -15,6 +15,8 @@
 //   checkout.session.completed (payment mode, payment_status paid) and
 //   checkout.session.async_payment_succeeded → completeCheckoutSession → finalizePaidOrder
 //   checkout.session.completed with payment unpaid (async method pending) → recorded, wait for async_*
+//   checkout.session.completed with mode setup (Commerce 3: Profile → Update
+//     card) → attachPaymentMethod (never an order)
 //   checkout.session.expired → expireCheckoutSession
 //   checkout.session.async_payment_failed → expireCheckoutSession + log
 //   charge.refunded → refund order_event (amount + full/partial payment status)
@@ -42,7 +44,7 @@ import {
   UnknownCheckoutSessionError, UnknownSubscriptionError,
 } from '../services/checkoutService.js';
 import { finalizePaidOrder } from '../services/orderFinalizer.js';
-import { markRenewalFailed, lapseForUncollectible, recordSubscriptionEvent, subscriptionExists } from '../services/subscriptionService.js';
+import { markRenewalFailed, lapseForUncollectible, recordSubscriptionEvent, subscriptionExists, attachPaymentMethod } from '../services/subscriptionService.js';
 import { sendPaymentTroubleEmail } from '../services/subscriptionEmails.js';
 
 /** The subscription a renewal invoice belongs to, when it is one of ours and this database has it; else null (a quiet no-op). */
@@ -53,11 +55,31 @@ async function ourSubscription(invoice: Stripe.Invoice): Promise<string | null> 
   return id;
 }
 
+/**
+ * Commerce 3, B3: a setup-mode Checkout Session (Profile → Update card)
+ * completed. Never an order. The subscription is metadata.subscription_id
+ * (an id this database does not have is the quiet unknown-subscription path);
+ * the card is the SetupIntent's payment method.
+ */
+async function attachCardFromSetupSession(session: Stripe.Checkout.Session): Promise<string> {
+  const subscriptionId = session.metadata?.subscription_id;
+  if (!subscriptionId) return 'recorded (setup session without a subscription)';
+  if (!(await subscriptionExists(subscriptionId))) throw new UnknownSubscriptionError(subscriptionId, session.id);
+  const setupIntentId = typeof session.setup_intent === 'string' ? session.setup_intent : session.setup_intent?.id;
+  if (!setupIntentId) return `subscription ${subscriptionId}: setup session without a setup intent`;
+  const intent = await stripe().setupIntents.retrieve(setupIntentId);
+  const pm = typeof intent.payment_method === 'string' ? intent.payment_method : intent.payment_method?.id;
+  if (!pm) return `subscription ${subscriptionId}: setup intent ${setupIntentId} has no payment method (status ${intent.status})`;
+  const r = await attachPaymentMethod(subscriptionId, pm, 'customer');
+  return `subscription ${subscriptionId} card ${pm}${r.changed ? ' saved' : ' already saved'}, recovery ${r.recovery}`;
+}
+
 async function handleEvent(event: Stripe.Event): Promise<string> {
   switch (event.type) {
     case 'checkout.session.completed':
     case 'checkout.session.async_payment_succeeded': {
       const session = event.data.object as Stripe.Checkout.Session;
+      if (session.mode === 'setup') return attachCardFromSetupSession(session);
       if (session.mode !== 'payment') return `ignored: mode ${session.mode}`;
       if (session.payment_status !== 'paid') return `waiting: payment_status ${session.payment_status}`;
       const { orderId, created } = await completeCheckoutSession(session);

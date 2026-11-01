@@ -4,6 +4,7 @@
 //   order_confirmation:<orderId>          the customer's confirmation
 //   admin_new_order:<orderId>              one per paid order to admin_alert_email (manual fulfillment)
 //   admin_fulfillment_attention:<orderId>  a fulfillment attempt failed
+//   order_shipped:<shipmentId>             Commerce 3: it's on its way, with the tracking link
 // The customer email uses quizCompleteEmail.ts's card (beige card, red
 // wordmark, Helvetica) and voice, no urgency; it carries house names only.
 // The admin emails are internal and plain, and carry the resolved roaster
@@ -110,9 +111,10 @@ export async function sendOrderConfirmationEmail(orderId: string): Promise<SendO
 
 // ── admin (internal) ─────────────────────────────────────────────────────────
 
-interface InternalLine { blendId: string; coffeeName: string | null; roasterName: string | null; roasterSku: string | null }
+export interface InternalLine { blendId: string; coffeeName: string | null; roasterName: string | null; roasterSku: string | null }
 
-async function internalLines(o: OrderSummary): Promise<Map<string, InternalLine>> {
+/** The resolved roaster coffee per line (internal only: the admin email and /admin/orders). */
+export async function internalLines(o: OrderSummary): Promise<Map<string, InternalLine>> {
   const r = await db.query<{ blend_id: string; coffee_name: string | null; roaster_name: string | null; roaster_sku: string | null }>(
     `SELECT sku.id AS blend_id, vc.name AS coffee_name, vc.roaster_name, sku.roaster_sku
      FROM coffee_sku sku LEFT JOIN v_coffee vc ON vc.id = sku.coffee_id
@@ -128,8 +130,13 @@ export async function renderAdminNewOrderEmail(o: OrderSummary): Promise<{ subje
     const i = internal.get(l.blendId);
     return `${lineText(l)} — roaster coffee: ${i?.coffeeName ?? '?'} (${i?.roasterName ?? 'roaster unknown'}${i?.roasterSku ? `, SKU ${i.roasterSku}` : ''})`;
   });
+  // Commerce 3: who it is, and the order's admin page (the drawer opens on it).
+  const customer = [o.firstName, o.lastName].filter(Boolean).join(' ') || '(no name)';
+  const adminUrl = `${FRONTEND_URL()}/admin/orders/${o.orderId}`;
   const text = [
     `New paid order ${o.orderId}`,
+    `Customer: ${customer} <${o.email ?? 'no email on file'}>`,
+    `Admin: ${adminUrl}`,
     `Paid: ${o.paidAt ?? o.createdAt}`,
     `Total: ${money(o.totalCents)} (subtotal ${money(o.subtotalCents)}, shipping ${money(o.shippingCents)}, tax ${money(o.taxCents)})`,
     `Stripe payment intent: ${o.stripePaymentIntentId ?? '-'}`,
@@ -138,7 +145,7 @@ export async function renderAdminNewOrderEmail(o: OrderSummary): Promise<{ subje
     ...lines,
     '',
     'Ship to:',
-    ...(o.firstName ? [o.firstName] : []),
+    customer,
     ...shipsToLines(o),
     '',
     'Manual fulfillment: place this with the roaster.',
@@ -149,6 +156,57 @@ export async function renderAdminNewOrderEmail(o: OrderSummary): Promise<{ subje
 export async function sendAdminNewOrderEmail(o: OrderSummary): Promise<SendOnceResult> {
   const to = await commerceParamText('admin_alert_email');
   return sendOnce({ to, kind: 'transactional', template: `admin_new_order:${o.orderId}`, ...await renderAdminNewOrderEmail(o) });
+}
+
+// ── shipped (Commerce 3, B6) ─────────────────────────────────────────────────
+
+export function renderShippingNotificationEmail(o: OrderSummary): { subject: string; html: string; text: string } {
+  const name = o.firstName ? esc(o.firstName) : null;
+  const headline = name ? `${name}, your coffee is on its way.` : 'Your coffee is on its way.';
+  const sh = o.shipment;
+  const carrierLine = sh ? `${sh.carrierLabel ?? 'Carrier'} tracking number ${sh.trackingNumber ?? ''}`.trim() : null;
+  const ordersUrl = `${FRONTEND_URL()}/profile?tab=orders`;
+  const link = sh?.trackingUrl ? { href: sh.trackingUrl, label: 'Track your package' } : { href: ordersUrl, label: 'See your order' };
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Your coffee is on its way</title></head>
+<body style="margin:0;padding:0;background-color:#ffffff;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#ffffff">
+    <tr><td align="center" style="padding:34px 12px 48px;">
+      <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" bgcolor="#f2f1ea" style="width:600px;max-width:600px;background-color:#f2f1ea;border:1px solid #c5c7c8;">
+        <tr><td align="center" style="padding:46px 40px 0;"><img src="${IMAGE_BASE}/logo-quarter.png" width="26" alt="" style="display:block;border:0;width:26px;height:auto;" /></td></tr>
+        <tr><td align="center" style="padding:14px 40px 0;${FONT};font-size:12px;letter-spacing:5px;color:#9a2918;font-weight:bold;">AXIS&nbsp;&amp;&nbsp;BLOOM</td></tr>
+        <tr><td align="center" style="padding:38px 40px 0;${FONT};font-size:27px;line-height:38px;color:#9a2918;">${headline}</td></tr>
+        <tr><td style="padding:30px 40px 0;${FONT};font-size:15px;line-height:24px;color:#3b2f2a;">${o.lines.map(l => esc(lineText(l))).join('<br />')}</td></tr>
+        ${carrierLine ? `<tr><td style="padding:22px 40px 0;${FONT};font-size:15px;line-height:24px;color:#3b2f2a;">${esc(carrierLine)}</td></tr>` : ''}
+        <tr><td style="padding:26px 40px 0;${FONT};font-size:12px;letter-spacing:2px;color:#9a2918;font-weight:bold;">SHIPS TO</td></tr>
+        <tr><td style="padding:6px 40px 0;${FONT};font-size:15px;line-height:24px;color:#3b2f2a;">${shipsToLines(o).map(esc).join('<br />')}</td></tr>
+        <tr><td style="padding:26px 40px 46px;${FONT};font-size:14px;line-height:22px;"><a href="${esc(link.href)}" style="color:#9a2918;text-decoration:underline;">${esc(link.label)}</a></td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+  const text = [
+    o.firstName ? `${o.firstName}, your coffee is on its way.` : 'Your coffee is on its way.',
+    '',
+    ...o.lines.map(lineText),
+    ...(carrierLine ? ['', carrierLine] : []),
+    '',
+    'Ships to:',
+    ...shipsToLines(o),
+    '',
+    `${link.label}: ${link.href}`,
+  ].join('\n');
+  return { subject: 'Your coffee is on its way', html, text };
+}
+
+/** The customer's shipping email, once per shipment. */
+export async function sendShippingNotificationEmail(orderId: string, shipmentId: string): Promise<SendOnceResult> {
+  const o = await getOrderSummary(orderId);
+  if (!o) throw new Error(`order ${orderId} not found`);
+  const to = await customerEmail(o);
+  if (!to) throw new Error(`order ${orderId}: the customer has no email address`);
+  return sendOnce({ to, kind: 'transactional', template: `order_shipped:${shipmentId}`, ...renderShippingNotificationEmail(o) });
 }
 
 export async function sendAdminFulfillmentAttentionEmail(orderId: string, error: string, attempts: number): Promise<SendOnceResult> {

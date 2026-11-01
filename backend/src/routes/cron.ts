@@ -587,7 +587,8 @@ router.get('/sponsored-subscription-check', requireCronSecret, async (_req, res)
 });
 
 // ── GET /api/cron/subscription-daily ─────────────────────────────────────────
-// Commerce 2, B4 (2026-10-31): lapse overdue past_due subscriptions, send the
+// Commerce 2, B4 (2026-10-31): resume pauses whose date has come (Commerce 3),
+// lapse overdue past_due subscriptions, send the
 // upcoming-delivery emails, charge every paid subscription due today as a
 // Stripe one-off invoice (services/subscriptionRenewal.ts). Idempotent, safe
 // to run twice a day; the invoice.paid webhook writes the orders. Cloud
@@ -596,7 +597,7 @@ router.get('/subscription-daily', requireCronSecret, async (_req, res) => {
   try {
     const result = await runSubscriptionDaily();
     const count = (o: string) => result.charges.filter(c => c.outcome === o).length;
-    console.log(`[cron/subscription-daily] ${result.today}: lapsed ${result.lapsed.length}, upcoming ${result.upcomingSent}, charged ${count('charged')}, declined ${count('declined')}, unresolved ${count('unresolved')}, skipped ${count('skipped_paused') + count('skipped_skip')}, already ${count('already_attempted')}, errors ${count('error')}`);
+    console.log(`[cron/subscription-daily] ${result.today}: resumed ${result.resumed.length}, lapsed ${result.lapsed.length}, upcoming ${result.upcomingSent}, charged ${count('charged')}, declined ${count('declined')}, unresolved ${count('unresolved')}, skipped ${count('skipped_paused') + count('skipped_skip')}, already ${count('already_attempted')}, errors ${count('error')}`);
     res.json(result);
   } catch (err) {
     console.error('[cron/subscription-daily]', err);

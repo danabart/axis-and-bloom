@@ -536,19 +536,113 @@ export async function recordOrderEvent(e: OrderEventInput, runner: Runner = db):
 /**
  * charge.refunded: Stripe's amount_refunded is cumulative, so each event
  * carries the running total; full when it reaches the charge amount.
+ *
+ * Commerce 3: the reason is the newest refund's metadata.reason_code (the
+ * admin refund route sets it; the Charge in the event does not carry its
+ * refunds at API 2026-09-30, so they are listed; Task 0 finding 6). A full
+ * refund of an order not yet placed with the roaster (awaiting_manual,
+ * needs_attention) also cancels its fulfillment, here, when Stripe confirms
+ * it, never on the admin's click (Dana, 2026-10-31, decision 4). A partial
+ * refund never does.
  */
-export async function recordRefund(charge: Stripe.Charge): Promise<{ orderId: string | null }> {
+export async function recordRefund(charge: Stripe.Charge): Promise<{ orderId: string | null; canceledFulfillment: boolean }> {
   const paymentIntentId = idOf(charge.payment_intent as string | Stripe.PaymentIntent | null);
-  if (!paymentIntentId) return { orderId: null };
+  if (!paymentIntentId) return { orderId: null, canceledFulfillment: false };
   const order = (await db.query<{ id: string }>(`SELECT id FROM "order" WHERE stripe_payment_intent_id = $1`, [paymentIntentId])).rows[0];
-  if (!order) return { orderId: null };
+  if (!order) return { orderId: null, canceledFulfillment: false };
   const full = charge.amount_refunded >= charge.amount;
-  await recordOrderEvent({
-    orderId: order.id, kind: full ? 'refund_full' : 'refund_partial',
-    paymentStatus: full ? 'refunded' : 'partially_refunded',
-    amountRefundedCents: charge.amount_refunded, stripeRef: charge.id, source: 'webhook',
+
+  let reasonCode: string | null = null;
+  if (STRIPE_ENABLED) {
+    const newest = (await stripe().refunds.list({ charge: charge.id, limit: 1 })).data[0];
+    const code = newest?.metadata?.reason_code;
+    if (code && (await db.query(`SELECT 1 FROM order_refund_reason WHERE code = $1`, [code])).rows.length) reasonCode = code;
+  }
+
+  return withTransaction(async tx => {
+    await tx.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`refund:${order.id}`]);
+    await tx.query(
+      `INSERT INTO order_event (order_id, event_kind, payment_status, amount_refunded_cents, stripe_ref, refund_reason, source)
+       VALUES ($1, $2, $3, $4, $5, $6, 'webhook')`,
+      [order.id, full ? 'refund_full' : 'refund_partial', full ? 'refunded' : 'partially_refunded', charge.amount_refunded, charge.id, reasonCode]
+    );
+    let canceledFulfillment = false;
+    if (full) {
+      const st = (await tx.query<{ fulfillment_status: string | null }>(`SELECT fulfillment_status FROM v_order_status WHERE order_id = $1`, [order.id])).rows[0];
+      if (st && REFUND_CANCELS_FROM.includes(st.fulfillment_status ?? '')) {
+        await recordOrderEvent({
+          orderId: order.id, kind: 'canceled', fulfillmentStatus: 'canceled', stripeRef: charge.id,
+          note: `fully refunded before it was placed with the roaster (was ${st.fulfillment_status})`, source: 'webhook',
+        }, tx);
+        canceledFulfillment = true;
+      }
+    }
+    return { orderId: order.id, canceledFulfillment };
   });
-  return { orderId: order.id };
+}
+
+/** Fulfillment states a full refund cancels: nothing placed with the roaster yet. */
+export const REFUND_CANCELS_FROM = ['awaiting_manual', 'needs_attention'];
+
+export class RefundError extends Error {
+  constructor(public status: 400 | 404 | 409, public code: string, message: string) { super(message); }
+}
+
+export interface RefundRequest { amountCents?: number | null; reason: string; adminId?: string | null }
+export interface RefundRequestResult {
+  refundId: string; status: string | null; amountCents: number; full: boolean;
+  /** The order will be canceled when Stripe confirms (full refund, not yet placed). */
+  cancelsFulfillment: boolean;
+  /** Set when the order is already with the roaster or shipped: cancel it with them by hand. */
+  warning: string | null;
+  pastRefundWindow: boolean;
+}
+
+/**
+ * B5: admin refund, full (no amount) or partial. Stripe is the truth: this
+ * only asks Stripe; the order changes when charge.refunded arrives
+ * (recordRefund). Idempotency key refund:<order>:<amount>:<n>, n = refund
+ * events recorded so far, so a double click asks once.
+ */
+export async function requestRefund(orderId: string, req: RefundRequest): Promise<RefundRequestResult> {
+  if (!STRIPE_ENABLED) throw new RefundError(409, 'stripe_not_configured', 'Stripe is not configured.');
+  if (!/^[0-9a-f-]{36}$/i.test(orderId)) throw new RefundError(404, 'order_not_found', 'Order not found.');
+  const o = (await db.query<{ stripe_payment_intent_id: string | null; total_amount_paid: string; paid_at: string | null; created_at: string;
+    amount_refunded_cents: number; fulfillment_status: string | null; refunds: string; past_window: boolean }>(
+    `SELECT o.stripe_payment_intent_id, o.total_amount_paid, o.paid_at, o.created_at, s.amount_refunded_cents, s.fulfillment_status,
+            (SELECT count(*) FROM order_event e WHERE e.order_id = o.id AND e.event_kind IN ('refund_partial', 'refund_full')) AS refunds,
+            COALESCE(o.paid_at, o.created_at) < now() - make_interval(days => $2::int) AS past_window
+     FROM "order" o JOIN v_order_status s ON s.order_id = o.id WHERE o.id = $1`,
+    [orderId, await commerceParam('refund_window_days')]
+  )).rows[0];
+  if (!o) throw new RefundError(404, 'order_not_found', 'Order not found.');
+  if (!o.stripe_payment_intent_id) throw new RefundError(409, 'no_payment', 'This order has no Stripe payment to refund.');
+  const reason = (await db.query<{ code: string; stripe_reason: string | null }>(`SELECT code, stripe_reason FROM order_refund_reason WHERE code = $1`, [req.reason])).rows[0];
+  if (!reason) throw new RefundError(400, 'invalid_reason', 'Choose a refund reason.');
+
+  const totalCents = cents(o.total_amount_paid);
+  const remaining = totalCents - Number(o.amount_refunded_cents ?? 0);
+  if (remaining <= 0) throw new RefundError(409, 'already_refunded', 'This order is already fully refunded.');
+  const amount = req.amountCents == null ? remaining : Math.round(Number(req.amountCents));
+  if (!Number.isInteger(amount) || amount <= 0 || amount > remaining) {
+    throw new RefundError(400, 'invalid_amount', `Refund between $0.01 and ${(remaining / 100).toFixed(2)}.`);
+  }
+  const full = amount === remaining;
+
+  const refund = await stripe().refunds.create({
+    payment_intent: o.stripe_payment_intent_id,
+    amount,
+    ...(reason.stripe_reason ? { reason: reason.stripe_reason as Stripe.RefundCreateParams.Reason } : {}),
+    metadata: { order_id: orderId, reason_code: reason.code, ...(req.adminId ? { admin: req.adminId } : {}) },
+  }, { idempotencyKey: `refund:${orderId}:${amount}:${Number(o.refunds)}` });
+
+  const placed = o.fulfillment_status === 'placed' || o.fulfillment_status === 'shipped';
+  return {
+    refundId: refund.id, status: refund.status ?? null, amountCents: amount, full,
+    cancelsFulfillment: full && REFUND_CANCELS_FROM.includes(o.fulfillment_status ?? ''),
+    warning: placed ? `This order is already ${o.fulfillment_status === 'shipped' ? 'shipped' : 'placed with the roaster'}: the refund does not stop it. Cancel it with the roaster by hand.` : null,
+    pastRefundWindow: Boolean(o.past_window),
+  };
 }
 
 // ── reads ────────────────────────────────────────────────────────────────────
@@ -557,8 +651,10 @@ export interface OrderSummary {
   orderId: string;
   userId: string;
   firebaseUid: string;
+  /** The customer's primary user_email (Commerce 3; the customer emails still address Firebase Auth's). */
   email: string | null;
   firstName: string | null;
+  lastName: string | null;
   createdAt: string;
   paidAt: string | null;
   subtotalCents: number;
@@ -570,6 +666,8 @@ export interface OrderSummary {
   fulfillmentRoasterId: string | null;
   lines: Array<{ blendId: string; coffeeId: number | null; displayName: string | null; weightOz: number | null; quantity: number; unitPriceCents: number }>;
   status: { paymentStatus: string | null; fulfillmentStatus: string | null; customerLabel: string | null; finalizedAt: string | null; orderPlacedLine: string | null };
+  /** Commerce 3: the latest shipment (v_order_status), null before it ships. */
+  shipment: { id: string; carrier: string | null; carrierLabel: string | null; trackingNumber: string | null; trackingUrl: string | null; shippedAt: string | null } | null;
 }
 
 const cents = (dollars: string | number | null) => Math.round(Number(dollars ?? 0) * 100);
@@ -577,8 +675,10 @@ const cents = (dollars: string | number | null) => Math.round(Number(dollars ?? 
 /** One order with its lines and its v_order_status row. */
 export async function getOrderSummary(orderId: string, runner: Runner = db): Promise<OrderSummary | null> {
   const o = (await runner.query(
-    `SELECT o.*, up.firebase_uid, up.first_name, s.payment_status, s.fulfillment_status AS current_fulfillment_status,
-            s.customer_label, s.finalized_at, s.order_placed_line
+    `SELECT o.*, up.firebase_uid, up.first_name, up.last_name, s.payment_status, s.fulfillment_status AS current_fulfillment_status,
+            s.customer_label, s.finalized_at, s.order_placed_line,
+            s.shipment_id, s.carrier, s.carrier_label, s.tracking_number, s.tracking_url, s.shipped_at,
+            (SELECT ue.email_address FROM user_email ue WHERE ue.user_id = o.user_id AND ue.is_primary ORDER BY ue.created_at LIMIT 1) AS primary_email
      FROM "order" o
      JOIN user_profile up ON up.id = o.user_id
      JOIN v_order_status s ON s.order_id = o.id
@@ -591,7 +691,7 @@ export async function getOrderSummary(orderId: string, runner: Runner = db): Pro
      WHERE li.order_id = $1 ORDER BY li.created_at, li.id`, [orderId]
   );
   return {
-    orderId: o.id, userId: o.user_id, firebaseUid: o.firebase_uid, email: null, firstName: o.first_name,
+    orderId: o.id, userId: o.user_id, firebaseUid: o.firebase_uid, email: o.primary_email ?? null, firstName: o.first_name, lastName: o.last_name ?? null,
     createdAt: o.created_at, paidAt: o.paid_at,
     subtotalCents: cents(o.subtotal), shippingCents: cents(o.shipping_fee_charged), taxCents: cents(o.taxes_collected),
     totalCents: cents(o.total_amount_paid),
@@ -605,6 +705,9 @@ export async function getOrderSummary(orderId: string, runner: Runner = db): Pro
       paymentStatus: o.payment_status, fulfillmentStatus: o.current_fulfillment_status, customerLabel: o.customer_label,
       finalizedAt: o.finalized_at, orderPlacedLine: o.order_placed_line,
     },
+    shipment: o.shipment_id ? {
+      id: o.shipment_id, carrier: o.carrier, carrierLabel: o.carrier_label, trackingNumber: o.tracking_number, trackingUrl: o.tracking_url, shippedAt: o.shipped_at,
+    } : null,
   };
 }
 

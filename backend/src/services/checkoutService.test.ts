@@ -26,7 +26,17 @@ const fakeStripe = {
   // Commerce 2: a paid renewal invoice, as createSubscriptionOrder reads it.
   invoices: { retrieve: vi.fn(async (id: string) => renewalInvoice(id)) },
   invoiceItems: { list: vi.fn(async () => ({ data: renewalItems })) },
+  // Commerce 3: recordRefund reads the newest refund's reason; requestRefund creates one.
+  refunds: {
+    list: vi.fn(async () => ({ data: refundsSeen.length ? [refundsSeen[refundsSeen.length - 1]] : [] })),
+    create: vi.fn(async (params: any, opts: any) => {
+      const r = { id: `re_vitest_${refundsSeen.length + 1}`, status: 'succeeded', amount: params.amount, metadata: params.metadata ?? {}, params, opts };
+      refundsSeen.push(r);
+      return r;
+    }),
+  },
 };
+const refundsSeen: any[] = [];
 let renewalSubscriptionId = '';
 let renewalItems: any[] = [];
 const renewalInvoice = (id: string) => ({

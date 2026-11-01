@@ -477,21 +477,24 @@ export async function getRecentOrders(uid: string, limit: number, runner: Runner
   return { recent, olderCount: olderOrders.size, olderArchetypeCounts };
 }
 
-export interface SubscriptionCurrent { status: string; sponsored: boolean }
+export interface SubscriptionCurrent { status: string; sponsored: boolean; label?: string }
 // Rev 2: status and sponsored only. next_delivery_date and frequency_days are
-// never written; price and payment are not Liam's to say.
+// never written; price and payment are not Liam's to say. Commerce 3 (OT-62):
+// label is subscription_status.customer_label, the words Liam says ("Payment
+// needs a look", never the code past_due).
 export async function getSubscriptionCurrent(uid: string, runner: Runner = db): Promise<SubscriptionCurrent | null> {
   const canonicalId = await resolveCanonicalUserId(uid, runner);
   if (!canonicalId) return null;
-  const r = await runner.query<{ status: string; sponsored: boolean }>(
-    `SELECT s.status, (s.company_gift_id IS NOT NULL OR s.sponsored_expires_at IS NOT NULL) AS sponsored
+  const r = await runner.query<{ status: string; sponsored: boolean; label: string | null }>(
+    `SELECT s.status, (s.company_gift_id IS NOT NULL OR s.sponsored_expires_at IS NOT NULL) AS sponsored, st.customer_label AS label
        FROM subscription s JOIN v_customer_identity vci ON vci.user_id = s.user_id
+       LEFT JOIN subscription_status st ON st.code = s.status
       WHERE vci.canonical_user_id = $1
       ORDER BY s.updated_at DESC NULLS LAST, s.created_at DESC
       LIMIT 1`,
     [canonicalId]
   );
-  return r.rows[0] ? { status: r.rows[0].status, sponsored: r.rows[0].sponsored } : null;
+  return r.rows[0] ? { status: r.rows[0].status, sponsored: r.rows[0].sponsored, label: r.rows[0].label ?? r.rows[0].status } : null;
 }
 
 // Liam answer layer (2026-10-25), Part B step 4 — "how much is it?" after a
