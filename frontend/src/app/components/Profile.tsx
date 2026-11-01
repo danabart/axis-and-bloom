@@ -23,7 +23,7 @@ import BrewProfileMirror from './profile/BrewProfileMirror';
 import BrewCards from './profile/BrewCards';
 import WorthExploring from './profile/WorthExploring';
 import AddressForm from './profile/AddressForm';
-import SubscriptionSummary from './profile/SubscriptionSummary';
+import SubscriptionPanel from './profile/SubscriptionPanel';
 import { formatCalendarDate } from '../lib/calendarDate';
 
 type Tab = 'memory' | 'orders' | 'settings' | 'family';
@@ -694,8 +694,8 @@ export default function Profile() {
             {/* ── Past Orders ── */}
             {activeTab === 'orders' && (
               <motion.div key="orders" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col gap-8 max-w-2xl">
-                {/* Commerce 2: read-only subscription block (Commerce 3 adds the buttons). */}
-                <SubscriptionSummary />
+                {/* Commerce 3: the subscription panel (status, next date, the customer's own changes). */}
+                <SubscriptionPanel />
                 {pastOrders.length === 0 ? (
                   <div className="flex flex-col items-start gap-6 py-8">
                     <Package size={32} className="text-[#a33726]/30" strokeWidth={1} />
@@ -718,6 +718,15 @@ export default function Profile() {
                           <span className="text-[10px] font-normal px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm uppercase tracking-[0.1em]">{order.status}</span>
                         </div>
                         <p className="text-lg text-[#a33726]">Total: {order.total}</p>
+                        {/* Commerce 3: the tracking link from the carrier's template, once it ships. */}
+                        {order.trackingUrl ? (
+                          <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer"
+                            className="mt-3 self-start text-[10px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726]">
+                            Track your package{order.tracking ? ` · ${order.tracking}` : ''}
+                          </a>
+                        ) : order.tracking ? (
+                          <p className="mt-3 text-sm text-[#a33726]/70">{order.tracking}</p>
+                        ) : null}
 
                         {feedbackOrderId === order.id ? (
                           <div className="mt-6">

@@ -99,14 +99,15 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
         // unit_price_charged was dollars too, then divided by 100 again: a
         // 100x-too-small total, never visible with 0 orders); the line name is
         // the house name snapshot, never the SKU's roaster blend name.
+        // Commerce 3: the tracking link (carrier template, v_order_status) once it ships.
         `SELECT o.id, o.external_shopify_order_id, o.created_at, s.customer_label, s.payment_status, s.fulfillment_status,
-                o.total_amount_paid,
+                o.total_amount_paid, s.tracking_url, s.carrier_label, s.tracking_number,
                 (ARRAY_AGG(li.display_name ORDER BY li.created_at))[1] AS display_name
          FROM "order" o
          JOIN v_order_status s ON s.order_id = o.id
          LEFT JOIN order_line_item li ON li.order_id = o.id
          WHERE o.user_id = $1
-         GROUP BY o.id, s.customer_label, s.payment_status, s.fulfillment_status ORDER BY o.created_at DESC LIMIT 10`,
+         GROUP BY o.id, s.customer_label, s.payment_status, s.fulfillment_status, s.tracking_url, s.carrier_label, s.tracking_number ORDER BY o.created_at DESC LIMIT 10`,
         [profileId]
       ),
       db.query(
@@ -211,6 +212,8 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
         total:         `${Number(o.total_amount_paid ?? 0).toFixed(2)}`,
         date:          new Date(o.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
         blendName:     o.display_name ?? null,
+        trackingUrl:   o.tracking_url ?? null,
+        tracking:      o.tracking_number ? `${o.carrier_label ?? ''} ${o.tracking_number}`.trim() : null,
         hasFeedback:   orderIdsWithFeedback.has(o.id),
       })),
     });

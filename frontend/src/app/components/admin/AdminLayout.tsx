@@ -47,6 +47,8 @@ const NAV_SECTIONS = [
   {
     label: 'Commerce',
     items: [
+      { to: '/admin/orders', label: 'Orders' },
+      { to: '/admin/subscriptions', label: 'Subscriptions' },
       { to: '/admin/commerce', label: 'Commerce parameters' },
     ],
   },

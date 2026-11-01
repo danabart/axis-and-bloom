@@ -30,6 +30,8 @@ import AdminSystemHealth from './components/admin/AdminSystemHealth';
 import AdminCompanyGifts from './components/admin/AdminCompanyGifts';
 import AdminQrDoor from './components/admin/AdminQrDoor';
 import AdminCommerce from './components/admin/AdminCommerce';
+import AdminOrders from './components/admin/AdminOrders';
+import AdminSubscriptions from './components/admin/AdminSubscriptions';
 import CheckoutPage from './components/checkout/CheckoutPage';
 import CheckoutReturnPage from './components/checkout/CheckoutReturnPage';
 import FlavorIntelligencePage from './components/FlavorIntelligencePage';
@@ -126,6 +128,10 @@ export default function App() {
               <Route path="system-health" element={<AdminSystemHealth />} />
               <Route path="company-gifts" element={<AdminCompanyGifts />} />
               <Route path="commerce" element={<AdminCommerce />} />
+              {/* Commerce 3: orders (with the /:orderId drawer deep link the admin email uses) and subscriptions. */}
+              <Route path="orders" element={<AdminOrders />} />
+              <Route path="orders/:orderId" element={<AdminOrders />} />
+              <Route path="subscriptions" element={<AdminSubscriptions />} />
             </Route>
 
             {/* ── Roastery portal admin preview (part 5) — the real partner screens with a client that saves

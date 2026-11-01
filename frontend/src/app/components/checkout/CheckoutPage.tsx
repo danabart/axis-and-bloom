@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate } from 'react-router';
-import { loadStripe } from '@stripe/stripe-js';
-import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import { useCart, toCheckoutItems } from '../../context/CartContext';
 import { getUserProfile, createCheckoutSession, CheckoutApiError, type ShipsTo } from '../../lib/api';
 import { reportError } from '../../lib/errorReporter';
@@ -10,6 +8,7 @@ import {
 } from '../bloom/CartLines';
 import { formatPrice } from '../bloom/types';
 import AddressForm, { type SavedAddress } from '../profile/AddressForm';
+import StripeEmbeddedCheckout, { stripeConfigured } from './StripeEmbeddedCheckout';
 
 // Commerce 1, C2 (2026-10-31) — /checkout. Left: the cart's lines, shipping
 // (from GET /api/checkout/rules) and the estimated total. Right: Ships-to (the
@@ -24,9 +23,7 @@ import AddressForm, { type SavedAddress } from '../profile/AddressForm';
 // returns that snapshot, shown here; only a 422 (truly no address) opens the
 // form, so a failed read never makes the customer add a duplicate address.
 
-const PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
-// loadStripe once, at module level (Stripe's own guidance), only when a key is built in.
-const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
+// Stripe's component lives in StripeEmbeddedCheckout (shared with Profile's card update, Commerce 3).
 
 const NOT_LIVE_COPY = "Checkout isn't live yet — online ordering opens soon. Everything up to this point worked.";
 
@@ -64,7 +61,7 @@ export default function CheckoutPage() {
   useEffect(() => {
     if (!cart.length || addresses === null) return;
     if (!selectedId && !profileFailed) return; // no saved address: the form is showing
-    if (!PUBLISHABLE_KEY) { setError({ status: 503, code: 'checkout_unavailable', message: NOT_LIVE_COPY }); return; }
+    if (!stripeConfigured) { setError({ status: 503, code: 'checkout_unavailable', message: NOT_LIVE_COPY }); return; }
     let cancelled = false;
     setCreating(true); setError(null); setClientSecret(null);
     createCheckoutSession({ items, shippingAddressId: selectedId, subscription })
@@ -177,11 +174,7 @@ export default function CheckoutPage() {
           {(selected || profileFailed) && !addingAddress && (
             <div className="bg-white rounded-lg overflow-hidden min-h-[200px]">
               {creating && !clientSecret && <p className="text-sm text-[#a33726]/60 p-6">Preparing secure payment…</p>}
-              {clientSecret && stripePromise && (
-                <EmbeddedCheckoutProvider key={clientSecret} stripe={stripePromise} options={{ clientSecret }}>
-                  <EmbeddedCheckout />
-                </EmbeddedCheckoutProvider>
-              )}
+              {clientSecret && <StripeEmbeddedCheckout clientSecret={clientSecret} />}
             </div>
           )}
         </section>

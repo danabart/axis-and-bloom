@@ -148,19 +148,63 @@ export interface MySubscription {
   statusLabel: string;
   countsAsSubscriber: boolean;
   frequencyWeeks: number | null;
+  /** The delivery that will actually ship next (past a pending skip or pause). */
   nextDeliveryDate: string | null;
   nextCoffees: Array<{ displayName: string; weightOz: number | null; quantity: number }>;
   followsDial: boolean;
   bagCount: number;
   discountPct: number;
   lastOrderId: string | null;
+  // Commerce 3: the panel's state, decided by the server.
+  skippedDate: string | null;
+  resumesOn: string | null;
+  canceledAt: string | null;
+  hasPaymentMethod: boolean;
+  actions: { frequency: boolean; skip: boolean; pause: boolean; resume: boolean; cancel: boolean; updateCard: boolean };
+}
+
+/** GET /api/subscriptions/mine: the subscriptions plus the panel's options (frequencies, pause bounds), all from the server. */
+export interface MySubscriptionsResponse {
+  subscriptions: MySubscription[];
+  frequencies: number[];
+  pause: { maxWeeks: number; earliestResume: string; latestResume: string };
+}
+
+export async function getMySubscriptionPanel(): Promise<MySubscriptionsResponse> {
+  const res = await fetch(`${BASE}/subscriptions/mine`, { headers: await getHeaders() });
+  if (!res.ok) throw new Error('Could not load your subscription');
+  const data = await res.json();
+  return { subscriptions: data.subscriptions ?? [], frequencies: data.frequencies ?? [], pause: data.pause };
 }
 
 export async function getMySubscriptions(): Promise<MySubscription[]> {
-  const res = await fetch(`${BASE}/subscriptions/mine`, { headers: await getHeaders() });
-  if (!res.ok) throw new Error('Could not load your subscription');
-  return (await res.json()).subscriptions ?? [];
+  return (await getMySubscriptionPanel()).subscriptions;
 }
+
+/** A self-service change refused with the server's friendly message (409 skip pending, 422 resume date, …). */
+export class SubscriptionApiError extends Error {
+  constructor(public status: number, public code: string, message: string) {
+    super(message);
+    this.name = 'SubscriptionApiError';
+  }
+}
+
+async function subscriptionAction<T = { changed: boolean }>(id: string, path: string, body?: object): Promise<T> {
+  const res = await fetch(`${BASE}/subscriptions/${encodeURIComponent(id)}/${path}`, {
+    method: 'POST', headers: await getHeaders(), body: JSON.stringify(body ?? {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new SubscriptionApiError(res.status, data.error ?? 'failed', data.message ?? 'That did not go through. Please try again.');
+  return data;
+}
+
+export const changeSubscriptionFrequency = (id: string, weeks: number) => subscriptionAction(id, 'frequency', { weeks });
+export const skipNextDelivery = (id: string) => subscriptionAction(id, 'skip');
+export const pauseSubscription = (id: string, resumeOn: string) => subscriptionAction(id, 'pause', { resumeOn });
+export const resumeSubscription = (id: string) => subscriptionAction(id, 'resume');
+export const cancelSubscription = (id: string) => subscriptionAction(id, 'cancel');
+/** A setup-mode Stripe session for a new card; its client secret goes to StripeEmbeddedCheckout. */
+export const createCardUpdateSession = (id: string) => subscriptionAction<{ clientSecret: string }>(id, 'payment-method/session');
 
 // Step 04 (A2): shared subscribe call for the firm quiz gate (guest card submit,
 // recognized-guest silent resync, signed-in auto-subscribe/archetype-sync) — reuses
