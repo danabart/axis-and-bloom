@@ -117,3 +117,12 @@ Code read at `2d9a2f4`. Prod queried read-only through the Cloud SQL proxy (`bac
 5. **OT-62 extras (finding 9):** include the update-card link and Liam's status label? Recommended: yes.
 
 Findings 5–8 and 10 follow the guardrails or the real API, and are built as written above unless you say otherwise.
+
+### Dana's decisions (2026-10-31)
+
+1. **Webhook events:** added. Re-read through the API the same day: `we_1UWaPO0QYxZQN6jDi2Y9lp6q` lists 10 events, the six Commerce 1 ones plus `invoice.paid`, `invoice.payment_failed`, `invoice.marked_uncollectible` and `invoice.voided`. **The invoice events were missing from the Commerce 2 deploy (2026-10-31) until this fix the same day. No prod renewal has run in that window** (prod: 0 renewal orders, 0 `invoice.*` in `stripe_event`; the one paid subscription's first renewal is still ahead), so nothing was lost.
+2. **Auto-resume:** yes. The daily job resumes any pause whose date has passed, through `subscriptionService.resume`, with a `resumed` event (`source = 'cron'`).
+3. **Shipments link by `order_id`.** `order_line_item.shipment_id` stays unused, commented as reserved (D11 kept).
+4. **Only a full refund cancels fulfillment,** and only when Stripe confirms it (`charge.refunded`), never on the click.
+5. **Both OT-62 items are included:** the update-card link in the payment-trouble email, and the customer wording for Liam's status line.
+6. **Approved as described:** the Stripe reason mapping as a column on the reason table; refund reasons read from Stripe's refund list; the new card named on the retry; the real next date when a cycle is skipped.
