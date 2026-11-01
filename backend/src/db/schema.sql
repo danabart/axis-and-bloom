@@ -9132,44 +9132,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS order_event_one_finalized ON order_event (orde
 -- (created_at, then id); the status labels come from the lookups. The
 -- customer label is the payment's when money went back, else the
 -- fulfillment's.
-CREATE OR REPLACE VIEW v_order_status AS
-SELECT o.id AS order_id,
-       o.user_id,
-       o.created_at,
-       o.paid_at,
-       ps.code AS payment_status,
-       ps.customer_label AS payment_customer_label,
-       fs.code AS fulfillment_status,
-       fs.label AS fulfillment_label,
-       fs.customer_label AS fulfillment_customer_label,
-       fs.is_closed,
-       CASE WHEN ps.code IS NOT NULL AND ps.code <> 'paid' THEN ps.customer_label ELSE fs.customer_label END AS customer_label,
-       COALESCE(rf.amount_refunded_cents, 0) AS amount_refunded_cents,
-       fin.created_at AS finalized_at,
-       fin.note AS order_placed_line
-FROM "order" o
-LEFT JOIN LATERAL (
-  SELECT e.payment_status FROM order_event e
-  WHERE e.order_id = o.id AND e.payment_status IS NOT NULL
-  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
-) lp ON true
-LEFT JOIN LATERAL (
-  SELECT e.fulfillment_status FROM order_event e
-  WHERE e.order_id = o.id AND e.fulfillment_status IS NOT NULL
-  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
-) lf ON true
-LEFT JOIN LATERAL (
-  SELECT e.amount_refunded_cents FROM order_event e
-  WHERE e.order_id = o.id AND e.amount_refunded_cents IS NOT NULL
-  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
-) rf ON true
-LEFT JOIN LATERAL (
-  SELECT e.created_at, e.note FROM order_event e
-  WHERE e.order_id = o.id AND e.event_kind = 'finalized'
-  LIMIT 1
-) fin ON true
-LEFT JOIN order_payment_status ps ON ps.code = lp.payment_status
-LEFT JOIN order_fulfillment_status fs ON fs.code = COALESCE(lf.fulfillment_status, o.fulfillment_status);
+-- Defined in the COMMERCE 3 block (2026-10-31), which appended the shipment
+-- columns; one definition only, so an older shape never re-runs at boot.
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END COMMERCE 1 block
@@ -9343,6 +9307,158 @@ WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = v.key);
 -- coffee lined up is the SQL fallback only (signup slot names, else the
 -- signup display names); the dial-aware answer comes from code
 -- (subscriptionShipment.resolveSubscriptionShipment).
+-- Defined in the COMMERCE 3 block (2026-10-31), which appended canceled_at
+-- and has_payment_method; one definition only.
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END COMMERCE 2 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN COMMERCE 3 block (2026-10-31): admin orders, refunds, shipping,
+-- subscription self-service
+-- backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_3_ADMIN_AND_SELF_SERVICE.md
+--
+-- No new event tables: order_event and subscription_event already carry the
+-- history. New vocabularies are lookups (G2.7). roastery_shipment_details is
+-- reused as is and gains its one writer (services/shipmentService.ts); a
+-- shipment links to its order by order_id. order_line_item.shipment_id stays
+-- unused: order_line_item is insert-only for ab_app (D11, kept; Dana
+-- 2026-10-31, CLOSING_REPORT_3 decision 3).
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 1. Why money went back. stripe_reason is the value sent as the Stripe
+-- refund's reason (Stripe accepts only duplicate, fraudulent,
+-- requested_by_customer); NULL sends none. Ours is the record.
+CREATE TABLE IF NOT EXISTS order_refund_reason (
+  id             SERIAL PRIMARY KEY,
+  code           TEXT UNIQUE NOT NULL,
+  label          TEXT NOT NULL,
+  customer_label TEXT NOT NULL,
+  stripe_reason  TEXT
+);
+INSERT INTO order_refund_reason (code, label, customer_label, stripe_reason) VALUES
+  ('requested_by_customer', 'Requested by the customer', 'At your request',   'requested_by_customer'),
+  ('damaged_in_transit',    'Damaged in transit',        'Damaged in transit', NULL),
+  ('lost_in_transit',       'Lost in transit',           'Lost in transit',    NULL),
+  ('wrong_item',            'Wrong item shipped',        'Wrong item',         NULL),
+  ('quality',               'Quality issue',             'Quality',            NULL),
+  ('duplicate',             'Duplicate charge',          'Duplicate charge',   'duplicate'),
+  ('other',                 'Other',                     'Refund',             NULL)
+ON CONFLICT (code) DO NOTHING;
+
+-- 2. Carriers. The tracking link is data: {tracking} in the template is
+-- replaced by the tracking number (v_order_status.tracking_url); no template,
+-- no link.
+CREATE TABLE IF NOT EXISTS shipping_carrier (
+  id                    SERIAL PRIMARY KEY,
+  code                  TEXT UNIQUE NOT NULL,
+  label                 TEXT NOT NULL,
+  tracking_url_template TEXT,
+  is_active             BOOLEAN NOT NULL DEFAULT true
+);
+INSERT INTO shipping_carrier (code, label, tracking_url_template) VALUES
+  ('usps',  'USPS',  'https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}'),
+  ('ups',   'UPS',   'https://www.ups.com/track?tracknum={tracking}'),
+  ('fedex', 'FedEx', 'https://www.fedex.com/fedextrack/?trknbr={tracking}'),
+  ('dhl',   'DHL',   'https://www.dhl.com/us-en/home/tracking/tracking-express.html?submit=1&tracking-id={tracking}'),
+  ('other', 'Other', NULL)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS shipping_status (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT UNIQUE NOT NULL,
+  label TEXT NOT NULL
+);
+INSERT INTO shipping_status (code, label) VALUES
+  ('label_created', 'Label created'),
+  ('shipped',       'Shipped'),
+  ('delivered',     'Delivered'),
+  ('returned',      'Returned')
+ON CONFLICT (code) DO NOTHING;
+
+-- 3. The reason on a refund event (set on refund_partial / refund_full).
+ALTER TABLE order_event ADD COLUMN IF NOT EXISTS refund_reason TEXT REFERENCES order_refund_reason(code);
+
+-- 4. roastery_shipment_details: carrier and status from the lookups (Task 0:
+-- 0 rows on prod, so nothing to migrate), one row per (order, tracking
+-- number): markShipped's idempotency, enforced.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'roastery_shipment_details_carrier_fkey') THEN
+    ALTER TABLE roastery_shipment_details ADD CONSTRAINT roastery_shipment_details_carrier_fkey
+      FOREIGN KEY (carrier) REFERENCES shipping_carrier(code);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'roastery_shipment_details_status_fkey') THEN
+    ALTER TABLE roastery_shipment_details ADD CONSTRAINT roastery_shipment_details_status_fkey
+      FOREIGN KEY (status) REFERENCES shipping_status(code);
+  END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS roastery_shipment_one_per_tracking ON roastery_shipment_details (order_id, tracking_number);
+
+-- 5. Business numbers (only if missing).
+INSERT INTO commerce_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('subscription_pause_max_weeks', 12::numeric, NULL::text, 'Furthest a customer may pause a subscription, in weeks from today (the resume date they pick); resume is allowed any time. Range: integer 1 <= value <= 26.'),
+  ('refund_window_days',           30, NULL, 'Days after payment within which a refund is routine; the admin refund form warns past it and never blocks. Range: integer 0 <= value <= 365.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = v.key);
+
+-- 6. Views. New columns are appended (CREATE OR REPLACE keeps the old ones in
+-- place). v_order_status gains the latest shipment by order_id and its
+-- tracking link; v_subscription_status gains when it was canceled and
+-- whether a card is on file.
+CREATE OR REPLACE VIEW v_order_status AS
+SELECT o.id AS order_id,
+       o.user_id,
+       o.created_at,
+       o.paid_at,
+       ps.code AS payment_status,
+       ps.customer_label AS payment_customer_label,
+       fs.code AS fulfillment_status,
+       fs.label AS fulfillment_label,
+       fs.customer_label AS fulfillment_customer_label,
+       fs.is_closed,
+       CASE WHEN ps.code IS NOT NULL AND ps.code <> 'paid' THEN ps.customer_label ELSE fs.customer_label END AS customer_label,
+       COALESCE(rf.amount_refunded_cents, 0) AS amount_refunded_cents,
+       fin.created_at AS finalized_at,
+       fin.note AS order_placed_line,
+       sh.id AS shipment_id,
+       sh.shipped_at,
+       sh.carrier,
+       sc.label AS carrier_label,
+       sh.tracking_number,
+       CASE WHEN sc.tracking_url_template IS NOT NULL AND sh.tracking_number IS NOT NULL
+            THEN replace(sc.tracking_url_template, '{tracking}', sh.tracking_number) END AS tracking_url
+FROM "order" o
+LEFT JOIN LATERAL (
+  SELECT e.payment_status FROM order_event e
+  WHERE e.order_id = o.id AND e.payment_status IS NOT NULL
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) lp ON true
+LEFT JOIN LATERAL (
+  SELECT e.fulfillment_status FROM order_event e
+  WHERE e.order_id = o.id AND e.fulfillment_status IS NOT NULL
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) lf ON true
+LEFT JOIN LATERAL (
+  SELECT e.amount_refunded_cents FROM order_event e
+  WHERE e.order_id = o.id AND e.amount_refunded_cents IS NOT NULL
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) rf ON true
+LEFT JOIN LATERAL (
+  SELECT e.created_at, e.note FROM order_event e
+  WHERE e.order_id = o.id AND e.event_kind = 'finalized'
+  LIMIT 1
+) fin ON true
+LEFT JOIN LATERAL (
+  SELECT d.id, d.shipped_at, d.carrier, d.tracking_number FROM roastery_shipment_details d
+  WHERE d.order_id = o.id
+  ORDER BY d.shipped_at DESC NULLS LAST, d.created_at DESC LIMIT 1
+) sh ON true
+LEFT JOIN shipping_carrier sc ON sc.code = sh.carrier
+LEFT JOIN order_payment_status ps ON ps.code = lp.payment_status
+LEFT JOIN order_fulfillment_status fs ON fs.code = COALESCE(lf.fulfillment_status, o.fulfillment_status);
+
 CREATE OR REPLACE VIEW v_subscription_status AS
 SELECT s.id AS subscription_id,
        s.user_id,
@@ -9362,7 +9478,9 @@ SELECT s.id AS subscription_id,
        s.created_at,
        COALESCE(it.item_count, 0) AS item_count,
        COALESCE(it.bag_count, 0) AS bag_count,
-       it.signup_names
+       it.signup_names,
+       cx.created_at AS canceled_at,
+       (s.stripe_payment_method_id IS NOT NULL) AS has_payment_method
 FROM subscription s
 LEFT JOIN subscription_status st ON st.code = s.status
 LEFT JOIN LATERAL (
@@ -9372,10 +9490,15 @@ LEFT JOIN LATERAL (
   FROM subscription_item i
   LEFT JOIN coffee_dial_slot ds ON ds.id = i.signup_slot_id
   WHERE i.subscription_id = s.id
-) it ON true;
+) it ON true
+LEFT JOIN LATERAL (
+  SELECT e.created_at FROM subscription_event e
+  WHERE e.subscription_id = s.id AND e.event_kind = 'canceled'
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) cx ON true;
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- END COMMERCE 2 block
+-- END COMMERCE 3 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
