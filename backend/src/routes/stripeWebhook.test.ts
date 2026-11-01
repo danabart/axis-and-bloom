@@ -29,11 +29,13 @@ const markRenewalFailed = vi.fn(async () => true);
 const lapseForUncollectible = vi.fn(async () => undefined);
 const recordSubscriptionEvent = vi.fn(async () => 1);
 const sendPaymentTroubleEmail = vi.fn(async () => ({ status: 'sent', id: 're_1' }));
+// Commerce 3: the setup-mode session (Profile → Update card).
+const attachPaymentMethod = vi.fn(async () => ({ changed: true, eventId: 1, recovery: 'none' }));
 vi.mock('../services/checkoutService.js', () => ({
   completeCheckoutSession, expireCheckoutSession, recordRefund, createSubscriptionOrder, UnknownCheckoutSessionError, UnknownSubscriptionError,
 }));
 vi.mock('../services/orderFinalizer.js', () => ({ finalizePaidOrder }));
-vi.mock('../services/subscriptionService.js', () => ({ markRenewalFailed, lapseForUncollectible, recordSubscriptionEvent, subscriptionExists }));
+vi.mock('../services/subscriptionService.js', () => ({ markRenewalFailed, lapseForUncollectible, recordSubscriptionEvent, subscriptionExists, attachPaymentMethod }));
 vi.mock('../services/subscriptionEmails.js', () => ({ sendPaymentTroubleEmail }));
 
 const { handleStripeWebhook } = await import('./stripeWebhook.js');
@@ -191,5 +193,30 @@ describe('POST /api/webhooks/stripe', () => {
     expect(lapseForUncollectible).toHaveBeenCalledWith(SUB, 'in_vitest_unc');
     await send(event('invoice.voided', invoice({ id: 'in_vitest_void' })));
     expect(recordSubscriptionEvent).toHaveBeenCalledWith(expect.objectContaining({ subscriptionId: SUB, kind: 'invoice_voided', stripeInvoiceId: 'in_vitest_void' }));
+  });
+
+  // ── Commerce 3 ──
+  it('a completed setup-mode session attaches the SetupIntent card to the subscription and never creates an order', async () => {
+    const retrieve = vi.spyOn(stripe().setupIntents, 'retrieve').mockResolvedValue({ id: 'seti_vitest', payment_method: 'pm_vitest_new', status: 'succeeded' } as any);
+    const ev = event('checkout.session.completed', { id: 'cs_test_setup', object: 'checkout.session', mode: 'setup', setup_intent: 'seti_vitest', metadata: { subscription_id: SUB } });
+    const res = await send(ev);
+    expect(res.status).toBe(200);
+    expect(retrieve).toHaveBeenCalledWith('seti_vitest');
+    expect(attachPaymentMethod).toHaveBeenCalledWith(SUB, 'pm_vitest_new', 'customer');
+    expect(completeCheckoutSession).not.toHaveBeenCalled();
+    expect(finalizePaidOrder).not.toHaveBeenCalled();
+    expect((await db.query(`SELECT processed_at IS NOT NULL AS done, error FROM stripe_event WHERE stripe_event_id = $1`, [ev.id])).rows[0]).toEqual({ done: true, error: null });
+    // A replay of the same event runs nothing again.
+    await send(ev);
+    expect(attachPaymentMethod).toHaveBeenCalledTimes(1);
+    retrieve.mockRestore();
+  });
+
+  it("a setup session for a subscription this database does not have is a quiet 200, nothing attached", async () => {
+    const ev = event('checkout.session.completed', { id: 'cs_test_setup_other', object: 'checkout.session', mode: 'setup', setup_intent: 'seti_x', metadata: { subscription_id: '99999999-9999-9999-9999-999999999999' } });
+    const res = await send(ev);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ unknownSession: true });
+    expect(attachPaymentMethod).not.toHaveBeenCalled();
   });
 });
