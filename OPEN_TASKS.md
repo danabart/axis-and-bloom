@@ -426,6 +426,14 @@ The full list is in `CLOSING_REPORT_3.md` → "What Commerce 4 needs".
 
 One cart can resolve to SKUs from several roasteries (dial slots fall back across roasters). The order is one row with one `fulfillment_roaster_id` (NULL = manual), and the manual email lists each line's roaster. Before roaster adapters place orders automatically, decide how a multi-roaster order splits into shipments and what the customer sees. Since #250 `roastery_shipment_details` is written (`shipmentService.markShipped`, linked by `order_id`, one shipment per order assumed by `v_order_status`); `order_line_item.shipment_id` stays reserved (D11), so a per-line split needs either a link table or Dana reopening D11.
 
+### OT-65: commerce cosmetic pass (Commerce 3 Part E, 2026-11-04)
+
+Seen by Dana on prod during Commerce 3 Part E; deliberately left out of that brief:
+- Profile → Past Orders order card: the total shows without "$", and the order number is the full UUID.
+- `/admin/orders`: the customer name shows "—" when the profile has no first name (fall back to the email or last name).
+
+Also from Part E, recorded only: the payment-trouble email's "Update your card" link once landed on the home page (11-03); not reproduced (`/profile` is open under the pre-launch gate). See `CLOSING_REPORT_3.md` → "Noticed during Part E".
+
 ### OT-60: test-mode Stripe events to the prod endpoint (Commerce 1, 2026-10-31)
 
 The sandbox's one webhook endpoint (`we_1UWaPO0QYxZQN6jDi2Y9lp6q`) points at prod Cloud Run, so every test-mode event, including the local Part E acceptance runs against `axisandbloom_test`, is also delivered there. Before the Commerce 1 deploy prod answers 404 (Stripe retries for up to 3 days and emails about failures); after it, prod records an unknown session's event and answers 200 (`UnknownCheckoutSessionError`). Consider a second, local-only endpoint or the Stripe CLI for dev runs.
@@ -508,3 +516,4 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-10-31 | OT-62: Commerce 3, subscription self-service and admin | ✅ Resolved 2026-11-01 (#250) |
 | 2026-10-31 | OT-63: Stripe retry schedule for renewal invoices (Smart Retries, up to 8 within 2 weeks, then left past-due; our 21-day lapse voids it) | ✅ Resolved 2026-10-31 |
 | 2026-11-01 | OT-64: Commerce 4, live cutover | Open |
+| 2026-11-04 | OT-65: commerce cosmetic pass (Profile order total "$" and short order number; admin name fallback) | Open |

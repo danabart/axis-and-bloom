@@ -2,7 +2,7 @@
 
 Brief: `CLAUDE_CODE_PROMPT_COMMERCE_3_ADMIN_AND_SELF_SERVICE.md` · Session 2026-10-31 · Base commit `2d9a2f4` (main == origin/main; prod rev `00811-pjt`). Test mode only. `DEVELOPMENT_GUARDRAILS.md` read before Task 0.
 
-Status: **Parts A–D and F done; Part E runs on prod in test mode with Dana** (her change of plan, 2026-11-01: the local stack was stopped twice under low memory, so acceptance moved to `www.axisandbloomcoffee.com` with `?preview=true`, verified from the prod DB and the Stripe Dashboard). Prod Stripe is the sandbox (`[stripe] mode=test`).
+Status: **Done. Parts A–F complete; Part E passed on prod in test mode with Dana, 2026-11-04** (her change of plan, 2026-11-01: the local stack was stopped twice under low memory, so acceptance moved to `www.axisandbloomcoffee.com` with `?preview=true`, verified from the prod DB and the Stripe Dashboard). Prod Stripe is the sandbox (`[stripe] mode=test`).
 
 | Commit | Content |
 |---|---|
@@ -13,7 +13,9 @@ Status: **Parts A–D and F done; Part E runs on prod in test mode with Dana** (
 | `78eaff9` | Dana's Task 0 decisions; `invoice.*` events confirmed on the endpoint |
 | `c418abe` | C, frontend |
 | `c4c8c1e` | D, tests |
-| — | F, docs (this commit), then `CATALOG.md` from prod after the deploy |
+| `66fa41f` | F, docs |
+| `46b5546` | `CATALOG.md` from prod after the deploy (rev `00812-xj5`) |
+| — | Part E evidence (this commit) |
 
 ---
 
@@ -187,22 +189,38 @@ Findings 5–8 and 10 follow the guardrails or the real API, and are built as wr
 
 ## Part E — acceptance (prod, test mode)
 
-Walked through with Dana on `www.axisandbloomcoffee.com/?preview=true`: Profile steps as `danabar.mail+checkout1@gmail.com`, admin steps as Dana's admin account. Each step is checked in the prod DB (read-only) and the Stripe sandbox. Evidence is filled in step by step below.
+Walked through with Dana on `www.axisandbloomcoffee.com/?preview=true`, 2026-11-01 → 2026-11-04 (prod rev `00812-xj5`): Profile steps as `danabar.mail+checkout1@gmail.com`, admin steps as Dana's admin account. Each step is checked in the prod DB (read-only, through the Cloud SQL proxy) and the Stripe sandbox, in batches as Dana asked. Subscription `7187cc53-60d2-49d2-b243-8ffbf3969304`, customer `cus_VXieQZVTedJE55`.
 
-| # | Step | Result | Evidence |
+**Result: all steps pass.** Three steps were driven from our side, each approved by Dana (see "How Part E was run" below).
+
+| # | Step | Result | Evidence (prod DB / Stripe sandbox) |
 |---|---|---|---|
-| 1a | Frequency 2→4 weeks: next date unchanged, email | pending | |
-| 1b | Skip next: `skip_requested`, Profile shows the cycle after | pending | |
-| 1c | Pause 3 weeks, then resume | pending | |
-| 1d | Cancel: `canceled`, Liam access gone, email | pending | |
-| 2 | Card update on past_due (0341, then 4242): invoice paid, renewal order, `active` | pending | |
-| 3a | `/admin/orders` lists orders with customer emails | pending | |
-| 3b | $5 partial refund → `refund_partial`, cents on `v_order_status`, Stripe refund | pending | |
-| 3c | Full refund on `awaiting_manual` → `refund_full` + `canceled` | pending | |
-| 3d | Mark shipped (USPS): shipment row, `shipped`, email with tracking link, Profile | pending | |
-| 3e | Retry fulfillment on `needs_attention` | pending | |
-| 4 | Admin new-order email: name, email, drawer link | pending | |
-| 5 | No roaster name on Profile or in customer emails | pending | |
+| 1a | Frequency 2→4 weeks: next date unchanged, email | ✅ | `frequency_changed` (customer) "every 2 → 4 weeks", 11-01 20:07 UTC; next date stayed 11-14; email `subscription_frequency_changed:2` |
+| 1b | Skip next: `skip_requested`, Profile shows the cycle after | ✅ | `skip_requested` (customer) "delivery 2026-12-02 skipped", 11-04 14:42; `skip_next_until` 12-03; email `subscription_skipped:12`. Daily job (date moved to 11-04, see below): `renewal_skipped_skip` ×2 (11-04, 12-02), no charge, next date 12-30 |
+| 1c | Pause 3 weeks, then resume | ✅ | `paused` "resumes 2026-11-23" (11-02 21:30:41), `resumed` "next delivery 2026-11-14" (21:30:53); emails `subscription_paused:3`, `subscription_resumed:4` |
+| 1d | Cancel: `canceled`, Liam access gone, email | ✅ | `canceled` (customer) "was active", 11-04 14:50; status canceled, `cancel_at` 11-04, `skip_next_until` cleared; `v_subscription_status.counts_as_subscriber` false (Liam access off); email `subscription_canceled:15`. No open invoice at cancel, so nothing to void |
+| 2 | Card update on past_due (0341, then 4242): invoice paid, renewal order, `active` | ✅ | Decline: `pm_card_chargeCustomerFail` (Visa 0341) attached by API (`payment_method_updated`, source admin); job run 11-02 → invoice `in_1UXT3z0…` $36.35 declined, `renewal_failed` (cron), past_due, `failed_attempts` 1, email `subscription_payment_trouble:in_1UXT3z0…:1`, `invoice.payment_failed` processed. Recovery 11-04: card form saved (`payment_method_updated` customer 14:41:23, customer default), invoice paid at once, `invoice.paid` processed, `renewal_charged` (webhook) → order `94b31a71` Paid / awaiting manual, status active, `failed_attempts` 0, next 12-02; emails `card_updated:9`, `order_confirmation:94b31a71…`, `admin_new_order:94b31a71…` |
+| 3a | `/admin/orders` lists orders with customer emails | ✅ | Dana, screenshots |
+| 3b | $5 partial refund → `refund_partial`, cents on `v_order_status`, Stripe refund | ✅ | `9e235cdf`: Stripe `re_3UWdDi0…` 500 succeeded on its payment intent; `charge.refunded` processed; `refund_partial` (webhook, `requested_by_customer`); `v_order_status` partially_refunded, 500 cents, "Partly refunded" |
+| 3c | Full refund on `awaiting_manual` → `refund_full` + `canceled` | ✅ | `98fec0f0`: Stripe `re_3UWe5I0…` 3495 succeeded; `refund_full` + `canceled` "fully refunded before it was placed with the roaster (was awaiting_manual)"; closed, "Refunded" |
+| 3d | Mark shipped (USPS): shipment row, `shipped`, email with tracking link, Profile | ✅ | `9e235cdf`: `roastery_shipment_details` `f2fd36f7…` usps `9400100000000000000000` shipped; `shipped` (admin); `v_order_status` tracking URL `tools.usps.com/…`, "On its way"; email `order_shipped:f2fd36f7…`; Profile, Dana |
+| 3e | Retry fulfillment on `needs_attention` | ✅ | Run on `c47441c5` (`awaiting_manual`; prod had no `needs_attention` order, approved by Dana): `fulfillment_dispatched` (admin) "manual", 14:56. A second admin dispatch on `9e235cdf` at 14:55:19, before mark shipped |
+| 4 | Admin new-order email: name, email, drawer link | ✅ | `admin_new_order:94b31a71…` to `dana@axisandbloomcoffee.com`; content checked by Dana |
+| 5 | No roaster name on Profile or in customer emails | ✅ | Dana checked Profile and the emails. "Coado" (in Liam's order lines and `signup_names`) is a house name, not a roaster (Dana, 2026-11-02) |
+
+### How Part E was run (deviations, all approved by Dana)
+
+- **Prod instead of local** (Dana, 2026-11-01): the local stack was stopped under low memory.
+- **Decline card attached by API.** Dana's card-form saves went through Link (Stripe stores `type: link`, no last four), so the 0341 card could not be picked from the form. `pm_card_chargeCustomerFail` was attached with `attachPaymentMethod(sub, pm, 'admin')`, which is why event 6 has source admin.
+- **Dates moved by UPDATE.** `next_delivery_date` was set to today (Eastern) twice, on 11-02 for the decline run and on 11-04 for the skip run, each followed by `gcloud scheduler jobs run subscription-daily`. The 11-04 move is why two cycles were skipped (11-04 and 12-02 both fall inside the window up to 12-03).
+- **Retry on `awaiting_manual`**, see 3e.
+- **Two card saves** 24 s apart on 11-04 (`pm_1UY5NM0…`, `pm_1UY5Nl0…`), both through Link. The first paid the invoice; the second changed only the card on file.
+
+### Noticed during Part E, not fixed in this brief
+
+- **Email-link bounce, not reproduced.** Dana's first click on "Update your card" in the payment-trouble email (11-03) landed on the home page. `/profile` is in `PRELAUNCH_OPEN_ROUTES` and not wrapped in `<PrelaunchGate>`; the link host matches `FRONTEND_URL` and `VITE_CANONICAL_HOST`; signed out it goes to `/sign-in` with the redirect kept; a fresh tab with no preview flag opened Profile → Past Orders with the panel. Cause unknown; no change made.
+- **Cosmetic, for a later pass (Dana, OT-65):** the Profile order card shows the total without "$" and the full UUID as the order number; the admin customer name is "—" when the profile has no first name.
+- **OT-60 noise continues:** the leftover local invoice `in_1UWgWB…` is retried by Stripe and logged "no subscription" on prod (11-02, 11-04).
 
 ## What Commerce 4 needs
 
