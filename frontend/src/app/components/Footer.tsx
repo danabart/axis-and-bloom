@@ -1,79 +1,121 @@
+import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { brandAssets } from '../../design/assets'
+import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
+import { subscribeNewsletter } from '../lib/api';
+import { trackEvent, trackLead } from '../lib/analytics';
+import { reportError } from '../lib/errorReporter';
+import { ArrowIcon, Caps, MarkLockup } from './chrome';
+import { CART_PAGE_ROUTE_EXISTS } from './Navigation';
+import './chrome/chrome.css';
 
-const logoMark = brandAssets.logoQuarter1
+/**
+ * Site footer (Website 1, 2026-11-04) — the handoff's white four-column
+ * `.foot` grid (4 → 2 → 1 at 900/560px): mark · site links · Instagram /
+ * Contact · newsletter, then the legal row. While gated only the doors that
+ * are open before launch are shown ("never show a door we won't open").
+ */
+
+// The brand's Instagram profile (same address the quiz-complete email links).
+// Not SHORTLINKS['/ig'] — that is our own quiz URL with Instagram campaign
+// attribution, which would credit every footer click to the Instagram campaign.
+const INSTAGRAM_URL = 'https://instagram.com/axisandbloom';
+const CONTACT_EMAIL = 'hello@axisandbloomcoffee.com';
+
+type NewsState = 'idle' | 'sending' | 'done' | 'error';
 
 export default function Footer() {
   const gated = usePrelaunchGated();
-  // Flavor Intelligence is a hidden route while gated — omit the link
-  // entirely rather than leaving it live ("never show a door we won't open").
-  const exploreLinks = [
-    { to: '/find-my-flavor', label: 'Find my flavor' },
-    ...(gated ? [] : [{ to: '/flavor-intelligence', label: 'Flavor Intelligence' }]),
-  ];
+  const { hasLiamAccess } = useAuth();
+  const { cart, toggleCartOpen } = useCart();
+  const count = cart.reduce((n, i) => n + i.qty, 0);
+  const year = new Date().getFullYear();
+
+  const [email, setEmail] = useState('');
+  const [state, setState] = useState<NewsState>('idle');
+
+  const siteLinks = [
+    { to: '/the-axis', label: 'The Axis', show: !gated },
+    { to: '/bloom', label: 'The Bloom Dial', show: !gated },
+    { to: '/sommelier', label: 'Liam', show: !gated && hasLiamAccess },
+    { to: '/find-my-flavor', label: 'Find My Flavor', show: true },
+    // Kept from the old footer (Flavor Intelligence left the menu in D2; this door stays).
+    { to: '/flavor-intelligence', label: 'Flavor Intelligence', show: !gated },
+  ].filter(l => l.show);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (state === 'sending') return;
+    setState('sending');
+    try {
+      await subscribeNewsletter({ email: email.trim(), source: 'footer' });
+      trackEvent('EmailSubmitted', { source: 'footer' });
+      trackLead({ source: 'footer' });
+      setState('done');
+    } catch (err) {
+      reportError('[Footer/subscribe]', err);
+      setState('error');
+    }
+  }
 
   return (
-    <footer style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.1)' }}>
-      <div style={{ padding: 'clamp(28px, 3.5vw, 44px) clamp(24px, 5vw, 64px) clamp(16px, 2vw, 24px)', maxWidth: 1200, margin: '0 auto' }}>
+    <footer className="ab-foot-shell">
+      <div className="ab-foot-rule" />
+      <div className="ab-foot">
+        <Link to="/" className="ab-mark" aria-label="Axis & Bloom home" style={{ alignSelf: 'start' }}>
+          <MarkLockup />
+        </Link>
 
-        {/* Top row: brand + nav columns */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'clamp(20px, 4vw, 48px)', marginBottom: 'clamp(20px, 3vw, 32px)' }}>
+        <nav aria-label="Footer" className="ab-foot-col ab-caps">
+          {siteLinks.map(l => <Link key={l.to} to={l.to}>{l.label}</Link>)}
+          {!gated && (CART_PAGE_ROUTE_EXISTS
+            ? <Link to="/cart">Cart</Link>
+            : <button type="button" className="ab-foot-link ab-caps" onClick={toggleCartOpen} aria-label={`Cart, ${count} ${count === 1 ? 'item' : 'items'}`}>Cart</button>)}
+        </nav>
 
-          {/* Brand */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-              <img src={logoMark} alt="" style={{ height: 16, width: 'auto' }} />
-              <span style={{ fontFamily: "'Lato', Arial, sans-serif", color: '#9a2918', fontSize: 16, letterSpacing: '0.1em', fontWeight: 400 }}>AXIS & BLOOM</span>
-            </div>
-            <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.875rem', color: '#7b7f80', lineHeight: 1.7, margin: 0, maxWidth: 260 }}>
-              Coffee matched to your personal flavor. Discover what feels like you.
-            </p>
-          </div>
-
-          {/* Explore */}
-          <div>
-            <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Explore</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {exploreLinks.map(l => (
-                <Link key={l.to} to={l.to} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">
-                  {l.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {/* Company */}
-          <div>
-            <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Company</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[
-                { href: '#contact', label: 'Contact' },
-                { href: '#instagram', label: 'Instagram' },
-              ].map(l => (
-                l.to
-                  ? <Link key={l.to} to={l.to} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">{l.label}</Link>
-                  : <a key={l.href} href={l.href} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">{l.label}</a>
-              ))}
-            </div>
-          </div>
-
+        <div className="ab-foot-col ab-caps">
+          <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer">Instagram</a>
+          <a href={`mailto:${CONTACT_EMAIL}`}>Contact</a>
         </div>
 
-        {/* Bottom: copyright + legal */}
-        <div style={{ borderTop: '1px solid rgba(154,41,24,0.1)', paddingTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <span style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.75rem', color: '#7b7f80', letterSpacing: '0.04em' }}>
-            © 2026 Axis & Bloom
-          </span>
-          <div style={{ display: 'flex', gap: 24 }}>
-            {[{ to: '/privacy', label: 'Privacy' }, { to: '/terms', label: 'Terms' }].map(l => (
-              <Link key={l.to} to={l.to} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.75rem', color: '#7b7f80', textDecoration: 'none', opacity: 0.7 }} className="hover:opacity-100 transition-opacity">
-                {l.label}
-              </Link>
-            ))}
-          </div>
-        </div>
+        <form className="ab-news" onSubmit={onSubmit} noValidate={false}>
+          <label htmlFor="ab-footer-news" className="ab-caps" style={{ fontWeight: 600 }}>Your family of taste, in your inbox</label>
+          {state === 'done' ? (
+            <Caps as="p" role="status" style={{ margin: 0 }}>You're on the list.</Caps>
+          ) : (
+            <>
+              <div className="ab-news-row">
+                <input
+                  id="ab-footer-news"
+                  type="email"
+                  required
+                  placeholder="your@email.com"
+                  autoComplete="email"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); if (state === 'error') setState('idle'); }}
+                  aria-invalid={state === 'error' || undefined}
+                  aria-describedby={state === 'error' ? 'ab-footer-news-error' : undefined}
+                />
+                <button type="submit" className="ab-caps" disabled={state === 'sending'}>
+                  Join <ArrowIcon />
+                </button>
+              </div>
+              {state === 'error' && (
+                <p id="ab-footer-news-error" className="ab-news-error" role="alert">
+                  We couldn't add you just now. Please try again in a moment.
+                </p>
+              )}
+            </>
+          )}
+        </form>
+      </div>
 
+      <div className="ab-foot-bottom ab-caps">
+        <span>© {year} Axis &amp; Bloom · Coffee matched to your personal flavor.</span>
+        <span>
+          <Link to="/terms">Terms</Link> · <Link to="/privacy">Privacy</Link>
+        </span>
       </div>
     </footer>
   );

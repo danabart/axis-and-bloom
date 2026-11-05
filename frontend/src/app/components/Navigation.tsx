@@ -1,240 +1,223 @@
 import { useEffect, useRef, useState } from 'react';
-import { ShoppingCart, User, Menu, X } from 'lucide-react';
+import { ShoppingCart } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
-import { brandAssets } from '../../design/assets';
+import { Wrap, ArrowIcon, MarkLockup, type Tone } from './chrome';
+import './chrome/chrome.css';
 
-const logoMark = brandAssets.logoQuarter1;
+/**
+ * Site header + Menu overlay (Website 1, 2026-11-04) — the handoff's static
+ * `.top` bar ("Sign in · Cart (n) · Menu") and the full-width terracotta
+ * `#siteMenu` field. Same export and mount point as the old fixed bar
+ * (PublicLayout). Behaviours kept from the old hamburger: focus trap, body
+ * scroll lock, role="dialog" aria-modal, Escape + outside click close, focus
+ * back on the Menu button, close on route change.
+ */
 
-// While gated, only Find My Flavor survives — Bloom/Coffees/Shop/How It
-// Works/Flavor Intelligence/Liam disappear entirely (never grayed out —
-// "never show a door we won't open"). Same set feeds both the desktop row
-// and the mobile panel below, so they can never drift out of sync.
-// Note: the written spec also kept "About" and "The Axis" open/trimmed-in
-// here — Dana closed both live during execution (/about is an old,
-// admin-linked-only page not part of the live site; /the-axis was a
-// separate live call), so both are omitted from GATED_LINKS, not just gated.
-const FULL_LINKS = [
-  { to: '/the-axis', label: 'THE AXIS' },
-  { to: '/bloom', label: 'THE BLOOM' },
-  { to: '/find-my-flavor', label: 'FIND MY FLAVOR' },
-  { to: '/flavor-intelligence', label: 'FLAVOR INTELLIGENCE' },
+/** Flipped to true by Website 8 when the /cart route lands. Until then
+ * "Cart (n)" opens the drawer (D3: the drawer stays either way). */
+export const CART_PAGE_ROUTE_EXISTS = false;
+const CART_PAGE_ROUTE = '/cart';
+
+/** The four numbered menu items (D2). */
+export const MENU_ITEMS = [
+  { n: '01', to: '/shop', label: 'Shop all' },
+  { n: '02', to: '/the-axis', label: 'The Axis' },
+  { n: '03', to: '/bloom', label: 'The Bloom' },
+  { n: '04', to: '/find-my-flavor', label: 'Find my flavor' },
 ];
-const GATED_LINKS = [
-  { to: '/find-my-flavor', label: 'FIND MY FLAVOR' },
-];
 
-export default function Navigation() {
+// While gated, only Find My Flavor survives — everything else disappears
+// entirely (never grayed out — "never show a door we won't open"). Same rule
+// as before the redesign; ADMIN and the cart are hidden too.
+const GATED_PATHS = new Set(['/find-my-flavor']);
+export const GATED_LINKS = MENU_ITEMS.filter(i => GATED_PATHS.has(i.to));
+
+function isCurrent(pathname: string, to: string) {
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
+type NavigationProps = {
+  /** ink = white page (default); paper = over a dark photo (quiz). */
+  tone?: Tone;
+  /** Absolute over the page's first band (Home family panels). */
+  floating?: boolean;
+};
+
+export default function Navigation({ tone: toneProp, floating: floatingProp }: NavigationProps = {}) {
   const { user, isAdmin, isGuest, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const gated = usePrelaunchGated();
   const { cart, toggleCartOpen } = useCart();
   const count = cart.reduce((n, i) => n + i.qty, 0);
-  const navLinks = gated ? GATED_LINKS : [...FULL_LINKS, ...(isAdmin ? [{ to: '/admin', label: 'ADMIN' }] : [])];
-  const handleSignOut = async () => { await logout(); navigate('/'); setMobileOpen(false); };
+  const signedIn = !!user && !isGuest;
+  const items = gated ? GATED_LINKS : MENU_ITEMS;
+  const showAdmin = isAdmin && !gated;
 
-  // true = hero section is visible = transparent nav
-  const [heroVisible, setHeroVisible] = useState(pathname === '/');
-
-  // Mobile hamburger menu
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const mobileTriggerRef = useRef<HTMLButtonElement>(null);
-  const mobilePanelRef = useRef<HTMLDivElement>(null);
-
-  // Reset on route change (prevents stale state when navigating between pages)
+  // Legacy [data-hero] contract: a page that still marks its hero (Home,
+  // until Website 3) gets the header floating over it in paper, the same
+  // look the old transparent-over-hero bar had.
+  const [hasHero, setHasHero] = useState(false);
   useEffect(() => {
-    setHeroVisible(pathname === '/');
+    const check = () => setHasHero(!!document.querySelector('[data-hero]'));
+    check();
+    const mo = new MutationObserver(check);
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => mo.disconnect();
   }, [pathname]);
 
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
+  const floating = floatingProp ?? hasHero;
+  const tone: Tone = toneProp ?? (hasHero ? 'paper' : 'ink');
 
-  // While the mobile menu is open: lock body scroll, close on Escape,
-  // and trap focus inside the panel; restore focus to the trigger on close.
-  useEffect(() => {
-    if (!mobileOpen) return;
+  const [open, setOpen] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => { setOpen(false); }, [pathname]);
+
+  // While open: lock body scroll, Escape closes, Tab is trapped inside the
+  // field, outside click closes; focus returns to the Menu button on close.
+  useEffect(() => {
+    if (!open) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    const focusable = mobilePanelRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])');
-    focusable?.[0]?.focus();
+    const focusables = () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])') ?? []);
+    focusables()[0]?.focus();
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setMobileOpen(false);
-        return;
-      }
-      if (e.key === 'Tab' && focusable && focusable.length > 0) {
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setOpen(false); return; }
+      if (e.key !== 'Tab') return;
+      const f = focusables();
+      if (f.length === 0) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !menuRef.current?.contains(active))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (active === last || !menuRef.current?.contains(active))) { e.preventDefault(); first.focus(); }
     };
-    document.addEventListener('keydown', handleKeyDown);
-
+    const onPointer = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (menuRef.current?.contains(t) || menuBtnRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onPointer);
+    const btn = menuBtnRef.current;
     return () => {
       document.body.style.overflow = previousOverflow;
-      document.removeEventListener('keydown', handleKeyDown);
-      mobileTriggerRef.current?.focus();
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onPointer);
+      btn?.focus();
     };
-  }, [mobileOpen]);
+  }, [open]);
 
-  // IntersectionObserver on [data-hero] — switches state as hero enters/leaves view
-  useEffect(() => {
-    const hero = document.querySelector('[data-hero]');
-    if (!hero) {
-      setHeroVisible(false);
-      return;
-    }
-    const io = new IntersectionObserver(
-      ([entry]) => setHeroVisible(entry.isIntersecting),
-      { threshold: 0 }
-    );
-    io.observe(hero);
-    return () => io.disconnect();
-  }, [pathname]);
+  const handleSignOut = async () => { setOpen(false); await logout(); navigate('/'); };
+  const openDrawer = () => { setOpen(false); toggleCartOpen(); };
 
-  const linkColor = heroVisible ? '#f2f1ea' : '#9a2918';
+  const cartLabel = `Cart, ${count} ${count === 1 ? 'item' : 'items'}`;
+  const cartText = <>Cart <span className="ab-count">({count})</span></>;
 
-  const LINK: React.CSSProperties = {
-    fontFamily: "'Lato', Arial, sans-serif",
-    fontSize: '10.5px',
-    letterSpacing: '0.12em',
-    textTransform: 'uppercase',
-    color: linkColor,
-    textDecoration: 'none',
-    transition: 'color 250ms, opacity 150ms',
-  };
+  /** "Cart (n)" — the /cart page once it exists, the drawer until then. */
+  const cartLink = (cls: string) =>
+    CART_PAGE_ROUTE_EXISTS
+      ? <Link to={CART_PAGE_ROUTE} className={cls} aria-label={cartLabel} onClick={() => setOpen(false)}>{cartText}</Link>
+      : <button type="button" className={cls} aria-label={cartLabel} onClick={openDrawer}>{cartText}</button>;
 
   return (
-    <nav style={{
-      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-      height: 46,
-      backgroundColor: heroVisible ? 'transparent' : '#f2f1ea',
-      borderBottom: heroVisible ? 'none' : '1px solid #c5c7c8',
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '0 clamp(24px, 5vw, 64px)',
-      transition: 'background-color 250ms, border-color 250ms',
-    }}>
+    <>
+      <header className={`ab-header ab-${tone}${floating ? ' is-floating' : ''}`}>
+        <Wrap className="ab-top">
+          <Link to="/" className="ab-mark" aria-label="Axis & Bloom home">
+            <MarkLockup tone={tone} />
+          </Link>
 
-      {/* Logo lockup */}
-      <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', flexShrink: 0 }}>
-        <img src={logoMark} alt="Axis & Bloom" style={{ height: 17, width: 'auto' }} />
-        <span style={{ fontFamily: "'Lato', Arial, sans-serif", color: linkColor, fontSize: 17, letterSpacing: '0.1em', fontWeight: 400, lineHeight: 1, transition: 'color 250ms' }}>
-          AXIS & BLOOM
-        </span>
-      </Link>
-
-      <div className="hidden md:flex" style={{ alignItems: 'center', gap: 'clamp(14px, 2vw, 28px)' }}>
-        {navLinks.map(item => (
-          <Link key={item.to} to={item.to} style={LINK} className="hover:opacity-50">{item.label}</Link>
-        ))}
-      </div>
-
-      {/* Icons */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
-        <Link
-          to={user && !isGuest ? '/profile' : '/sign-in'} aria-label="Profile"
-          style={{ color: linkColor, display: 'flex', alignItems: 'center', transition: 'color 250ms' }}
-          className="hover:opacity-50"
-        >
-          <User size={17} strokeWidth={1.5} />
-        </Link>
-        {user && !isGuest && (
-          <button
-            onClick={handleSignOut} aria-label="Sign out"
-            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Lato', Arial, sans-serif", fontSize: '10.5px', letterSpacing: '0.1em', color: linkColor, textTransform: 'uppercase', opacity: 0.55, transition: 'color 250ms' }}
-            className="hidden md:block hover:opacity-100"
-          >
-            Sign out
-          </button>
-        )}
-        {/* Hidden while gated, same rule as PublicLayout's FloatingCart: no door we won't open. */}
-        {!gated && (
-          <button
-            onClick={() => { setMobileOpen(false); toggleCartOpen(); }}
-            aria-label="Shopping cart"
-            style={{ position: 'relative', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: linkColor, display: 'flex', alignItems: 'center', transition: 'color 250ms' }}
-            className="hover:opacity-50"
-          >
-            <ShoppingCart size={17} strokeWidth={1.5} />
-            {count > 0 && (
-              <span style={{
-                position: 'absolute', top: -7, right: -7,
-                width: 14, height: 14, borderRadius: '50%',
-                backgroundColor: '#ee5974', color: '#f2f1ea',
-                fontSize: 9, lineHeight: '14px', textAlign: 'center',
-                fontFamily: "'Lato', Arial, sans-serif", fontWeight: 400,
-              }}>{count}</span>
+          <span className="ab-right ab-caps">
+            {signedIn ? (
+              <>
+                <Link to="/profile" className={`ab-hlink ab-wide-only${isCurrent(pathname, '/profile') ? ' on' : ''}`}>Profile</Link>
+                <button type="button" className="ab-hlink ab-wide-only" onClick={handleSignOut}>Sign out</button>
+              </>
+            ) : (
+              <Link to="/sign-in" className={`ab-hlink ab-wide-only${isCurrent(pathname, '/sign-in') ? ' on' : ''}`}>Sign in</Link>
             )}
-          </button>
-        )}
-
-        <button
-          ref={mobileTriggerRef}
-          onClick={() => setMobileOpen(o => !o)}
-          aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-          aria-expanded={mobileOpen}
-          aria-controls="mobile-nav-panel"
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: linkColor, alignItems: 'center', transition: 'color 250ms' }}
-          className="flex md:hidden hover:opacity-50"
-        >
-          {mobileOpen ? <X size={19} strokeWidth={1.5} /> : <Menu size={19} strokeWidth={1.5} />}
-        </button>
-      </div>
-
-      {/* Mobile menu panel */}
-      {mobileOpen && (
-        <div
-          id="mobile-nav-panel"
-          ref={mobilePanelRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Site menu"
-          className="md:hidden"
-          style={{
-            position: 'absolute', top: 46, left: 0, right: 0,
-            backgroundColor: '#f2f1ea', borderBottom: '1px solid #c5c7c8',
-            display: 'flex', flexDirection: 'column',
-            padding: 'clamp(16px,4vw,24px) clamp(24px,5vw,64px) 24px',
-          }}
-        >
-          {navLinks.map(item => (
-            <Link
-              key={item.to}
-              to={item.to}
-              onClick={() => setMobileOpen(false)}
-              style={{ ...LINK, color: '#9a2918', padding: '12px 0', borderBottom: '1px solid #c5c7c8' }}
-            >
-              {item.label}
-            </Link>
-          ))}
-          {user && !isGuest && (
+            {/* Hidden while gated, same rule as PublicLayout's FloatingCart: no door we won't open. */}
+            {!gated && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                {cartLink('ab-hlink')}
+                {CART_PAGE_ROUTE_EXISTS && (
+                  <button type="button" className="ab-cart-glyph" aria-label="Open cart drawer" onClick={openDrawer}>
+                    <ShoppingCart size={14} strokeWidth={1.5} aria-hidden="true" />
+                  </button>
+                )}
+              </span>
+            )}
+            {showAdmin && <Link to="/admin" className="ab-hlink ab-wide-only">Admin</Link>}
             <button
-              onClick={handleSignOut}
-              style={{
-                background: 'none', border: 'none', padding: '12px 0', cursor: 'pointer', textAlign: 'left',
-                fontFamily: "'Lato', Arial, sans-serif", fontSize: '10.5px', letterSpacing: '0.12em',
-                color: '#9a2918', textTransform: 'uppercase', opacity: 0.55,
-              }}
+              ref={menuBtnRef}
+              type="button"
+              className="ab-menu-btn"
+              aria-expanded={open}
+              aria-controls="siteMenu"
+              onClick={() => setOpen(o => !o)}
             >
-              Sign out
+              Menu
             </button>
-          )}
-        </div>
-      )}
+          </span>
+        </Wrap>
+      </header>
 
-    </nav>
+      <div
+        id="siteMenu"
+        ref={menuRef}
+        className={`ab-menu${open ? ' open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Site menu"
+        aria-hidden={!open}
+        // inert keeps the closed field out of the tab order and the AT tree
+        {...(!open ? { inert: '' as unknown as boolean } : {})}
+      >
+        <Wrap className="ab-sm-in">
+          <div className="ab-sm-top">
+            <Link to="/" className="ab-mark" aria-label="Axis & Bloom home" onClick={() => setOpen(false)}>
+              <MarkLockup tone="paper" />
+            </Link>
+            <button type="button" className="ab-caps ab-menu-close" onClick={() => setOpen(false)}>Close</button>
+          </div>
+          <nav className="ab-sm-nav" aria-label="Site">
+            {items.map(item => {
+              const on = isCurrent(pathname, item.to);
+              return (
+                <Link key={item.to} to={item.to} className={on ? 'on' : undefined} aria-current={on ? 'page' : undefined} onClick={() => setOpen(false)}>
+                  <span className="ab-m-n">{item.n}</span>
+                  <span className="ab-m-t">{item.label}</span>
+                  <ArrowIcon size={22} strokeWidth={1} />
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="ab-sm-foot ab-caps">
+            <span style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {signedIn ? (
+                <>
+                  <Link to="/profile" onClick={() => setOpen(false)}>Profile</Link>
+                  <span aria-hidden="true">·</span>
+                  <button type="button" onClick={handleSignOut}>Sign out</button>
+                </>
+              ) : (
+                <Link to="/sign-in" onClick={() => setOpen(false)}>Sign in</Link>
+              )}
+              {!gated && (<><span aria-hidden="true">·</span>{cartLink('')}</>)}
+              {showAdmin && (<><span aria-hidden="true">·</span><Link to="/admin" onClick={() => setOpen(false)}>Admin</Link></>)}
+            </span>
+            <span style={{ fontWeight: 400 }}>Coffee, personalized.</span>
+          </div>
+        </Wrap>
+      </div>
+    </>
   );
 }

@@ -488,7 +488,8 @@ export default function Sommelier() {
     // (100) and the floating cart (60), above anything in normal page flow. A
     // z-index-less fixed panel let opacity-created stacking contexts (the old
     // footer's links and labels) paint over the chat.
-    <div className="flex bg-white overflow-hidden" style={{ position: 'fixed', top: 64, left: 0, right: 0, bottom: 0, zIndex: 50 }}>
+    // top: the static site header's height (Website 1 token; was 64 under the old 46px fixed bar).
+    <div className="flex bg-white overflow-hidden" style={{ position: 'fixed', top: 'var(--ab-header-h)', left: 0, right: 0, bottom: 0, zIndex: 50 }}>
 
       {/* Desktop sidebar */}
       <div className="hidden md:flex h-full shrink-0">{sidebarJsx}</div>

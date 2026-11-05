@@ -34,6 +34,22 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Website handoff tokens (Website 1, D1, 2026-11-04) — Camila's handoff
+     palette and chrome metrics, site-wide. Pages read these; the old
+     terracotta/beige brand variables below now point at them. */
+  --ab-ink: #ba4c38;
+  --ab-paper: #f1efe5;
+  --ab-page: #ffffff;
+  --ab-ink-hairline: rgba(186, 76, 56, 0.35);
+  --ab-paper-hairline: rgba(241, 239, 229, 0.45);
+  --ab-mark-a: #c24526;
+  --ab-mark-b: #e9526f;
+  --ab-caps: 0.24em;
+  --ab-wrap: 1280px;
+  --ab-gutter: 20px;
+  /* Height of the static header (.ab-top: padding-block clamp(20px,3vw,36px) + the 22px mark). */
+  --ab-header-h: calc(2 * clamp(20px, 3vw, 36px) + 22px);
 }
 
 @theme inline {
@@ -75,14 +91,19 @@
   --color-sidebar-ring: var(--sidebar-ring);
 
   /* Axis & Bloom brand palette */
-  --color-terracotta-dark: #a33726;
+  /* terracotta-dark / beige-light were #a33726 / #f2f1ea; mapped to the
+     handoff ink / paper so unredesigned pages shift with them (D1). */
+  --color-terracotta-dark: var(--ab-ink);
+  --color-ab-ink: var(--ab-ink);
+  --color-ab-paper: var(--ab-paper);
+  --color-ab-page: var(--ab-page);
   --color-terracotta-mid: #b15643;
   --color-terracotta-line: #ba3d24;
   --color-terracotta-fill: #a8462c;
   --color-pink: #ee5974;
   --color-pink-logo: #ca526d;
   --color-gray-logo: #858585;
-  --color-beige-light: #f2f1ea;
+  --color-beige-light: var(--ab-paper);
   --color-beige-mid: #deded1;
   --color-beige-dark: #ebebe3;
   --color-sand: #ddc1a6;

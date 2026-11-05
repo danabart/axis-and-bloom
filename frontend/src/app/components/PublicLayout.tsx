@@ -17,7 +17,8 @@ export default function PublicLayout() {
   // so nothing is visible beneath the fixed full-screen overlay
   const isPreLaunchPage = gated && pathname === '/';
 
-  // These pages render Footer inside TasteFinderSection (behind the curtain reveal)
+  // No global footer on these pages (Home / About end on TasteFinderSection's
+  // curtain reveal; neither renders a Footer of its own — Website 1 Task 0).
   const footerInPage = pathname === '/' || pathname === '/about';
 
   // Liam's chat is a fixed full-height panel; the footer under it used to

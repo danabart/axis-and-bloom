@@ -6292,6 +6292,33 @@ Brief `backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_3_ADMIN_AND_SEL
 
 ---
 
+### 251. Website 1: handoff chrome (tokens, header + Menu overlay, footer, shared primitives) (2026-11-04)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_1_CHROME.md`; full record `backend/src/features/website_handoff/CLOSING_REPORT_1.md`. First brief of Camila's site handoff (workstream README: decisions D1–D14). No schema, no backend change.
+
+**Files:**
+- New: `frontend/src/app/components/chrome/` (`chrome.css`, `primitives.tsx` with `Wrap` · `Caps` · `Titled` · `Btn` · `Frame` · `ArrowIcon`, `Mark.tsx` with the five-path mark, `index.ts`, `chrome.test.tsx`), `frontend/vitest.config.ts`.
+- Rebuilt: `Navigation.tsx`, `Footer.tsx`. Changed: `styles/theme.css`, `PublicLayout.tsx` (comment only), `BloomPage.tsx` (jump-nav `sticky top` 64 → 0), `Sommelier.tsx` (chat `top` → `var(--ab-header-h)`).
+- `frontend/package.json`: dev-only `vitest`, `@testing-library/react`, `@testing-library/dom`, `jsdom`, and `npm test`. `package-lock.json`: `re2js` 2.8.6 → 2.9.1, a transitive dependency of firebase. A high advisory published 2026-11-04 had started failing the prod `npm audit` gate on `main`.
+
+**How it works:**
+- **Tokens (D1).** `--ab-ink #ba4c38`, `--ab-paper #f1efe5`, `--ab-page #fff`, hairlines, `--ab-caps .24em`, `--ab-wrap 1280px`, `--ab-gutter 20px`, `--ab-header-h`. Tailwind's `terracotta-dark` / `beige-light` now point at ink / paper. Inline hex literals on pages are swapped by each page's brief.
+- **Header.** The handoff's static `.top` bar: mark + "Axis & Bloom" → `/`.
+  - Right side: `Sign in`, or `Profile · Sign out` (an anonymous guest counts as signed out); `Cart (n)` with n = Σ qty from `CartContext`; `Admin` for admins; `Menu`.
+  - While gated, the cart and Admin are hidden.
+  - `Cart (n)` opens the drawer until `CART_PAGE_ROUTE_EXISTS` (in `Navigation.tsx`) is flipped by Website 8.
+  - Below 480px, `Sign in` / `Profile · Sign out` / `Admin` live in the overlay foot row only.
+  - Variant props `tone` (ink | paper) and `floating`. A page that still marks `[data-hero]` (Home) gets floating + paper automatically.
+- **Menu overlay.** `#siteMenu` ported: terracotta field, slide-down, staggered `01 Shop all · 02 The Axis · 03 The Bloom · 04 Find my flavor`, current route underlined with `aria-current`, a foot row, and "Coffee, personalized.". While gated the list is just Find my flavor. Focus trap, scroll lock, `role="dialog" aria-modal`, Escape and outside-click close, focus back on Menu, close on route change.
+- **Footer.** The handoff's white `.foot` grid (4 → 2 → 1 at 900/560px).
+  - Columns: mark · The Axis, The Bloom Dial, Liam (`hasLiamAccess`), Find My Flavor, Flavor Intelligence (kept from the old footer), Cart · Instagram (`instagram.com/axisandbloom`), Contact (`mailto:hello@axisandbloomcoffee.com`) · the newsletter form.
+  - The form calls `subscribeNewsletter({ email, source: 'footer' })` (`footer` is already a `subscriber_source` row). It shows "You're on the list." on success and an inline error otherwise.
+  - Bottom row: `© {current year} … · Terms · Privacy`. While gated only Find My Flavor shows. There is no FAQ link (no route).
+
+**Verified:** 13 vitest cases green (`frontend: npm test`). Frontend `tsc` has 10 errors, all pre-existing and in untouched files (baseline 13). `vite build` is green. Headless screenshots at 390 and 1280 of the public routes, plus a keyboard walk of the overlay; prod evidence is in `CLOSING_REPORT_1.md`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

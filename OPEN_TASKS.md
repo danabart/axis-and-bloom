@@ -426,6 +426,12 @@ The full list is in `CLOSING_REPORT_3.md` → "What Commerce 4 needs".
 
 One cart can resolve to SKUs from several roasteries (dial slots fall back across roasters). The order is one row with one `fulfillment_roaster_id` (NULL = manual), and the manual email lists each line's roaster. Before roaster adapters place orders automatically, decide how a multi-roaster order splits into shipments and what the customer sees. Since #250 `roastery_shipment_details` is written (`shipmentService.markShipped`, linked by `order_id`, one shipment per order assumed by `v_order_status`); `order_line_item.shipment_id` stays reserved (D11), so a per-line split needs either a link table or Dana reopening D11.
 
+### OT-66 / OT-67 / OT-68: website chrome follow-ups (Website 1, 2026-11-04)
+
+- **OT-66 FAQ page.** The handoff footer has an FAQ link; there is no `/faq` route or copy, so the link is omitted (no dead anchor). Needs a design and copy, then one line in `Footer.tsx`.
+- **OT-67 Per-page palette swaps.** Website 1 changed the chrome and `theme.css` only. Pages still carry the old terracotta/beige as inline literals; each page brief (3–8) swaps its own. Pages outside the handoff (Profile, Liam, About, How it works, admin) need their own pass.
+- **OT-68 Frontend tests in CI.** `frontend/` now has vitest + testing-library (`npm test`); `deploy.yml` builds the frontend but does not run them. Add a step before the build.
+
 ### OT-65: commerce cosmetic pass (Commerce 3 Part E, 2026-11-04)
 
 Seen by Dana on prod during Commerce 3 Part E; deliberately left out of that brief:
@@ -517,3 +523,6 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-10-31 | OT-63: Stripe retry schedule for renewal invoices (Smart Retries, up to 8 within 2 weeks, then left past-due; our 21-day lapse voids it) | ✅ Resolved 2026-10-31 |
 | 2026-11-01 | OT-64: Commerce 4, live cutover | Open |
 | 2026-11-04 | OT-65: commerce cosmetic pass (Profile order total "$" and short order number; admin name fallback) | Open |
+| 2026-11-04 | OT-66: FAQ page wanted (design + copy from Camila/Dana); footer FAQ link omitted until `/faq` exists (Website 1) | Open |
+| 2026-11-04 | OT-67: per-page palette swaps (`#9a2918` / `#a33726` / `#f2f1ea` inline literals → `--ab-*` tokens) left to the website page briefs; file list in `website_handoff/CLOSING_REPORT_1.md` (Website 1) | Open |
+| 2026-11-04 | OT-68: frontend `npm test` (vitest, added by Website 1) is not run in `deploy.yml` yet | Open |

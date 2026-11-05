@@ -275,7 +275,8 @@ export default function BloomPage() {
 
       {/* ── Sticky archetype jump-nav ── */}
       <div style={{
-        position: 'sticky', top: 64, zIndex: 40, backgroundColor: '#f2f1ea',
+        // top 0: the site header is static since Website 1 (was 64, under the old fixed 46px bar).
+        position: 'sticky', top: 0, zIndex: 40, backgroundColor: '#f2f1ea',
         borderTop: '1px solid rgba(154,41,24,0.07)', borderBottom: '1px solid rgba(154,41,24,0.07)',
         padding: 'clamp(10px, 1.4vh, 16px) clamp(32px, 6vw, 96px)',
         display: 'flex', gap: 'clamp(14px, 2.5vw, 40px)', overflowX: 'auto',

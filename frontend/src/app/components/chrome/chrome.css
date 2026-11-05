@@ -1,0 +1,164 @@
+/*
+ * Website handoff chrome (Website 1, 2026-11-04). Ported from Camila's
+ * handoff `source/axis/index.html` <style> — the header, #siteMenu, footer
+ * and the shared primitives every page reuses. Values are the handoff's;
+ * colours come from the --ab-* tokens in styles/theme.css. Classes are
+ * `ab-` prefixed so they never collide with page-local CSS.
+ */
+
+.ab-ink { color: var(--ab-ink); }
+.ab-paper { color: var(--ab-paper); }
+
+.ab-wrap {
+  max-width: var(--ab-wrap);
+  margin: 0 auto;
+  padding-left: max(var(--ab-gutter), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--ab-gutter), env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.ab-caps {
+  font-size: 12px;
+  letter-spacing: var(--ab-caps);
+  text-transform: uppercase;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.ab-titled { display: inline-flex; flex-direction: column; gap: 10px; }
+.ab-titled::after { content: ""; display: block; width: 100%; height: 1px; background: currentColor; }
+
+.ab-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 16px;
+  min-height: 56px; padding: 0 32px;
+  font-family: inherit; font-size: 11px; letter-spacing: .26em; text-transform: uppercase; font-weight: 600; line-height: 1;
+  border: 1px solid currentColor; border-radius: 0; color: inherit; background: transparent;
+  cursor: pointer; text-decoration: none;
+  transition: background .2s, color .2s;
+}
+.ab-btn.ab-ink:hover { background: var(--ab-ink); color: var(--ab-paper); }
+.ab-btn.ab-paper:hover { background: var(--ab-paper); color: var(--ab-ink); }
+.ab-btn:disabled { opacity: .5; cursor: default; }
+.ab-btn:disabled:hover { background: transparent; color: inherit; }
+
+.ab-ulink { border-bottom: 1px solid currentColor; padding-bottom: 2px; transition: opacity .2s; }
+.ab-ulink:hover { opacity: .7; }
+
+.ab-frame { border: 1px solid currentColor; padding: 8px; background: transparent; margin: 0; }
+.ab-frame img { display: block; width: 100%; height: auto; aspect-ratio: var(--ab-frame-ratio, 4 / 3); object-fit: cover; }
+
+.ab-focus:focus-visible,
+.ab-top a:focus-visible, .ab-top button:focus-visible,
+.ab-menu a:focus-visible, .ab-menu button:focus-visible,
+.ab-foot-shell a:focus-visible, .ab-foot-shell button:focus-visible, .ab-foot-shell input:focus-visible {
+  outline: 1px solid currentColor; outline-offset: 4px;
+}
+
+/* ── header (.top) ─────────────────────────────────────────── */
+.ab-header { position: relative; z-index: 60; background: transparent; }
+.ab-header.is-floating { position: absolute; top: 0; left: 0; right: 0; }
+.ab-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+  padding-block: clamp(20px, 3vw, 36px);
+  font-family: 'Lato', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.ab-mark { display: inline-flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
+.ab-mark span { font-size: 12px; letter-spacing: var(--ab-caps); font-weight: 400; text-transform: uppercase; white-space: nowrap; }
+.ab-right { display: inline-flex; align-items: center; gap: clamp(18px, 2.4vw, 32px); }
+/* Buttons inherit the caps style from their wrapper (Tailwind's base resets
+   text-transform and font-size on <button>). */
+.ab-hlink, .ab-menu-btn, .ab-sm-foot button, .ab-foot-col button.ab-foot-link {
+  font-size: inherit; letter-spacing: inherit; text-transform: inherit; line-height: inherit; font-weight: inherit;
+}
+.ab-hlink, .ab-menu-btn {
+  position: relative; padding: 0 0 6px; margin-bottom: -6px;
+  background: transparent; border: 0; color: inherit; font-family: inherit; cursor: pointer;
+  text-decoration: none; white-space: nowrap;
+}
+.ab-hlink::after, .ab-menu-btn::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: currentColor;
+  transform: scaleX(0); transform-origin: left; transition: transform .3s ease;
+}
+.ab-hlink:hover::after, .ab-menu-btn:hover::after, .ab-hlink.on::after { transform: scaleX(1); }
+.ab-count { font-weight: 300; }
+.ab-cart-glyph { display: inline-flex; align-items: center; background: transparent; border: 0; padding: 0; color: inherit; cursor: pointer; }
+/* Below 480px the auth/admin links live in the Menu overlay's foot row only (Part B). */
+@media (max-width: 479px) { .ab-wide-only { display: none !important; } }
+
+/* ── Menu overlay (#siteMenu) ──────────────────────────────── */
+.ab-menu {
+  position: fixed; inset: 0 0 auto 0; z-index: 110;
+  background: var(--ab-ink); color: var(--ab-paper);
+  transform: translateY(-100%); visibility: hidden;
+  transition: transform .55s cubic-bezier(.2, .7, .2, 1), visibility 0s linear .55s;
+  box-shadow: 0 1px 0 rgba(241, 239, 229, .3);
+  font-family: 'Lato', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;
+  max-height: 100dvh; overflow-y: auto;
+}
+.ab-menu.open { transform: none; visibility: visible; transition: transform .55s cubic-bezier(.2, .7, .2, 1), visibility 0s; }
+.ab-sm-in { padding-bottom: clamp(28px, 3.5vw, 48px); }
+.ab-sm-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  padding-block: clamp(20px, 3vw, 36px); border-bottom: 1px solid var(--ab-paper-hairline);
+}
+.ab-menu-close { background: transparent; border: 0; color: inherit; font-family: inherit; cursor: pointer; padding: 0; }
+.ab-sm-nav { display: flex; flex-direction: column; }
+.ab-sm-nav a {
+  display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 16px;
+  padding: clamp(14px, 1.8vw, 22px) 0; border-bottom: 1px solid var(--ab-paper-hairline);
+  font-size: clamp(30px, 3.6vw, 54px); font-weight: 300; letter-spacing: -.03em; line-height: 1;
+  color: inherit; text-decoration: none;
+  opacity: 0; transform: translateY(10px);
+  transition: opacity .4s ease, transform .5s ease, padding-left .3s ease;
+}
+.ab-menu.open .ab-sm-nav a { opacity: 1; transform: none; }
+.ab-menu.open .ab-sm-nav a:nth-child(1) { transition-delay: .12s; }
+.ab-menu.open .ab-sm-nav a:nth-child(2) { transition-delay: .18s; }
+.ab-menu.open .ab-sm-nav a:nth-child(3) { transition-delay: .24s; }
+.ab-menu.open .ab-sm-nav a:nth-child(4) { transition-delay: .3s; }
+.ab-sm-nav a:hover { padding-left: 12px; }
+.ab-sm-nav a.on .ab-m-t { border-bottom: 1px solid currentColor; padding-bottom: 4px; justify-self: start; }
+.ab-sm-nav .ab-m-n { font-size: 12px; letter-spacing: var(--ab-caps); font-weight: 400; }
+.ab-sm-nav svg { width: 22px; height: 22px; opacity: 0; transition: opacity .25s; }
+.ab-sm-nav a:hover svg, .ab-sm-nav a:focus-visible svg { opacity: 1; }
+.ab-sm-foot { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding-top: 18px; }
+.ab-sm-foot a, .ab-sm-foot button { border: 0; border-bottom: 1px solid transparent; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; padding: 0; cursor: pointer; text-decoration: none; }
+.ab-sm-foot a:hover, .ab-sm-foot button:hover { border-bottom-color: currentColor; }
+
+/* ── footer (.foot) ────────────────────────────────────────── */
+.ab-foot-shell {
+  width: 100%; background: var(--ab-page); color: var(--ab-ink);
+  padding: clamp(28px, 3vw, 44px) clamp(20px, 4vw, 56px) 28px;
+  display: flex; flex-direction: column; gap: clamp(28px, 3.5vw, 48px);
+  font-family: 'Lato', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
+}
+.ab-foot-rule { border-top: 1px solid currentColor; }
+.ab-foot { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1.6fr; gap: 40px; }
+.ab-foot-col { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.ab-foot-col a, .ab-foot-col button.ab-foot-link { font-weight: 600; color: inherit; text-decoration: none; background: transparent; border: 0; padding: 0; cursor: pointer; font-family: inherit; }
+.ab-foot-col a:hover, .ab-foot-col button.ab-foot-link:hover { opacity: .7; }
+.ab-news { display: flex; flex-direction: column; gap: 14px; }
+.ab-news-row { display: flex; border-bottom: 1px solid currentColor; }
+.ab-news-row input {
+  flex: 1; min-width: 0; background: transparent; border: 0; color: var(--ab-ink);
+  font-family: inherit; font-size: 16px; font-weight: 300; padding: 10px 0; outline: none;
+}
+.ab-news-row input::placeholder { color: var(--ab-ink); opacity: .55; }
+.ab-news-row button {
+  background: transparent; border: 0; color: inherit; font-family: inherit; cursor: pointer; font-weight: 600;
+  padding: 0 0 0 16px; display: inline-flex; align-items: center; gap: 8px;
+}
+.ab-news-row button:disabled { opacity: .5; cursor: default; }
+.ab-news-error { margin: 0; font-size: 14px; font-weight: 300; line-height: 1.5; }
+.ab-foot-bottom { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-top: 1px solid currentColor; padding-top: 16px; }
+.ab-foot-bottom span, .ab-foot-bottom a { font-weight: 400; color: inherit; text-decoration: none; }
+.ab-foot-bottom a:hover { opacity: .7; }
+@media (max-width: 900px) { .ab-foot { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .ab-foot { grid-template-columns: 1fr; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ab-menu, .ab-menu.open, .ab-sm-nav a, .ab-btn, .ab-hlink::after, .ab-menu-btn::after { transition: none !important; }
+}

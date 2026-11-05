@@ -109,3 +109,15 @@ Test mode until Commerce brief 4. Full record: `backend/src/features/commerce/CL
 - [ ] **Retry fulfillment** on a `needs_attention` order → `fulfillment_dispatched` (source admin), status `awaiting_manual`; the admin new-order email is not sent twice.
 - [ ] **Admin new-order email** shows the customer's name, email and a link that opens `/admin/orders/<id>`.
 - [ ] Nothing but `shipmentService` writes `roastery_shipment_details` (`npm run lint:lineage`).
+## Website chrome — header, Menu overlay, footer (Website 1, 2026-11-04)
+
+Full record: `backend/src/features/website_handoff/CLOSING_REPORT_1.md`. Unit cases: `frontend/src/app/components/chrome/chrome.test.tsx` (`cd frontend && npm test`).
+
+- [ ] **Auth state in the header:** signed out (incl. anonymous guest) → `Sign in`; signed in → `Profile · Sign out`; Sign out lands on `/`. Below 480px the same links sit in the Menu overlay's foot row.
+- [ ] **Admin:** `Admin` shows for admins only, never while gated.
+- [ ] **Live cart count:** `Cart (n)` = sum of quantities in the cart, updates on add/remove, opens the drawer (until `CART_PAGE_ROUTE_EXISTS` is flipped by Website 8, then links to `/cart` with a glyph button for the drawer).
+- [ ] **Gated set:** with `VITE_PRELAUNCH_MODE` on and no `?preview=true`, the menu lists only Find my flavor; no cart in header, overlay or footer; footer site links only Find My Flavor; `/` still shows only the curtain.
+- [ ] **Overlay a11y:** Menu has `aria-expanded`/`aria-controls="siteMenu"`; open → focus inside, Tab/Shift+Tab wrap, body scroll locked, Escape or outside click or Close closes, focus returns to Menu, route change closes. The closed overlay is not in the tab order.
+- [ ] **Footer newsletter:** posts `source: 'footer'`, shows "You're on the list.", inline error on failure; `newsletter_subscriber.source_id` = the `footer` row.
+- [ ] **Footer links:** Liam only with `hasLiamAccess`; Terms/Privacy are real routes; Instagram opens the profile (not `/ig`, which carries campaign attribution); year is the current year.
+- [ ] **Home `[data-hero]`:** the header floats over the hero in paper; Liam's chat sits below the header (`--ab-header-h`), The Bloom jump-nav sticks at the top edge.
