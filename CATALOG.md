@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-05 from database `axisandbloom` · 155 tables · 77 views · 1414 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `ad67a31ce400` (full value in the footer).
+Generated 2026-11-05 from database `axisandbloom` · 155 tables · 77 views · 1414 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `79c85f22e346` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -495,10 +495,10 @@ Lookup of order kinds (manual, subscription_renewal, gift_redemption, liam_follo
 
 #### `evidence_parameter`
 
-Thresholds and weights the evidence rules use (cupper_gap, roaster_rank_gap, spearman_min_n, spearman_rho_cut, rank_corr_min_n, calibration_min_n, estimated_date_review_days, website_recapture_days; brief 6: session_rank_ratio, session_half_life_days, session_gap, customer_voice_hit_tier, customer_voice_max_words (closed, no current row); coffee presentation brief 1: customer_voice_signature_max, customer_voice_accent_max; brief 2: archetype_profile_min_coffees, dimension_delta_slight/_significant; brief 3: hop_suggestion_gap), with history; read through param(key), never typed into code; a change supersedes the current row; each note ends with the key's sane range
+Thresholds and weights the evidence rules use (cupper_gap, roaster_rank_gap, spearman_min_n, spearman_rho_cut, rank_corr_min_n, calibration_min_n, estimated_date_review_days, website_recapture_days; brief 6: session_rank_ratio, session_half_life_days, session_gap, customer_voice_hit_tier, customer_voice_max_words (closed); coffee presentation brief 1: customer_voice_signature_max, customer_voice_accent_max; brief 2: archetype_profile_min_coffees, dimension_delta_slight/_significant; brief 3: hop_suggestion_gap; Website 5: comfort_zone_edge_delta), with history; read through param(key), never typed into code; a change supersedes the current row; each note ends with the key's sane range
 
 - **Writer:** evidenceParameterService.setParameterInTx; seed
-- **Readers:** param, cuppingService, compatibilityReads, admin (hop suggestions), evidenceReads.getParameters (System Health, Evidence parameters card)
+- **Readers:** param, cuppingService, compatibilityReads, admin (hop suggestions), evidenceReads.getParameters (Evidence parameters card)
 - **Since:** 2026-10-18 (cupping evidence brief 1; admin-editable since brief 6, 2026-10-21)
 
 | column | type | null | comment |
@@ -4047,5 +4047,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: ad67a31ce400be293209c459fffe9b4e09d247ed23df518785c1aeef3112b6ed
-lineage-hash: f46007c81a2d92373b0978290d8565cf26f7a4a3ab01364734d6b789d5b8f74d
+catalog-hash: 79c85f22e346a680d824bbcc50d7997cb5b753636e927aaaaec9e6dae0d8416b
+lineage-hash: 51e70304459901788d8dafcf744407f664934abecdbdd9d8baa72befeb9ba6a7

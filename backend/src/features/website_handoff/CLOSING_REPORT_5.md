@@ -169,7 +169,33 @@ All of it is positive register, with no "not X, but Y".
 - **The signed-in save in a real browser, and the signed-in check after deploy (G4.3).** Signing in headless needs a real Firebase Auth user, and Firebase Auth is shared with production. Creating or re-enabling one was not in this brief, so I did not do it. The test-DB router test above and the frontend body assertions stand in for it.
 - **Dana's own browser (G4.3):** a signed-in pass with a turn, a save, then `/profile` flavor memory, and a Liam action link from `/sommelier` landing on its stop.
 
-PROD_EVIDENCE
+**Production (2026-11-05):**
+- **Commit and deploy:** `8423d55` pushed to `main`; Deploy run 42098741457 green (backend + frontend); Cloud Run revision `axis-bloom-backend-00824-mhr` (us-central1).
+- **Startup log** (55 lines, two boots):
+  - 0 ERROR.
+  - `[data-catalog] report only: 155 tables, 77 views, 1414 columns`. The one new finding was check #4 "CATALOG.md stale", expected because the `evidence_parameter` comment changed; `CATALOG.md` was regenerated from prod with `npm run catalog:md -- --expect-db axisandbloom` and now matches the live catalog-hash `79c85f22e346…`.
+  - All other findings were already on the previous revision `00823-d5x`: data-catalog #6 (25 dead-table candidates), evidence-integrity #2 / #6, quiz-integrity #10, sommelier-integrity #3.
+- **Smoke:** headless Chromium against `https://axis-and-bloom-prod.web.app/bloom?preview=true` (the same build as www, without Cloudflare), signed out, at 390 and 1280. Every family's field, reveal (where the slot has a coffee) and lineup was captured.
+
+| | Floral | Fruity | Balanced | Chocolate & Nutty | Earthy |
+|---|---|---|---|---|---|
+| Opens on | 2 · Balanced, Perfumed & Expressive, Coming soon | 2 · Balanced, Bright & Tart, Coming soon | 2 · Balanced, Classic Balanced, Add to cart · $29.00 | 2 · Classic, Coado (Premium ★), Add to cart · $32.00 | 2 · Earthy, Grounded & Earthy, Coming soon |
+| Lineup | The four Floral coffees, 4 cards | The four Fruity coffees, 4 | The four Balanced coffees, 4 | The four Chocolate & Nutty coffees, 4 | The four Earthy coffees, 4 |
+| Reveal | (no live coffee on the stop) | (none) | roaster's words + bars | roaster's words + 8 bars with end words | (none) |
+
+Same results at both widths:
+- No horizontal scroll; no page errors; no door row.
+- The aside shows "Find your flavor to see your match" (signed out).
+- `/bloom?archetype=fruity&slot=2` lands on Fruity with `aria-valuetext` "2 · Balanced".
+- **Keyboard-only turn:** the slider has focus (`type=range`), ArrowRight moves "1 · Lighter" to "2 · Classic".
+- `?archetype=experimental&slot=2` scrolls to the Experimental group (4 cards, all "Coming soon") and marks card 2.
+- Live `GET /api/coffees/2903/compatibility?userArchetype=floral` returns `zone: null, reason: below_min_coffees`. The field is deployed; Floral has one cupped coffee, so the family-level pill applies.
+- Balanced's field takes its `#912f2f` ink (`fieldLook` override).
+
+**Observations, for Dana (no change made):**
+- Floral, Fruity and Earthy open on their classic stop (slot 2), and that slot has no coffee on prod today, so the first thing a visitor sees there is "Coming soon". The old dial opened on the same stop: the wheel keeps the classic-first rule (`computeDefaultSortOrder` / `isDefault`). Floral's and Fruity's only live coffees sit on stop 1. If you'd rather open on the first live stop, that is a one-line rule change in a later brief.
+- "Save to flavor memory" also shows signed out. The site gives every visitor an anonymous Firebase identity, and the old dial's rule was `user && real slot`; kept as is.
+
 
 ## What the next brief needs
 
