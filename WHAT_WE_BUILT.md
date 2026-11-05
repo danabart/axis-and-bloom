@@ -6333,7 +6333,7 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_2_PRESENT
 - Milk: our choice in `coffee_presentation`, else the roaster's latest submitted `takes_it`. Leads in cup: the roaster's latest submitted dominant dimension, else the highest pooled midpoint among the portal's active dimensions; shown by its customer word (`platform_name`).
 - `GET /api/home/content` → `{ facts: { questions, dimensions, families }, quotes[], featured: { card, price } }`. Facts are counted: current questions of the active main quiz, numeric dimensions with a pooled range on an active coffee, `is_archetype` rows. Featured is the `home_featured_slot` slot's card, price = its anchor size. No fulfilment or timing text (D14).
 
-**Verified:** see `CLOSING_REPORT_2.md` (15 new vitest cases; full suite; lints; prod samples after deploy).
+**Verified:** 15 new vitest cases green; full suite 1,121 / 1,128 (the 6 OT-19 failures plus OT-73, unrelated); all lints green. Deployed `f2f3ebf`, revision `axis-bloom-backend-00817-c4l`, startup log clean of new findings. CATALOG.md regenerated from prod (hash `d67dff58`). Prod `/api/home/content` and `/api/coffees/cards` samples and the leak check are in `CLOSING_REPORT_2.md`.
 
 **Not done in this pass:** no admin door for family words or quotes (OT-69); no page uses the new payloads yet (briefs 3–5).
 

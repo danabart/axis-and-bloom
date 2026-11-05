@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-01 from database `axisandbloom` · 152 tables · 76 views · 1391 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `335948cf468c` (full value in the footer).
+Generated 2026-11-05 from database `axisandbloom` · 155 tables · 77 views · 1413 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `d67dff5826a7` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -43,7 +43,7 @@ Copied verbatim from the top of `backend/src/db/comments.sql`.
 
 ## Tables
 
-### master (38)
+### master (41)
 
 #### `coffee_archetype`
 
@@ -68,6 +68,7 @@ The six named flavor-profile archetypes (Chocolate & Nutty, Balanced, Fruity, Ea
 | `dominant_dimension_id` | integer | yes | References coffee_dimensions.id (integer): the dimension that dominates this archetype (7 chocolate_nutty, 5 balanced_sweet and fruity, 9 floral, 6 earthy); NULL for experimental. Seeded once by schema.sql. |
 | `descriptor_families` | text[] | no | Array of cupping_note.wheel_category strings that count as on family for this archetype (D6 placement check); seeded by schema.sql, admin-editable \| Writer: catalogService.setArchetypeDescriptorFamilies |
 | `descriptor_families_seeded_at` | timestamp with time zone | yes | UTC timestamp when descriptor_families was seeded; guards the one-time seed so an admin edit is never reset on the next boot \| Writer: seed, catalogService.setArchetypeDescriptorFamilies |
+| `customer_words` | text[] | yes | The three words shown under the family name on Home, Shop all, The Bloom and the quiz result (exactly three, CHECK; NULL for experimental), seeded from Camila's handoff 2026-11-04 only where NULL, read through v_coffee_archetype \| Writer: seed |
 
 #### `coffee_archetype_assignment`
 
@@ -194,6 +195,42 @@ Directional hop graph (more or less of a dimension) between coffees, or a coffee
 | `created_at` | timestamp with time zone | yes | UTC timestamp the hop row was created. |
 | `from_category_id` | integer | yes | References coffee_category.id: category as the starting endpoint instead of a coffee; set only by SQL seed or manual SQL, setHop cannot write it \| Writer: seed (db/seeds/_retired/dial_relationships_base.sql) or manual SQL |
 | `to_category_id` | integer | yes | References coffee_category.id: category as the destination endpoint instead of a coffee; set only by SQL seed or manual SQL, setHop cannot write it \| Writer: seed (db/seeds/_retired/dial_relationships_base.sql) or manual SQL |
+
+#### `coffee_milk_recommendation`
+
+Lookup of how a coffee is best taken (without, either, with milk) for the customer card's Milk row, each mapped to the roastery portal's own takes_it answer
+
+- **Writer:** seed
+- **Readers:** v_coffee_card, catalogReads.getMilkRecommendations (admin presentation form), coffee_presentation.milk_recommendation_id FK
+- **Since:** 2026-11-04 (Website 2)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; referenced by coffee_presentation.milk_recommendation_id. |
+| `code` | text | no | Stable code, unique: without, either, with. |
+| `label` | text | no | Admin-facing name (the admin presentation form). |
+| `customer_label` | text | no | The words the card shows (Best black, Works both ways, Great with milk); nothing in the frontend types them. |
+| `portal_takes_it` | text | yes | The roastery portal answer this row stands for (roastery_portal_response.takes_it: black, both, milk), unique; how v_coffee_card falls back to the roaster's answer without a mapping in code. NULL for a row with no portal equivalent. |
+| `sort_order` | integer | no | Display order in the admin form, ascending. |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was seeded. |
+
+#### `coffee_presentation`
+
+A&B's editorial layer over a coffee for its customer card: the one-line hint, our milk choice and the photo asset key; one row per coffee. Not columns on coffees, which is the roaster-facing master with its own writers (the decision-beside-evidence split, G2.12)
+
+- **Writer:** catalogService.setCoffeePresentation
+- **Readers:** v_coffee_card
+- **Since:** 2026-11-04 (Website 2)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key. |
+| `coffee_id` | integer | no | FK to coffees(id), unique: the coffee this row presents. |
+| `hint` | text | yes | The one-line hint under the signature notes (for example a hint of citrus and warm spice); NULL means the card omits the line. |
+| `milk_recommendation_id` | integer | yes | FK to coffee_milk_recommendation(id): our milk choice; NULL means the card falls back to the roaster's submitted portal answer, else omits the row. |
+| `photo_asset_key` | text | yes | Key into the frontend asset registry (frontend/src/design/assets.ts) for the coffee's own photo; NULL until Camila supplies one (the card uses the family photo meanwhile). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was first written. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last change through setCoffeePresentation; each change is also a catalog_change row. |
 
 #### `coffee_retail_price`
 
@@ -486,6 +523,24 @@ Words the unmapped-words view ignores because they name a dimension or a texture
 | `word` | text | no | The word, lower-cased; unique. |
 | `since` | date | no | Date the word was added. |
 | `note` | text | yes | Why the word is ignored, when not obvious. |
+
+#### `marketing_home_quote`
+
+The survey quotes Home rotates in its Voices band, in order; retired with is_active, never deleted
+
+- **Writer:** seed
+- **Readers:** homeContentReads (GET /api/home/content)
+- **Since:** 2026-11-04 (Website 2)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key. |
+| `quote` | text | no | The quote as the customer said it, unique (the seed's conflict key). |
+| `sort_order` | integer | no | Rotation order on Home, ascending. |
+| `is_active` | boolean | no | False retires the quote from Home; rows are never deleted (G2.11). |
+| `source` | text | no | Free-text provenance of the quote (survey for the eight seeded from the handoff); nothing branches on it. |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was seeded. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last edit; nothing edits it yet (admin door in OPEN_TASKS). |
 
 #### `order_event_kind`
 
@@ -1658,10 +1713,10 @@ Atomic per-UTC-day, per-feature running total of Anthropic API spend that drives
 
 #### `commerce_parameter`
 
-Every business number of checkout and subscriptions (shipping fee and free-shipping bag count, session expiry, the tax switch and tax codes, the admin alert email, subscription discounts, frequencies, dial rule, notice, lapse and charge hour, pause limit, the collection discount and minimum, the refund window; the keys are listed on the admin card) with history, admin-editable in /admin/commerce, read through commerceParameters.commerceParam / commerceParamText (60 s cache), never typed into code; a change supersedes the current row
+Every business number of checkout and subscriptions (shipping fee and free-shipping bag count, session expiry, the tax switch and tax codes, the admin alert email, subscription discounts, frequencies, dial rule, notice, lapse and charge hour, pause limit, the collection discount and minimum, the refund window, home_featured_slot; the keys are listed on the admin card) with history, admin-editable in /admin/commerce, read through commerceParameters.commerceParam / commerceParamText (60 s cache), never typed into code; a change supersedes the current row
 
 - **Writer:** commerceParameters.setParameterInTx; seed
-- **Readers:** commerceParameters (cartResolver, checkoutService, blendResolver, coffees, fulfillment, orderEmails, subscriptionService, subscriptionShipment, subscriptionRenewal, commerceAdminReads), commerceAdmin (Commerce parameters card), checkout.GET /api/checkout/rules
+- **Readers:** commerceParameters (cartResolver, checkoutService, blendResolver, coffees, fulfillment, orderEmails, subscriptionService, subscriptionShipment, subscriptionRenewal, commerceAdminReads), commerceAdmin (Commerce parameters card), checkout.GET /api/checkout/rules, homeContentReads
 - **Since:** 2026-10-31 (Commerce 1)
 
 | column | type | null | comment |
@@ -1851,7 +1906,7 @@ Token-based invitations to join a household, valid 7 days
 Controlled vocabulary for admin dropdowns and coded fields, one row per (category, value) with a display label and order.
 
 - **Writer:** admin.POST /api/admin/lookups, admin.PATCH /api/admin/lookups/:id, admin.DELETE /api/admin/lookups/:id; seed
-- **Readers:** admin.GET /api/admin/lookups, routes/coffees (origin region), catalogService.updateCoffee, roasteryPortalReads, roasterVoiceReads (coffee_card_tag, coffee presentation brief 4), sommelierAnswerService (answer kinds and deliveries), sommelierTurnService (turn routes), coffees.origin_region_id FK
+- **Readers:** admin.GET /api/admin/lookups, routes/coffees (origin region), catalogService.updateCoffee, roasteryPortalReads, roasterVoiceReads (coffee_card_tag, coffee presentation brief 4), sommelierAnswerService (answer kinds and deliveries), sommelierTurnService (turn routes), coffees.origin_region_id FK, v_coffee_card (origin region)
 - **Since:** 2026-05-27
 
 | column | type | null | comment |
@@ -1964,7 +2019,7 @@ The universal printed-QR tokens, one row per print-run source, resolved through 
 One row per quiz version, main or branch; branch quizzes link to a triggering archetype and a parent main quiz
 
 - **Writer:** seed
-- **Readers:** routes/quiz, quizIntegrity, quizSession, customerIntegrity, v_quiz_scoring_matrix, campaign_funnel_v
+- **Readers:** routes/quiz, quizIntegrity, quizSession, customerIntegrity, v_quiz_scoring_matrix, campaign_funnel_v, homeContentReads
 - **Since:** 2026-05-22
 
 | column | type | null | comment |
@@ -2041,7 +2096,7 @@ First-party log of quiz funnel steps (start, complete, email submitted, final), 
 Versioned (SCD Type 2) questions of each quiz, one row per question version.
 
 - **Writer:** seed
-- **Readers:** routes/quiz, quizScorer, quizIntegrity, v_quiz_scoring_matrix, quiz_answer joins
+- **Readers:** routes/quiz, quizScorer, quizIntegrity, v_quiz_scoring_matrix, quiz_answer joins, homeContentReads (question count)
 - **Since:** 2026-05-22 (as question; SCD2 versioning 2026-10-09, Prompt 4A)
 
 | column | type | null | comment |
@@ -2164,7 +2219,7 @@ A roastery's lineup as shown in the portal (managed in admin or added by the roa
 Which numeric coffee dimensions the portal asks about and how they are worded (label plus low and high anchors) for the 1 to 5 relative scale; 7 seeded rows.
 
 - **Writer:** seed
-- **Readers:** roasteryPortalReads, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint
+- **Readers:** roasteryPortalReads, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_coffee_card
 - **Since:** 2026-10-05 (Roastery portal #209)
 
 | column | type | null | comment |
@@ -3186,7 +3241,7 @@ One row per coffee (active or not) with roaster name, current match archetype an
 One row per coffee archetype (all six including experimental) exposing code, label and dial metadata, replacing hand-typed archetype name maps
 
 - **Writer:** none (derived)
-- **Readers:** catalogReads.getArchetypes (and getArchetypeOrder), routes/axis, roasteryPortalReads, v_coffee_archetype_adjacency
+- **Readers:** catalogReads.getArchetypes (and getArchetypeOrder), routes/axis, roasteryPortalReads, v_coffee_archetype_adjacency, coffeeCardReads, homeContentReads, routes/coffees GET /archetypes (customerWords)
 - **Since:** 2026-09-13
 - **reads:** `coffee_archetype`, `coffee_dimensions`
 
@@ -3198,6 +3253,15 @@ Cross-archetype bridge-hop summary (hop counts, more/less split, average confide
 - **Readers:** routes/axis (GET /api/axis/adjacency and stats), sommelierRag, catalogReads.getArchetypeOrder (the Bloom's box order, coffee presentation brief 3)
 - **Since:** 2026-09-13
 - **reads:** `v_coffee_archetype`, `v_coffee_hop`
+
+#### `v_coffee_card`
+
+One row per active coffee with what its customer card shows beyond slot and price: hint, milk (our choice, else the roaster's submitted takes_it), photo key, origin region label, leads in cup (the roaster's submitted dominant dimension, else the highest pooled midpoint among the portal's active dimensions, ties by display_order) with its source; roaster-blind, no award text
+
+- **Writer:** none (derived)
+- **Readers:** catalogReads.getCoffeeCardRows (coffeeCardReads for GET /api/coffees/cards and GET /api/home/content; admin GET /catalog/coffees/:id/presentation)
+- **Since:** 2026-11-04 (Website 2)
+- **reads:** `coffee_dimensions`, `coffee_milk_recommendation`, `coffee_presentation`, `coffees`, `lookup_value`, `roastery_portal_dimension`, `roastery_portal_response`, `v_coffee_dimension_range`, `v_roastery_portal_coffee_hint`
 
 #### `v_coffee_customer_descriptor`
 
@@ -3240,7 +3304,7 @@ Every session's current merged range per coffee x dimension x sample, converted 
 Per active coffee and dimension, the range POOLED over every session's current merged row, converted to 0 to 15, weighted by rank (param session_rank_ratio) and recency (param session_half_life_days); session_id/session_date are the latest session; adds n_sessions_pooled, weight_latest_share, session_weights, sessions_disagree (param session_gap), rank_ratio, half_life_days; unmerged fallback as before.
 
 - **Writer:** none (derived)
-- **Readers:** cuppingReads (dialSuggestion, routes/coffees, brewCard, roasterVoiceReads), roasteryPortalReads, customerIntegrity, v_archetype_dimension_comparison, v_archetype_dimension_profile (compatibilityReads), v_coffee_dimension_range_calibrated, v_palate_shared_traits, v_palate_dominant_dimensions, v_palate_slot_candidates, v_roastery_portal_dimension_match, v_evidence_dimension, v_evidence_archetype
+- **Readers:** cuppingReads (dialSuggestion, routes/coffees, brewCard, roasterVoiceReads), roasteryPortalReads, customerIntegrity, v_archetype_dimension_comparison, v_archetype_dimension_profile (compatibilityReads), v_coffee_dimension_range_calibrated, v_palate_shared_traits, v_palate_dominant_dimensions, v_palate_slot_candidates, v_roastery_portal_dimension_match, v_evidence_dimension, v_evidence_archetype, v_coffee_card, homeContentReads
 - **Since:** 2026-09-27 (pooled since 2026-10-21, cupping evidence brief 6)
 - **reads:** `coffee_dimensions`, `coffees`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`
 
@@ -3708,7 +3772,7 @@ Lineup row with prefill values: catalog (v_coffee) values field by field whereve
 Per catalog coffee, what the roaster said in the latest submitted response of its linked lineup coffee (proposed family, dominant dimension, 1 to 5 values with labels, respondent, date); hints only, nothing is written to the catalog.
 
 - **Writer:** none (derived)
-- **Readers:** roasteryPortalReads, v_roastery_portal_dimension_match
+- **Readers:** roasteryPortalReads, v_roastery_portal_dimension_match, v_coffee_card
 - **Since:** 2026-10-05 (Roastery portal part 2 #210)
 - **reads:** `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_dimension`, `roastery_portal_response_note`
 
@@ -3827,14 +3891,16 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `coffee_category` | catalogService, seed | catalogService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, roasteryPortalService, setMatch2917 | v_coffee |
 | `coffee_category_assignment` | catalogService, seed | catalogService (DELETE, INSERT), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, setMatch2917 | v_coffee |
 | `coffee_dial_slot` | catalogService, seed | catalogService (UPDATE), seed (INSERT) | admin, axis, backfillCustomerFacts, catalogImport, catalogIntegrity, catalogReads, catalogService, checkoutService, commerceAdminReads, cuppingService, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, setMatch2917, sommelier, sommelierRag, subscriptionService, subscriptionShipment, users | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_roastery_portal_dimension_match, v_subscription_status |
-| `coffee_dimensions` | seed | seed (INSERT, UPDATE) | admin, axis, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceReads, freeSlots, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_evidence_cupper_calibration, v_evidence_dimension, v_evidence_roastery_calibration, v_roastery_portal_dimension_match |
+| `coffee_dimensions` | seed | seed (INSERT, UPDATE) | admin, axis, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceReads, freeSlots, homeContentReads, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_archetype_vectors, v_coffee_archetype, v_coffee_card, v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_evidence_cupper_calibration, v_evidence_dimension, v_evidence_roastery_calibration, v_roastery_portal_dimension_match |
 | `coffee_hop` | catalogService | catalogService (DELETE, INSERT) | admin, axis, catalogIntegrity, catalogReads, catalogService, dialSuggestion, qrDoor, sommelierRag | v_coffee_hop |
+| `coffee_milk_recommendation` | seed | seed (INSERT) | catalogReads, catalogService | v_coffee_card |
+| `coffee_presentation` | catalogService | catalogService (INSERT) | catalogReads, catalogService | v_coffee_card |
 | `coffee_retail_price` | catalogService | catalogService (INSERT) | catalogReads, catalogService | — |
 | `coffee_size` | seed | seed (INSERT) | catalogReads, catalogService, customerReads, freeSlots, roasteryPortalReads | v_coffee_sellable_candidate, v_coffee_visibility, v_palate_slot_candidates |
 | `coffee_sku` | catalogService, seed | catalogService (INSERT, UPDATE), seed (UPDATE) | admin, backfillCustomerFacts, behavioralConfidence, blendResolver, brewCard, cartResolver, catalogReads, catalogService, checkoutService, coffees, customerReads, engagementMetrics, exportCalibration, freeSlots, index, liamSmsFeedback, orderEmails, orders, qrDoor, roasteryPortalReads, users | v_coffee_sellable_candidate, v_coffee_visibility, v_customer_bag_attribution, v_customer_timeline |
 | `coffee_slot_assignment` | catalogService | catalogService (INSERT, UPDATE) | admin, axis, catalogIntegrity, catalogReads, catalogService, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, setMatch2917, sommelierRag | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_coffee_visibility_summary, v_palate_recommendation_outcome, v_roastery_portal_dimension_match |
 | `coffee_slot_price` | catalogService, seed | catalogService (INSERT), seed (UPDATE) | catalogIntegrity, catalogReads, catalogService, customerReads, freeSlots, roasteryPortalReads | v_coffee_sellable_candidate, v_coffee_visibility |
-| `coffees` | admin, catalogService, coffees, qrDoor, seed | admin (UPDATE), catalogService (INSERT, UPDATE), coffees (UPDATE), qrDoor (UPDATE) | activeCatalog, admin, axis, behavioralConfidence, blendResolver, cartResolver, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, index, orderEmails, qrDoor, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelier, sommelierRag | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_coffee, v_coffee_dimension_range, v_coffee_hop, v_collaborative_flavor_wheel, v_cupping_scores_readable, v_roastery_remark |
+| `coffees` | admin, catalogService, coffees, qrDoor, seed | admin (UPDATE), catalogService (INSERT, UPDATE), coffees (UPDATE), qrDoor (UPDATE) | activeCatalog, admin, axis, behavioralConfidence, blendResolver, cartResolver, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, homeContentReads, index, orderEmails, qrDoor, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelier, sommelierRag | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_coffee, v_coffee_card, v_coffee_dimension_range, v_coffee_hop, v_collaborative_flavor_wheel, v_cupping_scores_readable, v_roastery_remark |
 | `commerce_parameter` | commerceParameters, seed | commerceParameters (INSERT, UPDATE), seed (INSERT) | commerceParameters | — |
 | `company` | companyGiftsAdmin | companyGiftsAdmin (INSERT) | companiesAdmin, companyGiftsAdmin | — |
 | `company_gift` | companyGiftsAdmin | companyGiftsAdmin (INSERT, UPDATE) | companyGiftRedemption, companyGiftsAdmin, cron | — |
@@ -3847,10 +3913,10 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `cupping_scale` | seed | seed (INSERT) | cuppingReads, cuppingService, evidenceReads | v_cupping_scores_readable |
 | `cupping_scale_step` | seed | seed (INSERT) | cuppingReads | — |
 | `cupping_score_descriptors` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | admin, cuppingReads, cuppingService, customerReads, evidenceIntegrity, evidenceReads | v_collaborative_flavor_wheel, v_cupping_score_descriptor |
-| `cupping_score_values` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_cupping_scores_readable |
-| `cupping_scores` | cuppingService, seed | cuppingService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceIntegrity, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
-| `cupping_session_coffees` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceIntegrity, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
-| `cupping_sessions` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceIntegrity, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_cupping_session |
+| `cupping_score_values` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | catalogReads, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceReads, homeContentReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_cupping_scores_readable |
+| `cupping_scores` | cuppingService, seed | cuppingService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, catalogReads, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceIntegrity, evidenceReads, homeContentReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
+| `cupping_session_coffees` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, catalogReads, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceIntegrity, evidenceReads, homeContentReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
+| `cupping_sessions` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | catalogReads, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceIntegrity, evidenceReads, homeContentReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_cupping_session |
 | `cupping_sheet_format` | seed | seed (INSERT) | cuppingReads, cuppingService | — |
 | `cupping_sheet_line` | seed | seed (INSERT) | cuppingReads, evidenceReads | v_cupping_sheet_line |
 | `customer_bag_claim` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration | v_customer_bag_attribution, v_customer_timeline |
@@ -3871,8 +3937,9 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `household` | household | household (DELETE, INSERT) | household | — |
 | `household_invitation` | household | household (INSERT, UPDATE) | household | — |
 | `liam_sms_feedback` | none | — | — | — |
-| `lookup_value` | admin, seed | admin (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | admin, catalogService, coffees, roasterVoiceReads, roasteryPortalReads, sommelierAnswerService, sommelierEvalService, sommelierGateRuleService, sommelierReads, sommelierTurnService, sommelier_answer_seed | — |
+| `lookup_value` | admin, seed | admin (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | admin, catalogReads, catalogService, coffees, roasterVoiceReads, roasteryPortalReads, sommelierAnswerService, sommelierEvalService, sommelierGateRuleService, sommelierReads, sommelierTurnService, sommelier_answer_seed | v_coffee_card |
 | `marketing_config` | reportingConfig, seed | reportingConfig (UPDATE), seed (INSERT) | reportingConfig | — |
+| `marketing_home_quote` | seed | seed (INSERT) | homeContentReads | — |
 | `newsletter_subscriber` | backfill:backfillUnsubscribeTokens, backfill:correct-subscriber-archetypes, newsletter, seed, unsubscribe | backfill:backfillUnsubscribeTokens (UPDATE), backfill:correct-subscriber-archetypes (UPDATE), newsletter (INSERT), seed (UPDATE), unsubscribe (UPDATE) | admin, audit-quiz-emails, auth, backfillClaimedSessionLinks, backfillUnsubscribeTokens, correct-subscriber-archetypes, exportCalibration, mailchimp-backfill, newsletter, newsletterReconcile, quizIntegrity, quizInterpretationBackfill, unsubscribe, users | campaign_funnel_v, campaign_subscriber_archetype_v, v_archetype_distribution, v_customer_calibration, v_newsletter_subscribers, v_subscriber_quiz_results, v_subscribers_weekly |
 | `newsletter_subscriber_backup_20260925` | backfill:correct-subscriber-archetypes | — | — | — |
 | `notification_log` | smsProvider | smsProvider (INSERT) | — | — |
@@ -3885,7 +3952,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `order_refund_reason` | seed | seed (INSERT) | checkoutService, commerceAdminReads | — |
 | `qr_scan_event` | qr | qr (INSERT) | engagementMetrics | — |
 | `qr_universal_token` | qrDoor | qrDoor (INSERT) | qrDoor | — |
-| `quiz` | seed | seed (INSERT, UPDATE) | customerIntegrity, quiz, quizIntegrity, quizSession | campaign_funnel_v, v_quiz_scoring_matrix |
+| `quiz` | seed | seed (INSERT, UPDATE) | customerIntegrity, homeContentReads, quiz, quizIntegrity, quizSession | campaign_funnel_v, v_quiz_scoring_matrix |
 | `quiz_answer` | seed | seed (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession | v_customer_quiz_current, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
 | `quiz_answer_archetype_score` | seed | seed (INSERT) | quizIntegrity, quizScorer | v_quiz_scoring_matrix |
 | `quiz_backup_20261008_quiz` | seed | seed (CREATE AS) | — | — |
@@ -3893,26 +3960,26 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `quiz_backup_20261008_quiz_answer_archetype_score` | seed | seed (CREATE AS) | — | — |
 | `quiz_backup_20261008_quiz_question` | seed | seed (CREATE AS) | — | — |
 | `quiz_funnel_event` | funnelEvents | funnelEvents (INSERT) | audit-quiz-emails, newsletter, quizIntegrity | campaign_funnel_v, v_quiz_funnel_weekly |
-| `quiz_question` | seed | seed (INSERT, UPDATE) | customerIntegrity, quiz, quizIntegrity, quizScorer, quizSession | v_quiz_scoring_matrix |
+| `quiz_question` | seed | seed (INSERT, UPDATE) | customerIntegrity, homeContentReads, quiz, quizIntegrity, quizScorer, quizSession | v_quiz_scoring_matrix |
 | `quiz_session` | quizSession | quizSession (INSERT) | auth, backfillClaimedSessionLinks, behavioralConfidence, correct-subscriber-archetypes, customerIntegrity, customerReads, exportCalibration, quizIntegrity, quizInterpretationBackfill, quizSession, staleGuestCleanup, users | v_customer_calibration, v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
 | `quiz_session_interpretation` | quizSession | quizSession (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, quizInterpretationBackfill, quizSession | v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
-| `quiz_type` | seed | seed (INSERT) | — | v_quiz_scoring_matrix |
+| `quiz_type` | seed | seed (INSERT) | homeContentReads | v_quiz_scoring_matrix |
 | `quiz_vector` | none | — | — | — |
 | `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axis, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, commerceAdminReads, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelierEval, sommelierGate, sommelierIntegrity, sommelierRag, sommelierReplyCheck, sommelier_eval_seed, sommelier_gate_rule_seed | v_coffee, v_roastery_remark |
 | `roastery_blend_vector` | none | — | — | — |
 | `roastery_coffee_descriptors` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT) | admin, catalogService, cuppingReads, customerReads, evidenceReads, roasteryPortalReads | v_collaborative_flavor_wheel |
 | `roastery_portal_acceptance` | roasteryPortalService | roasteryPortalService (INSERT) | roasteryPortalReads | v_roastery_portal_progress |
-| `roastery_portal_coffee` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | cuppingReads, customerReads, evidenceIntegrity, evidenceReads, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads | v_coffee_customer_descriptor, v_roastery_portal_coffee, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_roastery_portal_progress, v_roastery_remark |
-| `roastery_portal_dimension` | seed | seed (INSERT, UPDATE) | evidenceReads, roasteryPortalReads | v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint |
+| `roastery_portal_coffee` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | catalogReads, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads | v_coffee_customer_descriptor, v_roastery_portal_coffee, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_roastery_portal_progress, v_roastery_remark |
+| `roastery_portal_dimension` | seed | seed (INSERT, UPDATE) | catalogReads, evidenceReads, roasteryPortalReads | v_coffee_card, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint |
 | `roastery_portal_lineup_response` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_lineup_current_response |
 | `roastery_portal_lineup_response_best_seller` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | roasteryPortalReads, roasteryPortalService | — |
 | `roastery_portal_link` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | — |
 | `roastery_portal_note_mapping` | noteMappingService | noteMappingService (INSERT, UPDATE) | cuppingReads, customerReads, evidenceIntegrity, evidenceReads, noteMappingReads, noteMappingService, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads | v_note_mapping_current, v_roastery_remark |
-| `roastery_portal_respondent` | roasteryPortalService | roasteryPortalService (INSERT) | evidenceReads, roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_progress |
-| `roastery_portal_response` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | cuppingReads, customerReads, evidenceReads, roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_roastery_portal_progress, v_roastery_portal_response |
+| `roastery_portal_respondent` | roasteryPortalService | roasteryPortalService (INSERT) | catalogReads, evidenceReads, roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_progress |
+| `roastery_portal_response` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | catalogReads, cuppingReads, customerReads, evidenceReads, roasteryPortalReads, roasteryPortalService | v_coffee_card, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_roastery_portal_progress, v_roastery_portal_response |
 | `roastery_portal_response_brew` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_progress |
-| `roastery_portal_response_dimension` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | evidenceReads, roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_progress |
-| `roastery_portal_response_note` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | cuppingReads, customerReads, evidenceReads, roasteryPortalReads, roasteryPortalService | v_coffee_customer_descriptor, v_roastery_portal_coffee_hint, v_roastery_portal_progress |
+| `roastery_portal_response_dimension` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | catalogReads, evidenceReads, roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_progress |
+| `roastery_portal_response_note` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | catalogReads, cuppingReads, customerReads, evidenceReads, roasteryPortalReads, roasteryPortalService | v_coffee_customer_descriptor, v_roastery_portal_coffee_hint, v_roastery_portal_progress |
 | `roastery_remark` | roasteryRemarkService | roasteryRemarkService (INSERT) | cuppingReads, customerReads, evidenceIntegrity, evidenceReads, roasteryRemarkReads | v_roastery_remark |
 | `roastery_shipment_details` | shipmentService | shipmentService (INSERT) | catalogService, checkoutService, commerceAdminReads, index, orders, shipmentService, users | v_order_status |
 | `sensory_lexicon_attribute` | seed | seed (INSERT, UPDATE) | — | — |
@@ -3975,9 +4042,9 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 **Dead candidates, static (25):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `sensory_lexicon_attribute`, `sensory_source`, `shipping_status`, `subscription_event_kind`, `subscription_event_source`, `subscription_kind`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
 
-**Touched since the reset (152):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `checkout_session`, `checkout_session_line`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `commerce_parameter`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_event`, `order_event_kind`, `order_fulfillment_status`, `order_line_item`, `order_payment_status`, `order_refund_reason`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `shipping_carrier`, `shipping_status`, `sommelier_answer`, `sommelier_eval_case`, `sommelier_eval_phrasing`, `sommelier_eval_result`, `sommelier_eval_run`, `sommelier_evaluation`, `sommelier_gate_rule`, `sommelier_gate_rule_example`, `sommelier_gate_rule_replay`, `sommelier_messages`, `sommelier_reply_check`, `sommelier_sessions`, `sommelier_sms_feedback`, `sommelier_turn`, `sommelier_turn_label`, `stripe_event`, `subscriber_source`, `subscription`, `subscription_event`, `subscription_event_kind`, `subscription_event_source`, `subscription_item`, `subscription_kind`, `subscription_status`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
+**Touched since the reset (155):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `checkout_session`, `checkout_session_line`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_milk_recommendation`, `coffee_presentation`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `commerce_parameter`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `marketing_home_quote`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_event`, `order_event_kind`, `order_fulfillment_status`, `order_line_item`, `order_payment_status`, `order_refund_reason`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `shipping_carrier`, `shipping_status`, `sommelier_answer`, `sommelier_eval_case`, `sommelier_eval_phrasing`, `sommelier_eval_result`, `sommelier_eval_run`, `sommelier_evaluation`, `sommelier_gate_rule`, `sommelier_gate_rule_example`, `sommelier_gate_rule_replay`, `sommelier_messages`, `sommelier_reply_check`, `sommelier_sessions`, `sommelier_sms_feedback`, `sommelier_turn`, `sommelier_turn_label`, `stripe_event`, `subscriber_source`, `subscription`, `subscription_event`, `subscription_event_kind`, `subscription_event_source`, `subscription_item`, `subscription_kind`, `subscription_status`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
 
 ---
 
-catalog-hash: 335948cf468cb6fe4fb72ecfa4fbcb32fd290efe467eb41da903d9ca6e3313ce
-lineage-hash: 4d929c1fb6e7c99d00942a21c547b9a505d2d1cf686159f03a43b0e8bd0278e5
+catalog-hash: d67dff5826a7c5ee680f003d5b73a028526500424ae03468ff5364af6c27de9c
+lineage-hash: 95081c95a5c134ddbbdf13babc68b57692f138274f9ddf5e8cb06e206e4ab5c6

@@ -1,6 +1,8 @@
 # Closing report: Website 2 (presentation data the handoff needs)
 
-Brief: `CLAUDE_CODE_PROMPT_WEBSITE_2_PRESENTATION_DATA.md`. Date: 2026-11-04.
+Brief: `CLAUDE_CODE_PROMPT_WEBSITE_2_PRESENTATION_DATA.md`. Date: 2026-11-04. `WHAT_WE_BUILT.md` #252.
+
+**Status: done on prod 2026-11-04** (commit `f2f3ebf`, revision `axis-bloom-backend-00817-c4l`; CATALOG.md regenerated from prod in the follow-up docs commit). Prod results at the end.
 
 ## Task 0 (read-only; written before any change)
 
@@ -109,3 +111,36 @@ No table gains a second writer module.
 ```
 
 No `hint`, `originRegion` or `photoKey` key: none exists yet, so the card omits the row.
+
+## Prod (after the deploy, read-only)
+
+- **Deploy:** `Deploy` run 41960190215 green (backend + frontend). Revision `axis-bloom-backend-00817-c4l`.
+- **Startup log:** no ERROR line. `[db-comments] applied 1645 statements`. `[data-catalog]` 155 tables, 77 views, 1,413 columns, 2 of 6 checks with findings: #4 CATALOG.md stale (live `d67dff58…`, cleared by the regeneration below) and #6, the same 25 dead candidates as before (none of this brief's tables). The four other integrity findings (quiz #10, evidence #2 and #6, sommelier #3) are identical on the previous revision `00816-jtr`; none comes from this change.
+- **`npm run catalog:md -- --expect-db axisandbloom`:** wrote CATALOG.md from prod, catalog-hash `d67dff5826a7…`, equal to the boot log's live hash; committed.
+- **`GET /api/home/content`** (Cloud Run URL): `facts {questions: 6, dimensions: 8, families: 5}`, 8 quotes, featured = `chocolate_nutty:2` "Coado" (coffee 2914), price 12 oz $32.00, signature notes Almond, Chocolate, Peanuts, best Espresso, also Cold brew / Batch brew / drip / Pour-over, milk "Works both ways", leads "Sweetness", `hasAward: true`.
+- **`GET /api/coffees/cards`:** every family carries its three words. Chocolate & Nutty's `collectionOffer` is 3 coffees, 9000 → 8100 cents (10%). The others are null, since each has fewer than 3 sellable slots. The three C&N cards match Camila's handoff values for brew, also-good, milk and leads (her "Body" for Blossom reads "Intensity", the site's word for Body). The 7 placed cards carry no `hint`, `originRegion` or `photoKey` key: no source yet (OT-71, photos from Camila). One card (Bright & Balanced) has no milk row: its roaster left takes_it unanswered. `other`: 2 decaf coffees, `platformName: null` (OT-70).
+- **Leak check:** neither payload contains the award tag label, an award remark, a raw coffee name (Tiger Stripe, Fabricator, Blossom), or any roasting or shipping-time phrase.
+- **`GET /api/coffees/archetypes`:** `customerWords` has 3 entries on all five families.
+- **Not checked on prod:** the admin Edit modal's Customer card block. Saving it writes production data, and this brief has no STOP for that. Its path is covered by the tests. Dana can open Coffees → Edit to see it.
+
+## Deviations from the brief, and why
+
+1. **No `v_archetype_presentation`.** `v_coffee_archetype` already is the one archetype read path, so `customer_words` is appended there (G2.4, G2.5, G2.14). `GET /archetypes` returns it as `customerWords` (the payload is camelCase).
+2. **`v_coffee_card` is one row per active coffee, not per sellable slot.** The Other section needs slotless category coffees, and the slot-winner and price rules already live in TS (`buildSlotsForArchetype`). The service joins the two.
+3. **Milk and leads in cup take the roaster's submitted portal answer as their fallback (D9).** The brief described leads in cup as derived from ranges; the ranges are now the second source. On prod, Camila's three hand-filled cards equal the portal answers.
+4. **`coffee_milk_recommendation.customer_label`** copies the portal lookup's existing customer wording ("Best black", "Works both ways", "Great with milk"). The brief named the codes without/either/with and those are the codes.
+5. **Featured slot** is stored as text `archetype_code:sort_order` with a new `dial slot` format in `commerceParameters`, so the admin Commerce card can edit it. A slot id would only have had a numeric range check.
+6. **Shared helpers moved, not copied:** `buildSlotsForArchetype`, `computeCollectionOfferFromSlots` and the other-categories body now live in `services/coffeeCardReads.ts`. `getCardTags` became the tags of the new `getCardFacts`. Behaviour of the existing endpoints is unchanged (their tests pass).
+
+## For Dana
+
+- **"07 Questions" on Home:** the live main quiz has 6 questions, so the computed fact is 6. A branch adds one for three families. Brief 3 shows the number from the API; the handoff copy "Take the 7-question quiz" needs your call.
+- **Origin regions** are empty on every coffee (OT-71). Until you set them on the Coffees page, no card shows an Origin row.
+- **Hints and photos** have no content yet. Hints are on Coffees → Edit → Customer card; photos are keys for Camila's files.
+- **Quotes:** the eight survey quotes from the handoff are seeded. The six old ones in `Home.tsx` stay until brief 3 rebuilds Home.
+
+## What the next briefs need
+
+- Brief 3 (Home): `getHomeContent()` for facts, quotes and featured; family words from `customerWords` on `/api/coffees/archetypes` or `getCoffeeCards()`.
+- Brief 4 (Shop all): `getCoffeeCards()`. Each optional row renders only when its key is present. `other.cards` needs a name decision (OT-70).
+- Brief 5 (The Bloom): the same card fields per slot (`getFamilyCards` server side, or `getCoffeeCards()`).
