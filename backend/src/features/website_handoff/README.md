@@ -29,6 +29,8 @@ Camila's site handoff (2026-11-04) at `misc/design_documents/website/axis-and-bl
 - **D13 Prices and shipping copy.** "$29", "$87", "Shipping included", "Calculated at checkout" are never typed: price from the pricing tables, shipping line from `getCheckoutRules()`.
 - **D14 No roasting or delivery promises (Dana, 2026-11-04).** "Roasted to order", "ships within a week of roast", "ships within the week" and any freshness or timing claim are removed wherever the handoff has them (Home 05, Shop intro, Cart note). The only fulfilment statements the customer sees are facts from `order_event` / `v_order_status`: the order was sent to the roastery, and when it shipped (with the date). Saying that partner roasteries roast and ship is still allowed (G4.5); a time or freshness promise is not.
 
+- **D15 Question count (Dana, 2026-11-05).** The live main quiz has 6 questions; the handoff says seven. Every mention of the count renders the computed number from `GET /api/home/content` (`facts.questions`): the Home tile and button, the Axis step card, the quiz entry copy, the sign-in side panel. No "seven"/"7" typed anywhere.
+
 ## Brief plan (run in this order, one at a time, G1.9)
 
 | # | File | Scope | Size | Model |

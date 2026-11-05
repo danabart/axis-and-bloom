@@ -57,20 +57,10 @@ export default function Navigation({ tone: toneProp, floating: floatingProp }: N
   const items = gated ? GATED_LINKS : MENU_ITEMS;
   const showAdmin = isAdmin && !gated;
 
-  // Legacy [data-hero] contract: a page that still marks its hero (Home,
-  // until Website 3) gets the header floating over it in paper, the same
-  // look the old transparent-over-hero bar had.
-  const [hasHero, setHasHero] = useState(false);
-  useEffect(() => {
-    const check = () => setHasHero(!!document.querySelector('[data-hero]'));
-    check();
-    const mo = new MutationObserver(check);
-    mo.observe(document.body, { childList: true, subtree: true });
-    return () => mo.disconnect();
-  }, [pathname]);
-
-  const floating = floatingProp ?? hasHero;
-  const tone: Tone = toneProp ?? (hasHero ? 'paper' : 'ink');
+  // Website 3 retired the [data-hero] detection: Home passes floating + paper
+  // through PublicLayout, the only page that floated.
+  const floating = floatingProp ?? false;
+  const tone: Tone = toneProp ?? 'ink';
 
   const [open, setOpen] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);

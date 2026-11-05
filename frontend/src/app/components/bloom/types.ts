@@ -25,6 +25,8 @@ export interface ArchetypeData {
   /** Website 2 (2026-11-04): coffee_archetype.customer_words, the three words under the
    * family name ("Bright · Fragrant · Delicate"); null for experimental or until seeded. */
   customerWords?: string[] | null;
+  /** Website 3 (2026-11-05): coffee_archetype.sort_order, the family number ("01 —"). */
+  sortOrder?: number;
   dimensionName: string | null;
   dimensionPlatformName: string | null;
   /** Part 14 — the dial dimension's scale end labels (coffee_dimensions.scale_min_label/

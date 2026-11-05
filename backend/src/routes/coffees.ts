@@ -589,6 +589,8 @@ router.get('/archetypes', async (_req, res) => {
         // Website 2 (2026-11-04): coffee_archetype.customer_words, the three
         // words under the family name (null until seeded).
         customerWords: a.customer_words ?? null,
+        // Website 3 (2026-11-05): the family number Home shows ("01 —").
+        sortOrder: a.sort_order,
         dimensionName: dim?.name ?? null,
         dimensionPlatformName: dim?.platform_name ?? dim?.name ?? null,
         dimensionScaleMinLabel: dim?.scale_min_label ?? null,

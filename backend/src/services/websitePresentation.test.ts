@@ -208,6 +208,14 @@ describe('setCoffeePresentation (the one writer)', () => {
   });
 });
 
+describe('GET /api/coffees/archetypes (Website 3)', () => {
+  it('carries each family sort_order, in that order', async () => {
+    const body = await getJson('/coffees/archetypes');
+    const rows = (await db.query(`SELECT code, sort_order FROM coffee_archetype WHERE is_archetype ORDER BY sort_order`)).rows;
+    expect(body.map((a: any) => [a.archetype, a.sortOrder])).toEqual(rows.map(r => [r.code, r.sort_order]));
+  });
+});
+
 describe('GET /api/home/content', () => {
   it('facts match direct queries', async () => {
     const body = await getJson('/home/content');
@@ -216,7 +224,13 @@ describe('GET /api/home/content', () => {
       questions: await q(`SELECT COUNT(*) AS n FROM quiz_question qq JOIN quiz q ON q.id = qq.quiz_id JOIN quiz_type t ON t.id = q.quiz_type_id WHERE q.is_active AND t.name = 'main' AND qq.is_current`),
       dimensions: await q(`SELECT COUNT(DISTINCT r.dimension_id) AS n FROM v_coffee_dimension_range r JOIN coffee_dimensions d ON d.id = r.dimension_id WHERE d.is_numeric AND r.value_min IS NOT NULL AND r.value_max IS NOT NULL`),
       families: await q(`SELECT COUNT(*) AS n FROM coffee_archetype WHERE is_archetype`),
+      scaleMin: expect.anything(),
+      scaleMax: expect.anything(),
     });
+    // Website 3: the score line is the counted numeric dimensions' own scale
+    const sc = (await db.query(`SELECT MIN(d.scale_min) AS lo, MAX(d.scale_max) AS hi FROM coffee_dimensions d WHERE d.is_numeric AND d.id IN (SELECT dimension_id FROM v_coffee_dimension_range WHERE value_min IS NOT NULL AND value_max IS NOT NULL)`)).rows[0];
+    expect(body.facts.scaleMin).toBe(Number(sc.lo));
+    expect(body.facts.scaleMax).toBe(Number(sc.hi));
   });
 
   it('quotes are the active rows in order; the featured card is the parameter slot', async () => {

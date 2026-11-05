@@ -133,3 +133,15 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_2.md`. Tests: 
 - [ ] **`GET /api/home/content`:** facts are counted (main-quiz questions, cupped numeric dimensions, families), quotes are the active `marketing_home_quote` rows in order, featured is the `home_featured_slot` slot with its anchor price; no timing or freshness text.
 - [ ] **`GET /api/coffees/archetypes`:** every family carries `customerWords` (three words), experimental null.
 - [ ] **Admin:** Coffees → Edit shows "Customer card"; saving writes one `coffee_presentation` row and a `catalog_change` row; saving again unchanged writes nothing.
+
+## Homepage (Website 3, 2026-11-05)
+
+Full record: `backend/src/features/website_handoff/CLOSING_REPORT_3.md`. Tests: `frontend/src/app/components/home/home.test.tsx`.
+
+- [ ] **Lifecycle CTA:** a signed-in customer (or a guest with a stage) sees, in section 03, their stage's headline and link (shop matches / subscription / reorder / what's new / welcome back). `NEW_NO_QUIZ` and signed-out visitors see the quiz invite.
+- [ ] **Feedback nudge:** with a pending order feedback, `OrderFeedbackForm` shows above the 03 headline; "Not now" hides it for 14 days.
+- [ ] **Gift widget:** `CompanyGiftRedemption` sits directly under section 03; redeeming a code refreshes the stage.
+- [ ] **Name prefill:** typing a first name in 03, then opening Find my flavor (by any link), starts the quiz with that name.
+- [ ] **Data, not copy:** facts, "Take the {n}-question quiz", "Answer {n} questions", "{n} dimensions · {min}–{max}", family numbers and words, quotes and the "This week" coffee and price all come from the API. No "seven" anywhere.
+- [ ] **Prelaunch:** `/` is the curtain while gated; Home's gated branch hides the featured cart, Liam and Shop links, and family panels lead to the quiz.
+- [ ] **390px:** no horizontal scroll; family panels scroll sideways; the menu row stacks.

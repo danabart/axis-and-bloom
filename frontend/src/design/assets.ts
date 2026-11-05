@@ -89,6 +89,22 @@ export const homeAssets = {
   photoEssay1: optimized('home/photo-essay-1'),
   photoEssay2: optimized('home/photo-essay-2'),
   photoEssay3: optimized('home/photo-essay-3'),
+  // Website 3 (2026-11-05): the handoff homepage's photographs. Camila uploads the
+  // originals to raw/home/<name>.jpg; the image pipeline writes the optimized copies.
+  // Until then Home falls back to archetypeAssets[slug].hero (see Home.tsx).
+  family: {
+    floral: optimized('home/family-floral'),
+    fruity: optimized('home/family-fruity'),
+    'balanced-sweet': optimized('home/family-balanced-sweet'),
+    'chocolate-nutty': optimized('home/family-chocolate-nutty'),
+    'spicy-earthy': optimized('home/family-spicy-earthy'),
+  } as Record<Exclude<ArchetypeSlug, 'experimental'>, OptimizedAsset>,
+  axisQuiz: optimized('home/axis-quiz'),
+  axisCupping: optimized('home/axis-cupping'),
+  pour: optimized('home/pour'),
+  window: optimized('home/window'),
+  /** the film's poster, used as uploaded (raw) */
+  heroPoster: raw('home/hero-poster.jpg'),
 };
 
 // FlavorQuiz's question photography + its one large lifestyle shot.
@@ -179,4 +195,6 @@ export const videoAssets = {
   homePlaceholderPoster: optimized('video/home-placeholder-poster'),
   homeHero: raw('video/home-hero.mp4'),
   homeHeroPoster: optimized('video/home-hero-poster'),
+  /** Website 3: the handoff's closing film loop (09 Film); falls back to homeHero until uploaded */
+  homeLoop: raw('video/home-loop.mp4'),
 };

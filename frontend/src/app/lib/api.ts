@@ -1,6 +1,6 @@
 import { auth } from './firebase';
 import { reportError } from './errorReporter';
-import type { Slot, SlotPrice } from '../components/bloom/types';
+import type { Slot, SlotPrice, ArchetypeData } from '../components/bloom/types';
 
 const BASE = '/api';
 
@@ -162,9 +162,17 @@ export async function getCoffeeCards(): Promise<CoffeeCards> {
 }
 
 export interface HomeContent {
-  facts: { questions: number; dimensions: number; families: number };
+  /** scaleMin/scaleMax (Website 3): the score line of the counted dimensions ("0 to 15"), null when none */
+  facts: { questions: number; dimensions: number; families: number; scaleMin: number | null; scaleMax: number | null };
   quotes: string[];
   featured: { card: SlotCard; price: { weightOz: number; retailPriceCents: number; label: string } | null } | null;
+}
+
+/** GET /api/coffees/archetypes: the five families (is_archetype) in sort_order, with slots and words. */
+export async function getArchetypes(): Promise<ArchetypeData[]> {
+  const res = await fetch(`${BASE}/coffees/archetypes`);
+  if (!res.ok) throw new Error('Failed to load archetypes');
+  return res.json();
 }
 
 export async function getHomeContent(): Promise<HomeContent> {

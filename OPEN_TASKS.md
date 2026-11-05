@@ -426,6 +426,12 @@ The full list is in `CLOSING_REPORT_3.md` → "What Commerce 4 needs".
 
 One cart can resolve to SKUs from several roasteries (dial slots fall back across roasters). The order is one row with one `fulfillment_roaster_id` (NULL = manual), and the manual email lists each line's roaster. Before roaster adapters place orders automatically, decide how a multi-roaster order splits into shipments and what the customer sees. Since #250 `roastery_shipment_details` is written (`shipmentService.markShipped`, linked by `order_id`, one shipment per order assumed by `v_order_status`); `order_line_item.shipment_id` stays reserved (D11), so a per-line split needs either a link table or Dana reopening D11.
 
+### OT-74 / OT-75 / OT-76: homepage follow-ups (Website 3, 2026-11-05)
+
+- **OT-74 The real film.** 09 Film plays `videoAssets.homeLoop` (`raw/video/home-loop.mp4`, the handoff's placeholder loop), falling back to `home-hero.mp4` until it is uploaded. The final film replaces the bucket object; no deploy is needed.
+- **OT-75 Home content that left with the redesign.** The pull quote ("The best gift is time"), the photo essay (its "See all photographs" link pointed at `/essays`, which is not a route) and the "months" film strip have no section in the handoff. They need a design if they return.
+- **OT-76 The Liam example is typed in.** The 08 exchange keeps the handoff's example. The family words come from the payload and the coffee is Fruity's gentle-end slot, but the sentences are copy in `Home.tsx`. They could move to a marketing table beside the quotes (with OT-69).
+
 ### OT-69 / OT-70 / OT-71 / OT-72: presentation data follow-ups (Website 2, 2026-11-04)
 
 - **OT-69 Admin door for family words and Home quotes.** `coffee_archetype.customer_words` and `marketing_home_quote` are seed-only. Edit them with a `catalogService` verb (words) and a marketing writer (quotes), each declared in `comments.sql`.
@@ -539,3 +545,6 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-11-04 | OT-71: origin region unset on every active coffee (Website 2) | Open |
 | 2026-11-04 | OT-72: brew tags read the portal draft, milk/leads the submitted version (Website 2) | Open |
 | 2026-11-04 | OT-73: catalog_blueprint test counts legitimate no-band cupping signals as missing suggestions | Open |
+| 2026-11-05 | OT-74: the real film for Home 09 (bucket object swap) | Open |
+| 2026-11-05 | OT-75: Home pull quote / photo essay / months strip need a design to return | Open |
+| 2026-11-05 | OT-76: Liam example on Home is copy in code | Open |

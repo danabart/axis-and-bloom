@@ -17,9 +17,12 @@ export default function PublicLayout() {
   // so nothing is visible beneath the fixed full-screen overlay
   const isPreLaunchPage = gated && pathname === '/';
 
-  // No global footer on these pages (Home / About end on TasteFinderSection's
-  // curtain reveal; neither renders a Footer of its own — Website 1 Task 0).
-  const footerInPage = pathname === '/' || pathname === '/about';
+  // No global footer on /about (it ends on TasteFinderSection's curtain reveal).
+  // Home has the footer again since Website 3: the handoff draws it after 09 Film.
+  const footerInPage = pathname === '/about';
+
+  // Website 3: on Home the header floats over the family panels, in paper.
+  const isHome = pathname === '/';
 
   // Liam's chat is a fixed full-height panel; the footer under it used to
   // bleed through (Liam access & cost brief, 2026-10-01). Only while the chat
@@ -36,7 +39,7 @@ export default function PublicLayout() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <Navigation />
+      {isHome ? <Navigation floating tone="paper" /> : <Navigation />}
       <main className="flex-grow">
         <Outlet />
       </main>

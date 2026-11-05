@@ -6337,6 +6337,44 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_2_PRESENT
 
 **Not done in this pass:** no admin door for family words or quotes (OT-69); no page uses the new payloads yet (briefs 3–5).
 
+
+### 253. Website 3: the handoff homepage on the new chrome (2026-11-05)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_3_HOME.md`; full record (Task 0 findings, copy rewrites, upload paths, evidence) `backend/src/features/website_handoff/CLOSING_REPORT_3.md`.
+
+**Files:**
+- `frontend/src/app/components/Home.tsx` rewritten: 01 families → 02 menu row → 03 Find my flavor → 03b Why → 04 In numbers → 05 Know what you like → 06 Voices → 07 The Axis steps → 08 Liam → 09 Film, then the footer.
+- New `frontend/src/app/components/home/`:
+  - `home.css` (handoff CSS ported, `hm-` prefix)
+  - `Photo.tsx` (registry photo with fallback; `useFirstLoadable` for the poster)
+  - `Voices.tsx`, `LiamThread.tsx`, `HomeDialArt.tsx`
+  - `home.test.tsx` (23 cases)
+- `design/assets.ts`: `homeAssets.family.*`, `axisQuiz`, `axisCupping`, `pour`, `window`, `heroPoster`, `videoAssets.homeLoop`.
+- `lib/api.ts`: `getArchetypes()`, `facts.scaleMin/scaleMax`. `bloom/types.ts`: `ArchetypeData.sortOrder`.
+- `PublicLayout.tsx`: the footer shows on `/`; the header floats in paper on `/`. `Navigation.tsx`: the `[data-hero]` detection is retired.
+- Backend:
+  - `GET /api/coffees/archetypes` adds `sortOrder`.
+  - `homeContentReads.getHomeFacts` adds `scaleMin`/`scaleMax`, read from `coffee_dimensions` over the counted numeric dimensions.
+  - Test in `websitePresentation.test.ts`.
+
+**Kept from the previous Home:**
+- The lifecycle CTA, with the same stage texts and links. It now sits in section 03.
+- The `OrderFeedbackForm` nudge with its 14-day "Not now".
+- `CompanyGiftRedemption` under 03, refreshing the stage.
+- `FilmModal` on the film's play button.
+- The pause-off-screen and rAF loop fix.
+- Reduced motion.
+
+**Changed:**
+- The visitor name is written to the quiz's session key as it is typed, so the quiz entry is prefilled. Before, that only happened on the button click.
+- Every count, word triple, quote, coffee name and price comes from `/api/home/content` and `/api/coffees/archetypes`.
+- The featured "Add to cart" uses the dial item shape plus `setDialPosition(…, {trigger:'add_to_cart'})`.
+- "Talk to Liam" goes to `/sommelier` with access, to `/sign-in?redirect=/sommelier` when signed out, and is hidden when gated or without access.
+
+**Retired from Home:** the six-bag collection grid, `TasteFinderSection` (still used by About, How it works and Shop), `StripesDivider`, the Liam word reveal. The pull quote, photo essay and "months" strip have no place in the handoff; they are listed in the closing report.
+
+**Verified:** see `CLOSING_REPORT_3.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

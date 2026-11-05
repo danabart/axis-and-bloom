@@ -16,6 +16,10 @@ export interface HomeFacts {
   dimensions: number;
   /** coffee_archetype rows that are real families (is_archetype) */
   families: number;
+  /** Website 3 (2026-11-05): the score line of those same numeric dimensions
+   * (coffee_dimensions.scale_min / scale_max), so Home's "0 to 15" is read, not typed; null when none counted */
+  scaleMin: number | null;
+  scaleMax: number | null;
 }
 
 export async function getHomeFacts(): Promise<HomeFacts> {
@@ -26,17 +30,20 @@ export async function getHomeFacts(): Promise<HomeFacts> {
          JOIN quiz q ON q.id = qq.quiz_id AND q.is_active
          JOIN quiz_type qt ON qt.id = q.quiz_type_id AND qt.name = 'main'
         WHERE qq.is_current`),
-    db.query<{ n: string }>(
-      `SELECT COUNT(DISTINCT r.dimension_id) AS n
-         FROM v_coffee_dimension_range r
-         JOIN coffee_dimensions cd ON cd.id = r.dimension_id AND cd.is_numeric
-        WHERE r.value_min IS NOT NULL AND r.value_max IS NOT NULL`),
+    db.query<{ n: string; scale_min: string | null; scale_max: string | null }>(
+      `SELECT COUNT(DISTINCT cd.id) AS n, MIN(cd.scale_min) AS scale_min, MAX(cd.scale_max) AS scale_max
+         FROM coffee_dimensions cd
+        WHERE cd.is_numeric
+          AND cd.id IN (SELECT r.dimension_id FROM v_coffee_dimension_range r
+                         WHERE r.value_min IS NOT NULL AND r.value_max IS NOT NULL)`),
     getArchetypes(),
   ]);
   return {
     questions: Number(q.rows[0]?.n ?? 0),
     dimensions: Number(d.rows[0]?.n ?? 0),
     families: archetypes.filter(a => a.is_archetype).length,
+    scaleMin: d.rows[0]?.scale_min == null ? null : Number(d.rows[0].scale_min),
+    scaleMax: d.rows[0]?.scale_max == null ? null : Number(d.rows[0].scale_max),
   };
 }
 

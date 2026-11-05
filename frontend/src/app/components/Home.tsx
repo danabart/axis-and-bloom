@@ -1,80 +1,62 @@
-import { useRef, useEffect, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { TasteFinderSection } from './TasteFinderSection';
 import FilmModal from './FilmModal';
-import StripesDivider from './StripesDivider';
 import OrderFeedbackForm from './OrderFeedbackForm';
 import CompanyGiftRedemption from './CompanyGiftRedemption';
+import { Wrap, Caps, Titled, Btn, ArrowIcon } from './chrome';
+import { Photo, useFirstLoadable } from './home/Photo';
+import Voices from './home/Voices';
+import LiamThread from './home/LiamThread';
+import HomeDialArt from './home/HomeDialArt';
+import './home/home.css';
 import { useAuth } from '../context/AuthContext';
-import { getHomepageState } from '../lib/api';
+import { useCart } from '../context/CartContext';
+import { usePrelaunchGated } from '../lib/prelaunch';
+import { getHomepageState, getHomeContent, getArchetypes, setDialPosition, type HomeContent } from '../lib/api';
 import { reportError } from '../lib/errorReporter';
 import { formatCalendarDate } from '../lib/calendarDate';
+import { formatPrice, type ArchetypeData, type CartItem } from './bloom/types';
+import { ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
+import { archetypeAssets, homeAssets, quizAssets, lifestyleAssets, videoAssets, type ArchetypeSlug } from '../../design/assets';
+
+// Website 3 (2026-11-05) — the handoff homepage on the new chrome.
+// backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_3_HOME.md
+// Look: source/homepage-data/index.html (home/home.css). Behaviour kept from the
+// previous Home: lifecycle CTA (renderSignedInCTA / renderStageCTA), the order
+// feedback nudge with its 14-day "Not now", Company Gift redemption, the
+// visitor-name hand-off to the quiz, FilmModal, pause-off-screen + the rAF loop
+// fix on the film. Every number, word triple, quote, coffee name and price on
+// this page comes from the API (G2.1, G4.2, D10, D13, D15).
 
 // Mirrors FEEDBACK_NAG_SUPPRESS_DAYS in backend/src/services/userLifecycle.ts —
 // how long the feedback nudge stays hidden after a user dismisses it.
 const FEEDBACK_NAG_SUPPRESS_DAYS = 14;
 
-import { archetypeAssets, homeAssets, videoAssets } from '../../design/assets';
+/** The quiz reads this key on entry (FlavorQuiz.tsx) to prefill the name and skip its entry screen. */
+export const QUIZ_NAME_SESSION_KEY = 'axisBloomCustomerName';
+/** Remembered between visits (the old Home and TasteFinderSection read it). */
+export const VISITOR_NAME_KEY = 'axisbloom.name';
 
-const heroVideo    = videoAssets.homeHero;
-const liamVideo    = videoAssets.homePlaceholder;
+/** archetype enum code → asset registry slug (the registry predates the enum). */
+const SLUG_BY_CODE: Record<string, ArchetypeSlug> = {
+  floral: 'floral', fruity: 'fruity', balanced_sweet: 'balanced-sweet',
+  chocolate_nutty: 'chocolate-nutty', earthy: 'spicy-earthy', experimental: 'experimental',
+};
 
-// ── §4 Collection: july_scan1 edited scans ───────────────────────────────────
-// Below-the-fold thumbnail cards (~200px wide) — mobileSrc (800px cap) covers
-// this comfortably at any DPR, so it's used directly rather than a full srcSet.
-const scanFloral        = homeAssets.scan.floral.mobileSrc;
-const scanFruity        = homeAssets.scan.fruity.mobileSrc;
-const scanBalanced      = homeAssets.scan['balanced-sweet'].mobileSrc;
-const scanChocolate     = homeAssets.scan['chocolate-nutty'].mobileSrc;
-const scanSpicy         = homeAssets.scan['spicy-earthy'].mobileSrc;
-const scanExperimental  = homeAssets.scan.experimental.mobileSrc;
+function familyPhoto(code: string) {
+  const slug = SLUG_BY_CODE[code];
+  if (!slug) return null;
+  const asset = slug === 'experimental' ? archetypeAssets.experimental.hero : homeAssets.family[slug];
+  return { asset, fallback: archetypeAssets[slug].hero };
+}
 
-// ── §4 Collection: bag hover artwork (existing PNGs, do not replace) ─────────
-const bagFloral        = archetypeAssets.floral.bag.src;
-const bagFruity        = archetypeAssets.fruity.bag.src;
-const bagBalanced      = archetypeAssets['balanced-sweet'].bag.src;
-const bagChocolate     = archetypeAssets['chocolate-nutty'].bag.src;
-const bagEarthy        = archetypeAssets['spicy-earthy'].bag.src;
-const bagExperimental  = archetypeAssets.experimental.bag.src;
+const pad2 = (n: number) => String(n).padStart(2, '0');
 
-// ── §5 Photo essay images ─────────────────────────────────────────────────────
-// Kept as full {src, mobileSrc} objects (not flattened to .src) — these render
-// larger than the §4 cards, so they get a real srcSet rather than a hard mobileSrc cap.
-const photoEssay1 = homeAssets.photoEssay1;
-const photoEssay2 = homeAssets.photoEssay2;
-const photoEssay3 = homeAssets.photoEssay3;
+// The Liam example (08) is about Fruity, as drawn; its words come from the
+// archetype payload by code, and the coffee is Fruity's gentle end (first slot).
+const LIAM_EXAMPLE = { family: 'fruity', neighbor: 'floral' } as const;
 
-// ── Data ─────────────────────────────────────────────────────────────────────
-
-const COLLECTION = [
-  { scan: scanFloral,       bag: bagFloral,       num: '01', name: 'Floral',            color: '#a34b78' },
-  { scan: scanFruity,       bag: bagFruity,       num: '02', name: 'Fruity',             color: '#ca445f' },
-  { scan: scanBalanced,     bag: bagBalanced,     num: '03', name: 'Balanced',   color: '#d1ac11' },
-  { scan: scanChocolate,    bag: bagChocolate,    num: '04', name: 'Chocolate & Nutty',  color: '#a54c2d' },
-  { scan: scanSpicy,        bag: bagEarthy,       num: '05', name: 'Earthy',             color: '#912f2f' },
-  { scan: scanExperimental, bag: bagExperimental, num: '06', name: 'Experimental',       color: '#056c7a' },
-];
-
-// punct = punctuation that must hug the highlighted word (no gap)
-type QuoteToken = { before: string; word: string; punct: string; rest: string };
-const QUOTES: QuoteToken[] = [
-  { before: 'Coffee should feel like ', word: 'home',         punct: ',', rest: ' even when everything else is moving.' },
-  { before: 'The first cup is the only ', word: 'quiet',      punct: '', rest: ' I get all day.' },
-  { before: 'I never knew my taste had a ', word: 'name',     punct: '', rest: ' until someone asked.' },
-  { before: 'Sunday coffee is a ', word: 'ceremony',          punct: '.', rest: ' Weekday coffee is a promise.' },
-  { before: "It tastes like my grandmother's ", word: 'kitchen', punct: '', rest: ' in December.' },
-  { before: "I don't drink coffee to wake up. I wake up to ", word: 'drink coffee', punct: '.', rest: '' },
-];
-
-type CinToken = { text: string; highlight?: boolean };
-const LIAM_WORDS: CinToken[] = [
-  { text: 'Coffee' }, { text: 'is' }, { text: 'never' }, { text: 'just' }, { text: 'flavor.' },
-  { text: 'It' }, { text: 'is' }, { text: 'morning,' }, { text: 'memory,', highlight: true },
-  { text: 'temperature,' }, { text: 'texture,' }, { text: 'time.' },
-];
-
-interface HomepageState {
+export interface HomepageState {
   stageCode: string;
   archetype: { name: string; id: string; color: string; features: string[] } | null;
   daysSinceQuiz: number | null;
@@ -83,36 +65,31 @@ interface HomepageState {
   nextDeliveryDate: string | null;
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+function readStorage(store: 'local' | 'session', key: string): string {
+  try { return (store === 'local' ? localStorage : sessionStorage).getItem(key) ?? ''; } catch { return ''; }
+}
+function writeStorage(store: 'local' | 'session', key: string, value: string) {
+  try {
+    const s = store === 'local' ? localStorage : sessionStorage;
+    if (value) s.setItem(key, value); else s.removeItem(key);
+  } catch { /* storage blocked (private mode): the quiz asks for the name itself */ }
+}
 
 export default function Home() {
-  const { user } = useAuth();
+  const { user, isGuest, hasLiamAccess } = useAuth();
+  const { addToCart } = useCart();
+  const gated = usePrelaunchGated();
+  const signedOut = !user || isGuest;
 
-  // Film modal
-  const [filmModalOpen, setFilmModalOpen] = useState(false);
+  const [content, setContent] = useState<HomeContent | null>(null);
+  const [archetypes, setArchetypes] = useState<ArchetypeData[] | null>(null);
 
-  // §4 Collection hover
-  const [hoveredBag, setHoveredBag] = useState<number | null>(null);
+  useEffect(() => {
+    getHomeContent().then(setContent).catch(err => reportError('[Home/content]', err));
+    getArchetypes().then(setArchetypes).catch(err => reportError('[Home/archetypes]', err));
+  }, []);
 
-  // §7 Voices rotation
-  const [activeIdx, setActiveIdx]   = useState(0);
-  const [paused, setPaused]         = useState(false);
-  const [resetKey, setResetKey]     = useState(0);
-
-  const prefersReducedMotion = useReducedMotion();
-
-  // §2 Visitor name (drives §10 gift tag + bag)
-  const [visitorName, setVisitorName] = useState(() => localStorage.getItem('axisbloom.name') || '');
-
-  // §6 Liam word reveal
-  const liamTextRef = useRef<HTMLParagraphElement>(null);
-  const [liamVisible, setLiamVisible] = useState(false);
-
-  // Video refs
-  const heroVideoRef = useRef<HTMLVideoElement>(null);
-  const liamVideoRef = useRef<HTMLVideoElement>(null);
-
-  // Archetype data — used in §10 gift reveal
+  // ── lifecycle state (unchanged from the previous Home) ─────────────────────
   const [homepageState, setHomepageState] = useState<HomepageState | null>(null);
   const [homepageStateLoading, setHomepageStateLoading] = useState(false);
   const [feedbackDismissed, setFeedbackDismissed] = useState(false);
@@ -133,8 +110,7 @@ export default function Home() {
   useEffect(() => {
     const orderId = homepageState?.pendingFeedback?.orderId;
     if (orderId) {
-      const key = `axisBloomFeedbackDismiss_${orderId}`;
-      const dismissedAt = localStorage.getItem(key);
+      const dismissedAt = readStorage('local', `axisBloomFeedbackDismiss_${orderId}`);
       const suppressed = !!dismissedAt && Date.now() - Number(dismissedAt) < FEEDBACK_NAG_SUPPRESS_DAYS * 86400000;
       setFeedbackDismissed(suppressed);
     } else {
@@ -142,141 +118,139 @@ export default function Home() {
     }
   }, [homepageState]);
 
-  // §7 Quote auto-rotation
-  useEffect(() => {
-    if (prefersReducedMotion || paused) return;
-    const id = setInterval(() => setActiveIdx(i => (i + 1) % QUOTES.length), 5000);
-    return () => clearInterval(id);
-  }, [paused, prefersReducedMotion, resetKey]);
-
-  // rAF loop for clean video looping (avoids black-frame tail)
-  useEffect(() => {
-    const attach = (ref: React.RefObject<HTMLVideoElement | null>) => {
-      const v = ref.current;
-      if (!v) return () => {};
-      let raf: number;
-      const tick = () => {
-        if (v.duration && v.currentTime >= v.duration - 0.5) v.currentTime = 0.05;
-        raf = requestAnimationFrame(tick);
-      };
-      raf = requestAnimationFrame(tick);
-      return () => cancelAnimationFrame(raf);
-    };
-    const c1 = attach(heroVideoRef);
-    const c2 = attach(liamVideoRef);
-    return () => { c1(); c2(); };
-  }, []);
-
-  // Pause videos when off-screen
-  useEffect(() => {
-    const observe = (ref: React.RefObject<HTMLVideoElement | null>) => {
-      const v = ref.current;
-      if (!v) return () => {};
-      const io = new IntersectionObserver(
-        // .catch(() => {}): browser autoplay policy can reject play() until
-        // a user gesture, or the element can be unmounted mid-call — not an error.
-        ([e]) => { e.isIntersecting ? v.play().catch(() => {}) : v.pause(); },
-        { threshold: 0.05 }
-      );
-      io.observe(v);
-      return () => io.disconnect();
-    };
-    const d1 = observe(heroVideoRef);
-    const d2 = observe(liamVideoRef);
-    return () => { d1(); d2(); };
-  }, []);
-
-  // §6 Liam word reveal
-  useEffect(() => {
-    const el = liamTextRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) { setLiamVisible(true); io.disconnect(); } },
-      { threshold: 0.4 }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-
+  // ── visitor name → the quiz ────────────────────────────────────────────────
+  // Task 0: the quiz reads only the session key, which used to be written on
+  // the button click alone; both keys are now written as the name is typed.
+  const [visitorName, setVisitorName] = useState(() => readStorage('local', VISITOR_NAME_KEY));
   const handleNameChange = (val: string) => {
     setVisitorName(val);
-    localStorage.setItem('axisbloom.name', val);
+    writeStorage('local', VISITOR_NAME_KEY, val);
+    writeStorage('session', QUIZ_NAME_SESSION_KEY, val.trim());
+  };
+  const handOffName = () => writeStorage('session', QUIZ_NAME_SESSION_KEY, visitorName.trim());
+
+  // ── film (09): pause off-screen, rAF loop fix, FilmModal ───────────────────
+  const [filmModalOpen, setFilmModalOpen] = useState(false);
+  const [loopPaused, setLoopPaused] = useState(false);
+  const loopPausedRef = useRef(false);
+  const filmRef = useRef<HTMLVideoElement>(null);
+  const poster = useFirstLoadable([homeAssets.heroPoster, videoAssets.homeHeroPoster.src]);
+
+  useEffect(() => {
+    const v = filmRef.current;
+    if (!v) return;
+    // rAF loop for clean video looping (avoids the black-frame tail)
+    let raf = 0;
+    const tick = () => {
+      if (v.duration && v.currentTime >= v.duration - 0.5) v.currentTime = 0.05;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    // Pause when off-screen. .catch(() => {}): autoplay policy can reject
+    // play() until a user gesture, or the element can unmount mid-call.
+    let io: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== 'undefined') {
+      io = new IntersectionObserver(([e]) => {
+        if (e.isIntersecting && !loopPausedRef.current) v.play().catch(() => {});
+        else v.pause();
+      }, { threshold: 0.05 });
+      io.observe(v);
+    }
+    return () => { cancelAnimationFrame(raf); io?.disconnect(); };
+  }, []);
+
+  const toggleLoop = () => {
+    const v = filmRef.current;
+    const next = !loopPausedRef.current;
+    loopPausedRef.current = next;
+    setLoopPaused(next);
+    if (!v) return;
+    if (next) v.pause(); else v.play().catch(() => {});
   };
 
-  // §2 signed-in CTA — headline styled to match the anonymous headline above it
-  const q2Headline: React.CSSProperties = {
-    fontSize: 'clamp(26px,3.2vw,42px)', fontWeight: 400, color: '#9a2918',
-    lineHeight: 1.2, margin: '0 0 20px', maxWidth: 600,
-  };
-  const q2Body: React.CSSProperties = {
-    fontSize: 16, color: '#45474a', margin: '0 0 24px', fontFamily: "'Lato', Arial, sans-serif",
-  };
-  const q2Primary: React.CSSProperties = {
-    display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea',
-    padding: '14px 32px', fontSize: '0.75rem', letterSpacing: '0.14em',
-    textTransform: 'uppercase', textDecoration: 'none', fontFamily: "'Lato', Arial, sans-serif",
-  };
-  const q2Secondary: React.CSSProperties = {
-    fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase',
-    color: '#45474a', textDecoration: 'none', opacity: 0.55,
-    fontFamily: "'Lato', Arial, sans-serif",
-  };
+  // ── data derived for the sections ──────────────────────────────────────────
+  const families = (archetypes ?? []).slice().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const facts = content?.facts ?? null;
+  const n = facts?.questions ?? null;
+  const featured = content?.featured ?? null;
+  const featuredFamily = featured ? families.find(f => f.archetype === featured.card.archetype) : undefined;
+  const featuredPhoto = featured ? familyPhoto(featured.card.archetype) : null;
 
-  function renderSignedInCTA() {
-    if (homepageStateLoading || !homepageState) return null;
-    const { stageCode, archetype, pendingFeedback, usualBlend, nextDeliveryDate } = homepageState;
+  const liamFamily = families.find(f => f.archetype === LIAM_EXAMPLE.family);
+  const liamNeighbor = families.find(f => f.archetype === LIAM_EXAMPLE.neighbor);
+  const gentleEnd = liamFamily?.slots.slice().sort((a, b) => a.dialSortOrder - b.dialSortOrder)[0]?.platformName ?? null;
+  const liamExample = liamFamily && liamNeighbor ? {
+    question: `Why ${liamFamily.archetypeLabel} and not ${liamNeighbor.archetypeLabel}?`,
+    answer: `Your answers leaned toward ripe, juicy moments over fragrant ones. On the dial that places you at the gentle end of ${liamFamily.archetypeLabel}`
+      + (gentleEnd ? `, next to ${gentleEnd}.` : '.')
+      + ` Want to see the ${liamNeighbor.archetypeLabel} neighbor side by side?`,
+    suggestions: [`Show me the ${liamNeighbor.archetypeLabel} neighbor`, 'How should I brew it?'],
+  } : null;
 
-    const feedbackNudge = pendingFeedback && !feedbackDismissed ? (
-      <div style={{ width: '100%', maxWidth: 420, margin: '0 0 36px', textAlign: 'left' }}>
+  // Talk to Liam: hidden while gated; signed-out visitors go through sign-in;
+  // signed-in customers without Liam access do not see it.
+  const liamHref = gated ? null : signedOut ? '/sign-in?redirect=/sommelier' : hasLiamAccess ? '/sommelier' : null;
+
+  function handleFeaturedAdd() {
+    if (!featured?.price || !featured.card.platformName) return;
+    const { card, price } = featured;
+    const item: CartItem = {
+      kind: 'dial',
+      archetype: card.archetype,
+      archetypeLabel: card.archetypeLabel,
+      dialSortOrder: card.dialSortOrder,
+      weightOz: price.weightOz,
+      platformName: card.platformName!,
+      retailPriceCents: price.retailPriceCents,
+      qty: 1,
+    };
+    addToCart(item);
+    // The same dial-event sync the dial card performs (ArchetypeSection / DialArchetypeSection).
+    if (user) {
+      setDialPosition(card.archetype, card.dialSortOrder, {
+        trigger: 'add_to_cart', source: 'home', coffeeId: card.coffeeId ?? null,
+      }).catch(err => reportError('[Home/add-to-cart-dial-sync]', err));
+    }
+  }
+
+  // ── 03: signed-in / lifecycle CTA (same texts as the previous Home) ────────
+  function renderFeedbackNudge() {
+    const pf = homepageState?.pendingFeedback;
+    if (!pf || feedbackDismissed) return null;
+    return (
+      <div className="hm-nudge" data-testid="home-feedback-nudge">
         <OrderFeedbackForm
-          orderId={pendingFeedback.orderId}
-          blendName={pendingFeedback.blendName}
-          coffeeId={pendingFeedback.coffeeId}
+          orderId={pf.orderId}
+          blendName={pf.blendName}
+          coffeeId={pf.coffeeId}
           onSubmitted={() => setFeedbackDismissed(true)}
         />
         <button
           type="button"
+          className="hm-textbtn ab-caps"
+          style={{ fontWeight: 400 }}
           onClick={() => {
-            localStorage.setItem(`axisBloomFeedbackDismiss_${pendingFeedback.orderId}`, String(Date.now()));
+            writeStorage('local', `axisBloomFeedbackDismiss_${pf.orderId}`, String(Date.now()));
             setFeedbackDismissed(true);
           }}
-          style={{ ...q2Secondary, background: 'none', border: 'none', cursor: 'pointer', marginTop: 10, display: 'inline-block' }}
         >
           Not now
         </button>
       </div>
-    ) : null;
-
-    return (
-      <>
-        {feedbackNudge}
-        {renderStageCTA(stageCode, archetype, usualBlend, nextDeliveryDate)}
-      </>
     );
   }
 
-  function renderStageCTA(
-    stageCode: string,
-    archetype: HomepageState['archetype'],
-    usualBlend: HomepageState['usualBlend'],
-    nextDeliveryDate: HomepageState['nextDeliveryDate']
-  ) {
-    if (stageCode === 'NEW_NO_QUIZ') {
-      return (
-        <>
-          <h2 style={q2Headline}>Ready to find your flavor?</h2>
-          <Link to="/find-my-flavor" style={q2Primary}>Take the quiz →</Link>
-        </>
-      );
-    }
+  function renderStageCTA(state: HomepageState) {
+    const { stageCode, archetype, usualBlend, nextDeliveryDate } = state;
+    const secondary = (to: string, label: string) => <Link to={to} className="hm-ulink ab-caps">{label}</Link>;
     if (stageCode === 'QUIZ_TAKEN_FRESH_NO_ORDER' || stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER' || stageCode === 'QUIZ_STALE_NO_ORDER') {
       return (
         <>
-          <h2 style={q2Headline}>You're a {archetype?.name ?? 'match'} — shop your matches.</h2>
-          <Link to="/shop" style={q2Primary}>Shop your matches →</Link>
-          <div style={{ marginTop: 16 }}>
-            {stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER' && <Link to="/find-my-flavor" style={q2Secondary}>Retake the quiz →</Link>}
-            {stageCode === 'QUIZ_STALE_NO_ORDER' && <Link to="/find-my-flavor" style={q2Secondary}>Palates change — retake anytime →</Link>}
+          <h2 className="hm-h2">You're a {archetype?.name ?? 'match'} — shop your matches.</h2>
+          <div className="hm-secondary">
+            <Btn to="/shop" style={{ alignSelf: 'flex-start' }}>Shop your matches</Btn>
+            {stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER' && secondary('/find-my-flavor', 'Retake the quiz')}
+            {stageCode === 'QUIZ_STALE_NO_ORDER' && secondary('/find-my-flavor', 'Palates change — retake anytime')}
           </div>
         </>
       );
@@ -284,408 +258,330 @@ export default function Home() {
     if (stageCode === 'SUBSCRIBER') {
       return (
         <>
-          <h2 style={q2Headline}>Your subscription is on track.</h2>
+          <h2 className="hm-h2">Your subscription is on track.</h2>
           {nextDeliveryDate && (
-            <p style={q2Body}>Next shipment: {formatCalendarDate(nextDeliveryDate, { month: 'long', day: 'numeric' })}</p>
+            <p className="hm-lead">Next shipment: {formatCalendarDate(nextDeliveryDate, { month: 'long', day: 'numeric' })}</p>
           )}
-          <Link to="/profile" style={q2Primary}>Manage subscription →</Link>
+          <Btn to="/profile" style={{ alignSelf: 'flex-start' }}>Manage subscription</Btn>
         </>
       );
     }
     if (stageCode === 'REORDER_DUE') {
       return (
         <>
-          <h2 style={q2Headline}>Ready for more {usualBlend?.name ?? 'your usual'}?</h2>
-          <Link to="/shop" style={q2Primary}>Reorder →</Link>
+          <h2 className="hm-h2">Ready for more {usualBlend?.name ?? 'your usual'}?</h2>
+          <Btn to="/shop" style={{ alignSelf: 'flex-start' }}>Reorder</Btn>
         </>
       );
     }
     if (stageCode === 'LAPSED_SINGLE_ORDER') {
       return (
         <>
-          <h2 style={q2Headline}>New arrivals since your last order.</h2>
-          <Link to="/shop" style={q2Primary}>See what's new →</Link>
+          <h2 className="hm-h2">New arrivals since your last order.</h2>
+          <Btn to="/shop" style={{ alignSelf: 'flex-start' }}>See what's new</Btn>
         </>
       );
     }
     // ACTIVE_REPEAT_USER and any other fallback
     return (
       <>
-        <h2 style={q2Headline}>Welcome back.</h2>
-        <Link to="/shop" style={q2Primary}>Shop again →</Link>
+        <h2 className="hm-h2">Welcome back.</h2>
+        <Btn to="/shop" style={{ alignSelf: 'flex-start' }}>Shop again</Btn>
       </>
     );
   }
 
+  /** The design's own 03 content: name field + quiz button (signed out, guests, NEW_NO_QUIZ). */
+  function renderQuizInvite() {
+    return (
+      <>
+        <Titled style={{ fontWeight: 600, alignSelf: 'flex-start' }}>Find my flavor</Titled>
+        <h2 className="hm-h2">Ready to see your shape?</h2>
+        <p className="hm-lead">
+          {n !== null ? `${n} questions` : 'A few questions'} about moments, reactions and familiar foods. On the other side: your family of taste, your place on the dial, and the coffees that share it.
+        </p>
+        <form
+          onSubmit={e => e.preventDefault()}
+          style={{ display: 'flex', flexDirection: 'column', gap: 26, paddingTop: 8 }}
+        >
+          <div className="hm-field">
+            <label htmlFor="home-first-name" className="ab-caps" style={{ fontWeight: 600 }}>Your first name</label>
+            <input
+              id="home-first-name"
+              type="text"
+              autoComplete="given-name"
+              value={visitorName}
+              onChange={e => handleNameChange(e.target.value)}
+            />
+          </div>
+          <div className="hm-actions">
+            <Btn to="/find-my-flavor" onClick={handOffName}>
+              {n !== null ? `Take the ${n}-question quiz` : 'Take the quiz'}
+            </Btn>
+            {signedOut && (
+              <Caps weight={400}>Have a profile? <Link to="/sign-in" className="hm-ulink">Sign in</Link></Caps>
+            )}
+          </div>
+        </form>
+      </>
+    );
+  }
+
+  function renderSection03() {
+    // Same branch as the previous Home: the anonymous form unless there is a
+    // homepage state to speak to (a guest with no state still sees the form).
+    const showInvite = !user || (user.isAnonymous && !homepageState);
+    if (showInvite) return renderQuizInvite();
+    if (homepageStateLoading || !homepageState) return null;
+    return (
+      <>
+        {renderFeedbackNudge()}
+        {homepageState.stageCode === 'NEW_NO_QUIZ' ? renderQuizInvite() : renderStageCTA(homepageState)}
+      </>
+    );
+  }
+
+  const balancedPhoto = familyPhoto('balanced_sweet')!;
+
   return (
-    <div style={{ backgroundColor: '#f2f1ea' }}>
+    <div className="hm">
+      <FilmModal src={videoAssets.homeHero} open={filmModalOpen} onClose={() => setFilmModalOpen(false)} />
 
-      <FilmModal
-        src={heroVideo}
-        open={filmModalOpen}
-        onClose={() => setFilmModalOpen(false)}
-      />
-
-      {/* ━━━ §1 FILM HERO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section data-hero style={{ position: 'relative', height: '90vh', minHeight: 480, overflow: 'hidden', backgroundColor: '#141110' }}>
-        <video
-          ref={heroVideoRef}
-          autoPlay muted loop playsInline preload="metadata"
-          poster={videoAssets.homeHeroPoster.src}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-        >
-          <source src={heroVideo} type="video/mp4" />
-        </video>
-
-        {/* Bottom scrim */}
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 55%, rgba(20,12,8,.55))', pointerEvents: 'none' }} />
-
-        {/* Bottom-left title */}
-        <p style={{
-          position: 'absolute', left: 'clamp(24px,5vw,64px)', bottom: 80, zIndex: 2, margin: 0,
-          fontSize: 'clamp(22px,2.8vw,30px)', color: 'rgba(242,241,234,.7)', fontWeight: 400,
-        }}>
-          Do you hear me?
-        </p>
-
-        {/* WATCH pill — centered */}
-        <button
-          onClick={() => setFilmModalOpen(true)}
-          aria-label="Watch the film with sound"
-          style={{
-            position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
-            zIndex: 2, background: 'none', border: '1px solid rgba(242,241,234,.55)',
-            color: '#f2f1ea', fontFamily: "'Lato', Arial, sans-serif",
-            fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase',
-            padding: '11px 28px', cursor: 'pointer',
-          }}
-        >
-          Watch
-        </button>
-      </section>
-
-      {/* ━━━ §2 THE QUESTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{
-        backgroundColor: '#f2f1ea',
-        padding: 'clamp(80px,12vw,140px) clamp(32px,6vw,80px)',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
-      }}>
-        {(!user || (user.isAnonymous && !homepageState)) ? (
-          <>
-            <h2 style={{
-              fontSize: 'clamp(26px,3.2vw,42px)', fontWeight: 400, color: '#9a2918',
-              lineHeight: 1.2, margin: '0 0 40px', maxWidth: 600,
-            }}>
-              Whose palate are we profiling today?
-            </h2>
-            <div style={{ width: '100%', maxWidth: 360 }}>
-              <style>{`#q-name::placeholder { color: #7b7f80; text-align: center; }`}</style>
-              <input
-                id="q-name"
-                type="text"
-                placeholder="Your name"
-                autoComplete="given-name"
-                value={visitorName}
-                onChange={e => handleNameChange(e.target.value)}
-                style={{
-                  width: '100%', background: 'transparent', border: 'none',
-                  borderBottom: '1px solid #9a2918', borderRadius: 0, outline: 'none',
-                  fontSize: 18, color: '#45474a', padding: '10px 0', textAlign: 'center',
-                  fontFamily: "'Lato', Arial, sans-serif",
-                }}
-              />
-              <div style={{ marginTop: 28, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-                <Link
-                  to="/find-my-flavor"
-                  onClick={e => {
-                    if (!visitorName.trim()) { e.preventDefault(); return; }
-                    sessionStorage.setItem('axisBloomCustomerName', visitorName.trim());
-                  }}
-                  style={{
-                    display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea',
-                    padding: '14px 32px', fontSize: '0.75rem', letterSpacing: '0.14em',
-                    textTransform: 'uppercase', textDecoration: 'none', fontFamily: "'Lato', Arial, sans-serif",
-                  }}
-                >
-                  Begin →
-                </Link>
-                <Link to="/sign-in" style={{
-                  fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase',
-                  color: '#45474a', textDecoration: 'none', opacity: 0.55,
-                  fontFamily: "'Lato', Arial, sans-serif",
-                }}>
-                  Sign in
-                </Link>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            {renderSignedInCTA()}
-          </div>
-        )}
-      </section>
-
-      {/* ━━━ COMPANY GIFT CODE REDEMPTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{
-        backgroundColor: '#f2f1ea',
-        borderTop: '1px solid rgba(154,41,24,0.12)', borderBottom: '1px solid rgba(154,41,24,0.12)',
-        padding: '18px clamp(32px,5vw,56px)',
-        display: 'flex', justifyContent: 'center',
-      }}>
-        <CompanyGiftRedemption onRedeemed={refreshHomepageState} />
-      </section>
-
-      {/* ━━━ §3 PULL QUOTE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{
-        backgroundColor: '#ebebe3',
-        borderTop: '1px solid #c5c7c8', borderBottom: '1px solid #c5c7c8',
-        padding: 'clamp(64px,9vw,100px) clamp(32px,6vw,80px)',
-        textAlign: 'center',
-      }}>
-        <p style={{
-          fontSize: 'clamp(30px,3.4vw,48px)', fontWeight: 400, color: '#45474a',
-          lineHeight: 1.3, maxWidth: 800, margin: '0 auto',
-        }}>
-          The best gift is{' '}
-          <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 9px' }}>time</span>
-          . And sometimes, time begins with coffee.
-        </p>
-      </section>
-
-      <StripesDivider />
-
-      {/* ━━━ §4 COLLECTION — "Find your bag." ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', paddingTop: 'clamp(80px,10vw,120px)', paddingBottom: 112, isolation: 'isolate' }}>
-        <div style={{ padding: '0 clamp(32px,6vw,96px)', marginBottom: 'clamp(40px,5vw,64px)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16 }}>
-          <div>
-            <p style={{ fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
-            <h2 style={{ fontSize: 'clamp(1.8rem,3vw,2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
-          </div>
-          <Link to="/shop" style={{ fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,.35)', paddingBottom: 4, alignSelf: 'flex-end' }}>
-            Shop all coffees →
-          </Link>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: '6px' }}>
-          {COLLECTION.map((item, i) => (
-            <div
-              key={i}
-              style={{ display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
-              onMouseEnter={() => setHoveredBag(i)}
-              onMouseLeave={() => setHoveredBag(null)}
-              onFocus={() => setHoveredBag(i)}
-              onBlur={() => setHoveredBag(null)}
-              tabIndex={0}
+      {/* ━━━ 01 FAMILIES ━━━ (the header floats over this band: PublicLayout) */}
+      <section id="top" aria-label="Shop by family of taste" className="hm-fams">
+        {families.map(f => {
+          const photo = familyPhoto(f.archetype);
+          const color = ARCHETYPE_VISUALS[f.archetype]?.color;
+          return (
+            <Link
+              key={f.archetype}
+              to={gated ? '/find-my-flavor' : `/shop#${f.archetype}`}
+              className="hm-fam"
+              style={{ background: color }}
+              data-testid="home-family"
             >
-              <div style={{ height: 3, backgroundColor: item.color, flexShrink: 0 }} />
-              <div style={{ aspectRatio: '3/4.6', position: 'relative', overflow: 'hidden', backgroundColor: '#141110' }}>
-                <div style={{ position: 'absolute', inset: 0, opacity: hoveredBag === i ? 0 : 1, transition: 'opacity 0.3s ease' }}>
-                  <img src={item.scan} alt={`${item.name} archetype`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
-                </div>
-                <div style={{ position: 'absolute', inset: 0, backgroundColor: item.color, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: hoveredBag === i ? 1 : 0, transition: 'opacity 0.3s ease' }}>
-                  <img src={item.bag} alt="" aria-hidden="true" loading="lazy" style={{ width: '72%', height: '84%', objectFit: 'contain', display: 'block' }} />
-                </div>
-              </div>
-              <div style={{ textAlign: 'center', padding: '14px 6px 0' }}>
-                <span style={{ display: 'block', fontSize: 12, letterSpacing: '0.14em', color: item.color, lineHeight: 1.3 }}>No. {item.num}</span>
-                <span style={{ display: 'block', fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#45474a', lineHeight: 1.3, marginTop: 3 }}>{item.name}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ━━━ §5 PHOTO ESSAY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px,10vw,120px) clamp(32px,6vw,80px)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'clamp(48px,6vw,72px)', flexWrap: 'wrap', gap: 16 }}>
-          <h2 style={{ fontSize: 'clamp(24px,3vw,40px)', fontWeight: 400, color: '#45474a', margin: 0 }}>The first quiet hour.</h2>
-          <Link to="/essays" style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,.35)', paddingBottom: 3, alignSelf: 'flex-end' }}>
-            See all photographs →
-          </Link>
-        </div>
-        <div style={{ display: 'flex', gap: 'clamp(16px,2vw,28px)', alignItems: 'flex-start' }}>
-          {[
-            { asset: photoEssay1, caption: 'Earthy · Jun 03, 2026', offset: 0 },
-            { asset: photoEssay2, caption: 'Fruity · Jun 02, 2026', offset: 44 },
-            { asset: photoEssay3, caption: 'Floral · Jun 06, 2026', offset: 88 },
-          ].map((img, i) => (
-            <div key={i} style={{ flex: 1, marginTop: img.offset }}>
-              <div style={{ border: '1px solid #c5c7c8', padding: 14, backgroundColor: '#f2f1ea' }}>
-                <img
-                  src={img.asset.src}
-                  srcSet={`${img.asset.mobileSrc} 800w, ${img.asset.src} 1200w`}
-                  sizes="(max-width: 768px) 100vw, 33vw"
-                  loading="lazy"
-                  alt=""
-                  width={1200}
-                  height={1500}
-                  style={{ width: '100%', aspectRatio: '4/5', objectFit: 'cover', display: 'block' }}
-                />
-              </div>
-              {/* TODO: Camila writes final captions */}
-              <p style={{ fontSize: 11, color: '#7b7f80', marginTop: 10, letterSpacing: '0.06em', margin: '10px 0 0' }}>{img.caption}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ━━━ §6 LIAM — video band with word reveal ━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ position: 'relative', height: 'clamp(56vh,62vh,65vh)', overflow: 'hidden', backgroundColor: '#201812', display: 'flex', alignItems: 'flex-end' }}>
-        <video
-          ref={liamVideoRef}
-          // No autoPlay attribute (unlike the hero video): the below-the-fold
-          // IntersectionObserver already calls .play() on scroll-into-view (below) —
-          // autoplay-on-mount would force the browser to fetch immediately regardless
-          // of preload="none", defeating the point of deferring this video.
-          muted loop playsInline preload="none"
-          poster={videoAssets.homePlaceholderPoster.src}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block' }}
-        >
-          <source src={liamVideo} type="video/mp4" />
-        </video>
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(16,10,6,0) 45%, rgba(16,10,6,.65) 100%)' }} />
-        <p
-          ref={liamTextRef}
-          style={{
-            position: 'relative', zIndex: 2,
-            padding: '0 clamp(32px,6vw,64px) clamp(48px,7vh,72px)',
-            fontSize: 'clamp(28px,3.6vw,46px)', fontWeight: 400, color: '#f2f1ea',
-            margin: 0, maxWidth: 900, lineHeight: 1.3,
-          }}
-        >
-          {LIAM_WORDS.map((tok, i) => {
-            const visible = prefersReducedMotion || liamVisible;
-            const delay = prefersReducedMotion ? 0 : i * 90;
-            return (
-              <span
-                key={i}
-                style={{
-                  display: 'inline-block',
-                  marginRight: tok.highlight ? '0.15em' : '0.28em',
-                  ...(tok.highlight ? { backgroundColor: '#ee5974', color: '#f2f1ea', padding: '0 7px 2px' } : {}),
-                  opacity: visible ? 1 : 0,
-                  transform: visible ? 'translateY(0)' : 'translateY(12px)',
-                  transition: visible
-                    ? `opacity 0.55s ${delay}ms cubic-bezier(.22,1,.36,1), transform 0.55s ${delay}ms cubic-bezier(.22,1,.36,1)`
-                    : 'none',
-                }}
-              >
-                {tok.text}
+              {photo && <Photo asset={photo.asset} fallback={photo.fallback} alt="" sizes="(max-width: 900px) 62vw, 20vw" className="hm-fam-photo" />}
+              <span className="hm-fam-tint" aria-hidden="true" style={{ background: color }} />
+              <span className="hm-fam-top">
+                {f.sortOrder != null && <span className="hm-fam-num">{pad2(f.sortOrder)} —</span>}
+                <span className="hm-fam-name">{f.archetypeLabel}</span>
               </span>
-            );
-          })}
-        </p>
+              <span className="hm-fam-bottom">
+                <span className="hm-fam-rule" aria-hidden="true" />
+                {f.customerWords && (
+                  <span className="hm-fam-words">{f.customerWords.map(w => <span key={w}>{w}</span>)}</span>
+                )}
+                <span className="hm-fam-shop">Explore {f.archetypeLabel} <ArrowIcon /></span>
+              </span>
+            </Link>
+          );
+        })}
       </section>
 
-      {/* ━━━ §7 VOICES — centered rotating quotes ━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section
-        style={{ backgroundColor: '#f2f1ea', padding: 'clamp(72px,10vw,120px) clamp(32px,6vw,80px)', textAlign: 'center' }}
-        onMouseEnter={() => setPaused(true)}
-        onMouseLeave={() => setPaused(false)}
-      >
-        <span style={{ display: 'block', fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', marginBottom: 28 }}>In their words</span>
+      {/* ━━━ 02 MENU ROW ━━━ */}
+      <Wrap as="section" aria-label="Menu" className="hm-menu-sec">
+        <nav className="hm-menu" aria-label="Primary">
+          {!gated && <Link to="/the-axis">The Axis <ArrowIcon strokeWidth={1} /></Link>}
+          {!gated && <Link to="/bloom">The Bloom <ArrowIcon strokeWidth={1} /></Link>}
+          <Link to="/find-my-flavor" onClick={handOffName}>Find My Flavor <ArrowIcon strokeWidth={1} /></Link>
+        </nav>
+      </Wrap>
 
-        <div style={{ minHeight: '7rem', position: 'relative', marginBottom: 28 }}>
-          <AnimatePresence mode="wait">
-            <motion.p
-              key={activeIdx}
-              initial={prefersReducedMotion ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={prefersReducedMotion ? false : { opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              aria-live="polite"
-              style={{
-                fontSize: 'clamp(26px,2.6vw,36px)', fontWeight: 400, color: '#45474a',
-                lineHeight: 1.35, maxWidth: 680, margin: '0 auto',
-                position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100%',
-              }}
-            >
-              {QUOTES[activeIdx].before}
-              <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 8px' }}>{QUOTES[activeIdx].word}</span>{QUOTES[activeIdx].punct}{QUOTES[activeIdx].rest}
-            </motion.p>
-          </AnimatePresence>
+      {/* ━━━ 03 FIND MY FLAVOR (+ lifecycle CTA, feedback nudge) ━━━ */}
+      <Wrap as="section" id="quiz" aria-label="Find my flavor" style={{ paddingBottom: 'clamp(64px, 8vw, 128px)' }}>
+        <div className="hm-fmf">
+          <figure className="hm-figure">
+            <div className="hm-mat">
+              <Photo asset={balancedPhoto.asset} fallback={balancedPhoto.fallback} alt="" sizes="(max-width: 900px) 100vw, 40vw" style={{ aspectRatio: '1158 / 1384' }} />
+            </div>
+          </figure>
+          <div className="hm-col" data-testid="home-section-03">
+            {renderSection03()}
+          </div>
         </div>
+      </Wrap>
 
-        <div role="group" aria-label="Quote navigation" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 0 }}>
-          {QUOTES.map((_, i) => (
-            <button
-              key={i}
-              aria-label={`Quote ${i + 1} of ${QUOTES.length}`}
-              onClick={() => { setActiveIdx(i); setResetKey(k => k + 1); }}
-              style={{ width: 24, height: 32, padding: 0, margin: 0, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-              className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9a2918]"
-            >
-              <div style={{
-                width: 1, height: i === activeIdx ? 18 : 9,
-                backgroundColor: i === activeIdx ? '#9a2918' : '#c5c7c8',
-                transition: 'height 0.3s ease, background-color 0.3s ease',
-                pointerEvents: 'none',
-              }} />
-            </button>
-          ))}
+      {/* ━━━ COMPANY GIFT CODE REDEMPTION (directly under 03) ━━━ */}
+      <Wrap className="hm-gift">
+        <CompanyGiftRedemption onRedeemed={refreshHomepageState} />
+      </Wrap>
+
+      {/* ━━━ 03b WHY ━━━ */}
+      <Wrap as="section" id="why" aria-label="Why we do this" style={{ paddingBottom: 'clamp(48px, 6vw, 88px)' }}>
+        <div className="hm-whyg">
+          <Titled style={{ fontWeight: 600, justifySelf: 'start' }}>Why we do this</Titled>
+          <div className="hm-why-body">
+            <h2 className="hm-why-h">Ask someone their favorite tea and they answer in a word. Ask about coffee and the room goes quiet.</h2>
+            <p className="hm-why-p">Choosing coffee is hard. In a store you buy on a bag, a name, a roast level — none of which says how it will taste to you. Most people can’t name what they like, and many can’t say why one coffee disappointed and another didn’t.</p>
+            <p className="hm-why-p">So we do the work on your side. We study taste and habits, we curate coffees from roasters across the US who source from all over the world, and we cup every one of them into our families of taste. Your match is the result.</p>
+          </div>
+        </div>
+      </Wrap>
+
+      {/* ━━━ 04 IN NUMBERS ━━━ */}
+      {facts && (
+        <section aria-label="In numbers" className="hm-facts" data-testid="home-facts">
+          <div className="hm-fact" tabIndex={0}>
+            <span className="hm-fact-n">{pad2(facts.questions)}</span>
+            <Caps>Questions</Caps>
+            <span className="hm-fact-more">About moments, reactions and familiar foods you already know.</span>
+          </div>
+          <div className="hm-fact" tabIndex={0}>
+            <span className="hm-fact-n">{pad2(facts.dimensions)}</span>
+            <Caps>Cupped dimensions</Caps>
+            <span className="hm-fact-more">
+              Every coffee scored{facts.scaleMin != null && facts.scaleMax != null ? ` ${facts.scaleMin} to ${facts.scaleMax},` : ''} {facts.dimensions} ways, and checked against the roaster’s notes.
+            </span>
+          </div>
+          <div className="hm-fact" tabIndex={0}>
+            <span className="hm-fact-n">{pad2(facts.families)}</span>
+            <Caps>Families of taste</Caps>
+            <span className="hm-fact-more">
+              {families.length > 0 ? `${families.map(f => f.archetypeLabel).join(', ')}. ` : ''}You belong to one.
+            </span>
+          </div>
+          <div className="hm-fact" tabIndex={0}>
+            <span className="hm-fact-n">01</span>
+            <Caps>Shape that is yours</Caps>
+            <span className="hm-fact-more">Your place on the dial, sharper with every bag you tell us about.</span>
+          </div>
+        </section>
+      )}
+
+      {/* ━━━ 05 KNOW WHAT YOU LIKE ━━━ */}
+      <Wrap as="section" id="shop" aria-label="Know what you like" className="hm-know-sec">
+        <div className="hm-know">
+          <div className="hm-col">
+            <Titled style={{ fontWeight: 600, alignSelf: 'flex-start' }}>Know what you like?</Titled>
+            <h2 className="hm-h2">Skip the quiz.<br />Go straight to the coffee.</h2>
+            <p className="hm-lead">
+              {facts ? `${facts.families} families` : 'Our families'}, a handful of coffees in each. Every one cupped on {facts ? `${facts.dimensions} dimensions` : 'every dimension'}, from partner roasteries.
+            </p>
+            {!gated && <Btn to="/shop" style={{ alignSelf: 'flex-start' }}>Shop all coffees</Btn>}
+          </div>
+          {featured && !gated && (
+            <figure className="hm-figure" style={{ gap: 18 }} data-testid="home-featured">
+              {featuredPhoto && (
+                <div className="hm-mat" style={{ maxWidth: '100%' }}>
+                  <Photo asset={featuredPhoto.asset} fallback={featuredPhoto.fallback} alt="" sizes="(max-width: 900px) 100vw, 55vw" style={{ aspectRatio: '5 / 4' }} />
+                </div>
+              )}
+              <figcaption style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div className="hm-feat-row ab-caps">
+                  <span>This week</span>
+                  <span style={{ fontWeight: 400 }}>
+                    {featuredFamily?.sortOrder != null ? `${pad2(featuredFamily.sortOrder)} — ` : ''}{featured.card.archetypeLabel}
+                  </span>
+                </div>
+                <div className="hm-feat-title">
+                  {featured.card.platformName && <span className="hm-feat-name">{featured.card.platformName}</span>}
+                  {featured.card.signatureNotes && featured.card.signatureNotes.length > 0 && (
+                    <Caps weight={400}>{featured.card.signatureNotes.join(' · ')}</Caps>
+                  )}
+                </div>
+                {featured.price && featured.card.platformName && (
+                  <div className="hm-feat-buy ab-caps">
+                    <span style={{ fontWeight: 400 }}>{featured.price.weightOz} oz whole bean · {formatPrice(featured.price.retailPriceCents)}</span>
+                    <button type="button" className="hm-ulink" onClick={handleFeaturedAdd}>Add to cart ↗</button>
+                  </div>
+                )}
+              </figcaption>
+            </figure>
+          )}
+        </div>
+      </Wrap>
+
+      {/* ━━━ 06 VOICES ━━━ */}
+      {content && <Voices quotes={content.quotes} />}
+
+      {/* ━━━ 07 THE AXIS ━━━ */}
+      <section id="axis" aria-label="The Axis" className="hm-fot">
+        <div className="hm-fot-rule" />
+        <div className="hm-fot-head">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Titled style={{ fontWeight: 600, alignSelf: 'flex-start' }}>The Axis</Titled>
+            <h2 className="hm-fot-h">How your shape gets drawn.</h2>
+          </div>
+          {!gated && <Btn to="/the-axis">The Axis</Btn>}
+        </div>
+        <div className="hm-fcards">
+          <div className="hm-fcard is-dark">
+            <Photo asset={homeAssets.axisQuiz} fallback={quizAssets.pic1} alt="" sizes="(max-width: 900px) 100vw, 33vw" className="hm-step-img" style={{ objectPosition: '50% 40%' }} />
+            <Caps style={{ fontWeight: 600 }}>01 / The quiz</Caps>
+            <span className="hm-fcard-name">{n !== null ? `Answer ${n} questions` : 'Answer a few questions'}</span>
+            <p className="hm-step-p">Moments, reactions and familiar foods: things you already know about yourself. That is the whole point.</p>
+            <span className="hm-fcard-foot"><Caps>About three minutes</Caps></span>
+          </div>
+          <div className="hm-fcard">
+            <Photo asset={homeAssets.axisCupping} fallback={lifestyleAssets.coffee15} alt="" sizes="(max-width: 900px) 100vw, 33vw" className="hm-step-img" />
+            <Caps style={{ fontWeight: 600 }}>02 / The cupping</Caps>
+            <span className="hm-fcard-name">We cup every coffee</span>
+            <p className="hm-step-p">
+              Each bag is scored on {facts ? `${facts.dimensions} dimensions` : 'every dimension'}{facts && facts.scaleMin != null && facts.scaleMax != null ? `, ${facts.scaleMin} to ${facts.scaleMax},` : ''} and reconciled with the roaster’s own notes. Every session stays on record, and every score comes from the cup.
+            </p>
+            {facts && (
+              <span className="hm-fcard-foot">
+                <Caps>{facts.dimensions} dimensions{facts.scaleMin != null && facts.scaleMax != null ? ` · ${facts.scaleMin}–${facts.scaleMax}` : ''}</Caps>
+              </span>
+            )}
+          </div>
+          <div className="hm-fcard hm-fcard-dial">
+            <HomeDialArt className="hm-dialart" />
+            <Caps style={{ fontWeight: 600 }}>03 / The dial</Caps>
+            <span className="hm-fcard-name">Your bloom lands on the dial</span>
+            <p className="hm-step-p">Your shape is placed beside the coffees that share it. Order one, tell us what you thought, and the shape sharpens with every bag.</p>
+            <span className="hm-fcard-foot"><Caps>Sharper with every bag</Caps></span>
+          </div>
+        </div>
+        <div className="hm-fot-foot">
+          <p>{n !== null ? `${n} questions` : 'A few questions'} about moments you know.<br />Your match is a shape drawn from your answers.</p>
         </div>
       </section>
 
-      <StripesDivider />
+      {/* ━━━ 08 LIAM ━━━ */}
+      <Wrap as="section" id="liam" aria-label="Liam, your sommelier" className="hm-liam-sec">
+        <div className="hm-liamg">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(22px, 2.6vw, 36px)' }}>
+            <Titled style={{ fontWeight: 600, alignSelf: 'flex-start' }}>Liam · your AI sommelier</Titled>
+            <h2 className="hm-h2">Liam reads the same evidence you do.</h2>
+            <p className="hm-lead" style={{ maxWidth: '42ch' }}>
+              Ask why you matched, what to try next, or how to brew the bag that just arrived. Liam answers from the cupping record and your own orders. Every answer stands on what the data shows.
+            </p>
+            {liamHref && <Btn to={liamHref} style={{ alignSelf: 'flex-start' }}>Talk to Liam</Btn>}
+          </div>
+          {liamExample && <LiamThread {...liamExample} />}
+        </div>
+      </Wrap>
 
-      {/* ━━━ §8 THE MONTHS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px,10vw,120px) clamp(32px,6vw,80px)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 'clamp(8px,1.5vw,16px)' }}>
-          {/* JULY 26 — clickable poster, opens film modal */}
-          {/* TODO: replace dark placeholder with poster-july26.jpg once extracted */}
-          <button
-            onClick={() => setFilmModalOpen(true)}
-            aria-label="Watch July 26 film"
-            style={{
-              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-              display: 'flex', flexDirection: 'column', textAlign: 'left',
-            }}
-          >
-            <div style={{ position: 'relative', aspectRatio: '3/4', backgroundColor: '#141110', overflow: 'hidden' }}>
-              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(20,12,8,0) 55%, rgba(20,12,8,.7) 100%)' }} />
-              <div style={{ position: 'absolute', bottom: 20, left: 20, right: 20 }}>
-                <p style={{ fontSize: 11, letterSpacing: '.2em', textTransform: 'uppercase', color: 'rgba(242,241,234,.6)', margin: '0 0 6px' }}>The Collection</p>
-                <p style={{ fontSize: 'clamp(18px,2.2vw,28px)', fontWeight: 400, color: '#f2f1ea', margin: 0, lineHeight: 1.15 }}>July 26</p>
-                <p style={{ fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'rgba(242,241,234,.5)', margin: '8px 0 0' }}>Play ▶</p>
+      {/* ━━━ 09 FILM ━━━ */}
+      <section id="film" aria-label="The film" className="hm-film">
+        <video ref={filmRef} autoPlay muted loop playsInline preload="metadata" poster={poster} aria-label="Film: Axis & Bloom loop">
+          <source src={videoAssets.homeLoop} type="video/mp4" />
+          <source src={videoAssets.homeHero} type="video/mp4" />
+        </video>
+        <div className="hm-film-scrim" aria-hidden="true" />
+        <div className="hm-film-over">
+          <div className="hm-film-row">
+            <div className="hm-film-col">
+              <Caps style={{ fontWeight: 600 }}>Axis &amp; Bloom — Coffee, personalized</Caps>
+              <h1 className="hm-hero-h"><span>Where coffee</span><span>meets AI.</span></h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 22, flexWrap: 'wrap' }}>
+                <Btn to="/find-my-flavor" tone="paper" onClick={handOffName}>Find my flavor</Btn>
               </div>
             </div>
-          </button>
-
-          {/* Coming months — not clickable */}
-          {['August', 'September', 'October'].map(month => (
-            <div key={month} style={{ display: 'flex', flexDirection: 'column' }}>
-              <div style={{ aspectRatio: '3/4', backgroundColor: '#ebebe3', border: '1px solid #c5c7c8', display: 'flex', alignItems: 'flex-end', padding: 20 }}>
-                <p style={{ fontSize: 'clamp(14px,1.6vw,20px)', fontWeight: 400, color: '#7b7f80', margin: 0, lineHeight: 1.2 }}>{month}</p>
-              </div>
+            <div className="hm-icon-btns">
+              <button type="button" className="hm-icon-btn" aria-label="Watch the film with sound" onClick={() => setFilmModalOpen(true)}>
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 2l9 5-9 5z" fill="none" stroke="currentColor" strokeWidth="1.2" /></svg>
+              </button>
+              <button type="button" className="hm-icon-btn" aria-label={loopPaused ? 'Play the loop' : 'Pause the loop'} aria-pressed={loopPaused} onClick={toggleLoop}>
+                {loopPaused
+                  ? <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 2l9 5-9 5z" fill="currentColor" /></svg>
+                  : <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 2v10M11 2v10" stroke="currentColor" strokeWidth="1.6" /></svg>}
+              </button>
             </div>
-          ))}
-        </div>
-        <p style={{ textAlign: 'center', fontSize: 13, color: '#7b7f80', marginTop: 28, letterSpacing: '0.1em' }}>A new one, every month.</p>
-      </section>
-
-      {/* ━━━ §9 HOW IT WORKS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid #c5c7c8', padding: 'clamp(80px,10vw,120px) clamp(32px,6vw,80px)' }}>
-        <p style={{ textAlign: 'center', fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 clamp(48px,6vw,72px)' }}>How it works</p>
-        <div style={{ display: 'flex', gap: 'clamp(32px,5vw,64px)', justifyContent: 'center', flexWrap: 'wrap' }}>
-          {[
-            { num: '01', text: 'Tell us how you taste. A short quiz maps your palate to one of six flavor archetypes.' },
-            { num: '02', text: 'We match you to coffees that fit. Every bag in our collection aligns with how you actually taste.' },
-            { num: '03', text: 'Your first delivery arrives. Taste it, tell us how it landed, and we refine from there.' },
-          ].map(step => (
-            <div key={step.num} style={{ flex: '1', minWidth: 220, maxWidth: 320, textAlign: 'center' }}>
-              <span style={{ display: 'block', fontSize: 28, fontWeight: 400, color: '#9a2918', letterSpacing: '0.05em', marginBottom: 20 }}>{step.num}</span>
-              <p style={{ fontSize: 15, color: '#45474a', lineHeight: 1.65, margin: 0 }}>{step.text}</p>
-            </div>
-          ))}
+          </div>
         </div>
       </section>
-
-      {/* ━━━ §10 THE GIFT (unwrap + footer) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <TasteFinderSection
-        visitorName={visitorName}
-        archetype={homepageState?.archetype}
-      />
-
     </div>
   );
 }
