@@ -22,6 +22,7 @@ import usersRouter from './routes/users.js';
 import newsletterRouter from './routes/newsletter.js';
 import adminRouter from './routes/admin.js';
 import coffeesRouter from './routes/coffees.js';
+import homeRouter from './routes/home.js'; // Website 2 (2026-11-04)
 import householdRouter from './routes/household.js';
 import axisRouter from './routes/axis.js';
 import sommelierRouter from './routes/sommelier.js';
@@ -135,6 +136,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/newsletter', newsletterRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/coffees', coffeesRouter);
+app.use('/api/home', homeRouter);
 app.use('/api/household', householdRouter);
 app.use('/api/axis', axisRouter);
 app.use('/api/sommelier', sommelierRouter);

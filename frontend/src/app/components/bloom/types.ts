@@ -22,6 +22,9 @@ export interface Slot {
 export interface ArchetypeData {
   archetype: string;
   archetypeLabel: string;
+  /** Website 2 (2026-11-04): coffee_archetype.customer_words, the three words under the
+   * family name ("Bright · Fragrant · Delicate"); null for experimental or until seeded. */
+  customerWords?: string[] | null;
   dimensionName: string | null;
   dimensionPlatformName: string | null;
   /** Part 14 — the dial dimension's scale end labels (coffee_dimensions.scale_min_label/

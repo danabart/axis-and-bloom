@@ -51,12 +51,14 @@ import {
   renameSlot, setSlotSpec, setSlotPrice, setLandingDefault, setArchetypeDescriptorFamilies,
   upsertSku, setHop, removeHop, setCoffeeRetailPrice, createCategory, updateCategory, deleteCategory,
   deactivateRoastery, reactivateRoastery, buildDeactivationPreview, buildReactivationPreview,
+  setCoffeePresentation,
 } from '../services/catalogService.js';
 import { importCatalog } from '../services/catalogImport.js';
 import {
   getArchetypes, getSlots, getCoffee, getCoffees, getSlotsForCoffee, getHops, getNotSellable, getChanges,
   getSizes, getSlotPrices, getCoffeeVisibility, getSlotVisibility,
   getCoffeeRetailPrices, getCategories, getCategory, getCategoryAssignments,
+  getCoffeeCardRows, getMilkRecommendations,
 } from '../services/catalogReads.js';
 
 const router = Router();
@@ -2724,6 +2726,47 @@ catalogRouter.post('/slots/:slotId/landing-default', async (req: AuthRequest, re
     if (handleCatalogError(err, res)) return;
     console.error('[admin/catalog/slots landing-default]', err);
     res.status(500).json({ error: 'Failed to set landing default' });
+  }
+});
+
+// Website 2 (2026-11-04) — the coffee's customer-card presentation (hint,
+// milk, photo key): GET shows our values, the card's effective values and the
+// milk options; PUT calls the one door, catalogService.setCoffeePresentation.
+catalogRouter.get('/coffees/:id/presentation', async (req: AuthRequest, res) => {
+  const coffeeId = Number(req.params.id);
+  if (!Number.isInteger(coffeeId)) { res.status(400).json({ error: 'INVALID_INPUT', message: 'id must be an integer' }); return; }
+  try {
+    const [rows, milkOptions] = await Promise.all([getCoffeeCardRows([coffeeId]), getMilkRecommendations()]);
+    const row = rows.get(coffeeId) ?? null;
+    res.json({
+      coffeeId,
+      hint: row?.hint ?? null,
+      milkCode: row?.editorial_milk_code ?? null,
+      photoAssetKey: row?.photo_asset_key ?? null,
+      card: row ? {
+        milk: row.milk_customer_label, milkSource: row.milk_source,
+        leadsInCup: row.leads_customer_label, leadsSource: row.leads_source, originRegion: row.origin_region_label,
+      } : null,
+      milkOptions,
+    });
+  } catch (err) {
+    console.error('[admin/catalog/coffees presentation GET]', err);
+    res.status(500).json({ error: 'Failed to fetch presentation' });
+  }
+});
+
+catalogRouter.put('/coffees/:id/presentation', async (req: AuthRequest, res) => {
+  const { hint, milkCode, photoAssetKey } = req.body ?? {};
+  try {
+    const { result } = await setCoffeePresentation(
+      { coffeeId: Number(req.params.id), hint, milkCode, photoAssetKey },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees presentation PUT]', err);
+    res.status(500).json({ error: 'Failed to save presentation' });
   }
 });
 

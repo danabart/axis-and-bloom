@@ -6317,6 +6317,26 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_1_CHROME.
 
 **Verified:** 13 vitest cases green (`frontend: npm test`). Frontend `tsc` has 10 errors, all pre-existing and in untouched files (baseline 13). `vite build` is green. Headless screenshots at 390 and 1280 of the public routes, plus a keyboard walk of the overlay; prod evidence is in `CLOSING_REPORT_1.md`.
 
+
+### 252. Website 2: presentation data the handoff needs (family words, coffee card fields, Home facts / quotes / featured slot) (2026-11-04)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_2_PRESENTATION_DATA.md`; full record (Task 0 CATALOG.md check per object, samples, deviations) `backend/src/features/website_handoff/CLOSING_REPORT_2.md`. Data only: no page changes. Briefs 3–5 read what this exposes.
+
+**Files:**
+- Schema (`schema.sql`, WEBSITE 2 block + the `customer_words` column beside `v_coffee_archetype`): `coffee_archetype.customer_words text[]` (CHECK exactly 3; seeded from the handoff for the five families, only where NULL), `coffee_milk_recommendation` (lookup: without / either / with, `customer_label`, `portal_takes_it` mapping each to the portal's `takes_it` answer), `coffee_presentation` (one row per coffee: `hint`, `milk_recommendation_id`, `photo_asset_key`), `marketing_home_quote` (the eight handoff quotes), `commerce_parameter` row `home_featured_slot` (`chocolate_nutty:<landing default>`, Format: dial slot), view `v_coffee_card`, and `customer_words` appended to `v_coffee_archetype`. `comments.sql` lines for all of it.
+- New: `services/coffeeCardReads.ts` (the card read; `buildSlotsForArchetype`, `computeCollectionOfferFromSlots` and the other-categories list moved here unchanged from `routes/coffees.ts`), `services/homeContentReads.ts`, `routes/home.ts`, `services/websitePresentation.test.ts`.
+- Changed: `routes/coffees.ts` (`GET /cards`, `customerWords` on `GET /archetypes`, the moved helpers imported), `routes/admin.ts` (`GET`/`PUT /api/admin/catalog/coffees/:id/presentation`), `catalogService.setCoffeePresentation` (the one writer), `catalogReads` (`getCoffeeCardRows`, `getMilkRecommendations`, `customer_words` on `ArchetypeRow`), `roasterVoiceReads.getCardFacts` (`getCardTags` is now its tags), `commerceParameters` (`dial slot` format), `index.ts` (`/api/home`).
+- Frontend: `lib/api.ts` (`getCoffeeCards`, `getHomeContent` and their types), `bloom/types.ts` (`ArchetypeData.customerWords`), `AdminCatalog.tsx` (the coffee Edit modal gains a "Customer card" block: hint, milk, photo key, and the card's leads-in-cup / origin read-out).
+
+**How it works:**
+- `GET /api/coffees/cards` → `{ families: [{ archetype, archetypeLabel, sortOrder, customerWords, collectionOffer, cards[4] }], other: { cards } }`. A family card is the existing slot shape plus `signatureNotes` (roaster's words first, `cuppingReads`), `hint`, `bestBrew`, `alsoGood`, `milk`, `leadsInCup`, `originRegion`, `hasAward` (boolean), `photoKey`. A key with no value is left out. `other` is the category coffees (Decaf, Half-Caf, Flavored, Experimental); their name is the home slot's or null, never the raw coffee name.
+- Milk: our choice in `coffee_presentation`, else the roaster's latest submitted `takes_it`. Leads in cup: the roaster's latest submitted dominant dimension, else the highest pooled midpoint among the portal's active dimensions; shown by its customer word (`platform_name`).
+- `GET /api/home/content` → `{ facts: { questions, dimensions, families }, quotes[], featured: { card, price } }`. Facts are counted: current questions of the active main quiz, numeric dimensions with a pooled range on an active coffee, `is_archetype` rows. Featured is the `home_featured_slot` slot's card, price = its anchor size. No fulfilment or timing text (D14).
+
+**Verified:** see `CLOSING_REPORT_2.md` (15 new vitest cases; full suite; lints; prod samples after deploy).
+
+**Not done in this pass:** no admin door for family words or quotes (OT-69); no page uses the new payloads yet (briefs 3–5).
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

@@ -426,6 +426,14 @@ The full list is in `CLOSING_REPORT_3.md` → "What Commerce 4 needs".
 
 One cart can resolve to SKUs from several roasteries (dial slots fall back across roasters). The order is one row with one `fulfillment_roaster_id` (NULL = manual), and the manual email lists each line's roaster. Before roaster adapters place orders automatically, decide how a multi-roaster order splits into shipments and what the customer sees. Since #250 `roastery_shipment_details` is written (`shipmentService.markShipped`, linked by `order_id`, one shipment per order assumed by `v_order_status`); `order_line_item.shipment_id` stays reserved (D11), so a per-line split needs either a link table or Dana reopening D11.
 
+### OT-69 / OT-70 / OT-71 / OT-72: presentation data follow-ups (Website 2, 2026-11-04)
+
+- **OT-69 Admin door for family words and Home quotes.** `coffee_archetype.customer_words` and `marketing_home_quote` are seed-only. Edit them with a `catalogService` verb (words) and a marketing writer (quotes), each declared in `comments.sql`.
+- **OT-70 Category coffees without a customer name.** `GET /api/coffees/other-categories` falls back to the raw `coffees.name` when a category coffee has no home slot (prod: both decaf coffees, 2909 and 2930). The new card payload sends `platformName: null` instead. Brief 4 (Shop all, Other section) needs a name source for them.
+- **OT-71 Origin regions unset.** `coffees.origin_region_id` is NULL on all 22 active prod coffees, so no card shows an Origin row. Content entry through the existing coffee edit (admin Coffees page).
+- **OT-72 One portal version per card.** The brew tags read the portal's current response (an open draft wins, `getCurrentResponseForCoffee`); milk and leads-in-cup read the latest submitted one (`v_roastery_portal_coffee_hint`). Pick one rule for every customer-facing portal answer.
+- **OT-73 Stale test assumption.** `schema.catalog_blueprint.test.ts` ("suggested_slot_id is populated for every pre-existing row that had a suggestion") counts `dial_position_signal` rows with `raw_value` and no `suggested_slot_id`; since coffee presentation brief 3 a cupping signal may legitimately carry a value and no suggestion ("no band" notes; test DB row 29, coffee 2916, 2026-10-25). The test needs the no-band case excluded. Test hygiene, not a gate (G1.12).
+
 ### OT-66 / OT-67 / OT-68: website chrome follow-ups (Website 1, 2026-11-04)
 
 - **OT-66 FAQ page.** The handoff footer has an FAQ link; there is no `/faq` route or copy, so the link is omitted (no dead anchor). Needs a design and copy, then one line in `Footer.tsx`.
@@ -526,3 +534,8 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-11-04 | OT-66: FAQ page wanted (design + copy from Camila/Dana); footer FAQ link omitted until `/faq` exists (Website 1) | Open |
 | 2026-11-04 | OT-67: per-page palette swaps (`#9a2918` / `#a33726` / `#f2f1ea` inline literals → `--ab-*` tokens) left to the website page briefs; file list in `website_handoff/CLOSING_REPORT_1.md` (Website 1) | Open |
 | 2026-11-04 | OT-68: frontend `npm test` (vitest, added by Website 1) is not run in `deploy.yml` yet | Open |
+| 2026-11-04 | OT-69: admin door for family words and Home quotes (Website 2) | Open |
+| 2026-11-04 | OT-70: category coffees with no home slot have no customer name (Website 2) | Open |
+| 2026-11-04 | OT-71: origin region unset on every active coffee (Website 2) | Open |
+| 2026-11-04 | OT-72: brew tags read the portal draft, milk/leads the submitted version (Website 2) | Open |
+| 2026-11-04 | OT-73: catalog_blueprint test counts legitimate no-band cupping signals as missing suggestions | Open |

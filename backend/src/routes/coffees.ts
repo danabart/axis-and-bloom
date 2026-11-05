@@ -19,6 +19,9 @@ import { getCustomerDescriptors } from '../services/cuppingReads.js';
 // roasterVoiceReads, which every content prompt now reads.
 import { getRoasterVoice, getAwardRemarks, numericDimensionRows, getBrewLabels, getCardTags } from '../services/roasterVoiceReads.js';
 import { compareCoffee } from '../services/compatibilityReads.js';
+import {
+  buildSlotsForArchetype, computeCollectionOfferFromSlots, getOtherCategoryCoffees, getCoffeeCards,
+} from '../services/coffeeCardReads.js';
 
 // Coffee presentation brief 1, decision 9: generated texts the leak guard
 // rejected (both attempts counted), for the backfill's report.
@@ -465,77 +468,9 @@ export async function clearContentGenerationFlags(): Promise<number> {
 // the same deliberate-gap treatment already used for "no coffee resolved" (Pricing
 // update, 2026-07-24 — see backend/src/db/migrations/pricing_update_2026_07_24.sql).
 
-interface Slot {
-  dialSortOrder: number;
-  positionLabel: string;
-  description: string | null;
-  isActive: boolean;
-  platformName: string | null;
-  isDefault: boolean;
-  prices: { weightOz: number; retailPriceCents: number; label: string; isAnchor: boolean }[];
-  coffeeId: number | null;
-}
-
-// Shared per-archetype slot builder — used by both /archetypes (the 5 real
-// archetypes) and /experimental. One row per coffee_dial_slot (always 4,
-// sort_order 1-4); sellability/price/coffeeId come from v_coffee_sellable_slot
-// at every active size (coffee_size), independently per size (a slot can be
-// sellable at some sizes, all, or none). One query for the archetype, grouped
-// here; rows arrive in size sort order.
-async function buildSlotsForArchetype(archetype: string): Promise<Slot[]> {
-  const [slots, sellable] = await Promise.all([
-    getSlots(archetype),
-    getSellableSlots({ archetype }),
-  ]);
-  const bySlot = new Map<number, typeof sellable>();
-  for (const r of sellable) {
-    const list = bySlot.get(r.slot_id) ?? [];
-    list.push(r);
-    bySlot.set(r.slot_id, list);
-  }
-  const anchor = await getAnchorSize();
-
-  return slots.map(s => {
-    const winners = bySlot.get(s.id) ?? [];
-    // isActive = any size wins; coffeeId = the anchor-size winner, else the first size (by sort order) that has one.
-    const winner = winners.find(r => Number(r.weight_oz) === anchor.weight_oz) ?? winners[0];
-    const prices = winners.map(r => ({ weightOz: Number(r.weight_oz), retailPriceCents: r.retail_price_cents, label: r.size_label, isAnchor: Number(r.weight_oz) === anchor.weight_oz }));
-    return {
-      dialSortOrder: s.sort_order,
-      positionLabel: s.position_label,
-      description:   s.position_description ?? null,
-      isActive:      !!winner,
-      platformName:  s.name ?? null,
-      isDefault:     s.is_landing_default,
-      prices,
-      coffeeId:      winner?.coffee_id ?? null,
-    };
-  });
-}
-
-// Part 19 §C — cheap DISPLAY-only version of blendResolver's computeCollectionOffer:
-// reuses the slots array GET /archetypes and GET /experimental already fetched
-// (isActive + prices per position), no extra queries. This is a preview only —
-// order-time verification (orders.ts) always calls the DB-fresh version in
-// blendResolver.ts instead, which independently re-resolves everything; the two
-// are expected to usually agree but are never assumed to, which is the whole
-// point of §C's server-side enforcement requirement. Same discount and minimum
-// as the authoritative version: collectionRules() reads the commerce_parameter
-// rows collection_discount_pct / collection_min_members (Commerce 1, decision C),
-// so a rate change is one admin edit and never a deploy.
-async function computeCollectionOfferFromSlots(slots: Slot[], anchorOz: number) {
-  const { discountPct, minMembers } = await collectionRules();
-  const members: { dialSortOrder: number; weightOz: number; priceCents: number }[] = [];
-  for (const s of slots) {
-    if (!s.isActive || !s.prices.length) continue;
-    const chosen = s.prices.find(p => p.weightOz === anchorOz) ?? s.prices[0];
-    members.push({ dialSortOrder: s.dialSortOrder, weightOz: chosen.weightOz, priceCents: chosen.retailPriceCents });
-  }
-  if (members.length < minMembers) return null;
-  const sumCents = members.reduce((sum, m) => sum + m.priceCents, 0);
-  const discountedCents = Math.round(sumCents * (1 - discountPct / 100));
-  return { memberCount: members.length, sumCents, discountedCents };
-}
+// Website 2 (2026-11-04): the Slot shape, buildSlotsForArchetype and
+// computeCollectionOfferFromSlots moved, unchanged, to services/coffeeCardReads.ts
+// so GET /api/coffees/cards and GET /api/home/content build the same slots.
 
 export interface DoorTarget { archetype: string; archetypeLabel: string; rule: 'chain'; }
 
@@ -651,6 +586,9 @@ router.get('/archetypes', async (_req, res) => {
       result.push({
         archetype: a.code,
         archetypeLabel: a.label,
+        // Website 2 (2026-11-04): coffee_archetype.customer_words, the three
+        // words under the family name (null until seeded).
+        customerWords: a.customer_words ?? null,
         dimensionName: dim?.name ?? null,
         dimensionPlatformName: dim?.platform_name ?? dim?.name ?? null,
         dimensionScaleMinLabel: dim?.scale_min_label ?? null,
@@ -671,6 +609,24 @@ router.get('/archetypes', async (_req, res) => {
   } catch (err) {
     console.error('[coffees/archetypes]', err);
     res.status(500).json({ error: 'Failed to fetch archetypes' });
+  }
+});
+
+// GET /api/coffees/cards ──────────────────────────────────────────────────────
+// Website 2 (2026-11-04). Public, roaster-blind: every card the handoff's Shop
+// all and The Bloom draw, in one call. The five families in sort_order, each
+// with customerWords, the collection offer (computeCollectionOfferFromSlots,
+// the commerce_parameter discount and minimum) and its four slots as cards;
+// then `other`, the category coffees. A card leaves out every presentation
+// key it has no value for (hint, bestBrew, milk, leadsInCup, originRegion,
+// photoKey); hasAward is a boolean, never the award's name.
+// services/coffeeCardReads.ts holds the read.
+router.get('/cards', async (_req, res) => {
+  try {
+    res.json(await getCoffeeCards());
+  } catch (err) {
+    console.error('[coffees/cards]', err);
+    res.status(500).json({ error: 'Failed to fetch coffee cards' });
   }
 });
 
@@ -753,46 +709,7 @@ router.get('/archetype-order', async (req, res) => {
 // Blueprint brief 3 — coffee_alias is no longer a trusted read).
 router.get('/other-categories', async (_req, res) => {
   try {
-    const categoryRows = await getCategoryCoffees(['decaf', 'half_caf', 'flavored', 'experimental']);
-    const coffeeIds = [...new Set(categoryRows.map(r => r.coffee_id))];
-    const coffees = coffeeIds.length ? await getCoffees({ ids: coffeeIds, active: true }) : [];
-    const coffeeMap = new Map(coffees.map(c => [c.id, c]));
-
-    const byCoffee = new Map<number, { categories: { code: string; label: string; sortOrder: number }[] }>();
-    for (const row of categoryRows) {
-      if (!coffeeMap.has(row.coffee_id)) continue; // inactive (or not found) — excluded, same as the old c.is_active filter
-      if (!byCoffee.has(row.coffee_id)) byCoffee.set(row.coffee_id, { categories: [] });
-      byCoffee.get(row.coffee_id)!.categories.push({ code: row.category_code, label: row.category_label, sortOrder: row.category_sort_order });
-    }
-
-    const sizes = await getSizes();
-    const priceRows = await getCoffeeRetailPrices({ includeInactive: true }); // inactive coffees are dropped via coffeeMap above
-    const priceMap = new Map<string, number>();
-    for (const r of priceRows) priceMap.set(`${r.coffee_id}|${Number(r.weight_oz)}`, r.retail_price_cents);
-
-    const result = [];
-    for (const [coffeeId, info] of byCoffee) {
-      const coffee = coffeeMap.get(coffeeId)!;
-      const homeSlot = await getHomeSlot(coffeeId);
-      const prices = [];
-      for (const { weight_oz: weightOz, label, is_anchor: isAnchor } of sizes) {
-        const cents = priceMap.get(`${coffeeId}|${weightOz}`);
-        if (cents === undefined) continue; // unpriced — omit rather than guess
-        const blend = await resolveCoffeeBlend(coffeeId, weightOz);
-        prices.push({ weightOz, retailPriceCents: cents, isActive: !!blend, label, isAnchor });
-      }
-      result.push({
-        coffeeId,
-        displayName: homeSlot?.slot_name ?? coffee.name,
-        archetype: coffee.match_archetype,
-        archetypeLabel: coffee.match_archetype ? await archetypeLabel(coffee.match_archetype) : null,
-        categories: info.categories.sort((a, b) => a.sortOrder - b.sortOrder),
-        prices,
-        effectivelyActive: prices.some(p => p.isActive),
-        isUnpriced: prices.length === 0,
-      });
-    }
-
+    const result = await getOtherCategoryCoffees();
     res.json(result);
   } catch (err) {
     console.error('[coffees/other-categories]', err);

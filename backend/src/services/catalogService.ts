@@ -923,6 +923,70 @@ export async function setArchetypeDescriptorFamilies(
   });
 }
 
+// ── Coffee presentation (Website 2, 2026-11-04) ─────────────────────────────
+// The one door for coffee_presentation: A&B's editorial layer over a coffee's
+// customer card (hint, milk, photo key). A field left undefined keeps its
+// value; null or blank clears it. The milk code is checked against the
+// coffee_milk_recommendation lookup, never a list here.
+// backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_2_PRESENTATION_DATA.md
+
+export interface SetCoffeePresentationInput {
+  coffeeId: number;
+  hint?: string | null;
+  milkCode?: string | null;
+  photoAssetKey?: string | null;
+}
+export interface CoffeePresentationResult {
+  coffeeId: number; hint: string | null; milkCode: string | null; photoAssetKey: string | null; unchanged: boolean;
+}
+
+const blankToNull = (v: string | null | undefined) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+export async function setCoffeePresentation(input: SetCoffeePresentationInput, ctx: Ctx): Promise<CatalogWriteResult<CoffeePresentationResult>> {
+  if (!Number.isInteger(input.coffeeId)) throw new CatalogError(400, 'INVALID_INPUT', 'coffeeId must be an integer');
+  for (const [k, v] of Object.entries({ hint: input.hint, milkCode: input.milkCode, photoAssetKey: input.photoAssetKey })) {
+    if (v !== undefined && v !== null && typeof v !== 'string') throw new CatalogError(400, 'INVALID_INPUT', `${k} must be a string or null`);
+  }
+  return withTransaction(async (tx) => {
+    await fetchCoffeeRow(tx, input.coffeeId);
+    const before = await snapshotRow(tx, 'coffee_presentation', 'coffee_id', input.coffeeId);
+    const cur = await tx.query<{ hint: string | null; milk_code: string | null; photo_asset_key: string | null }>(
+      `SELECT p.hint, m.code AS milk_code, p.photo_asset_key
+         FROM coffee_presentation p LEFT JOIN coffee_milk_recommendation m ON m.id = p.milk_recommendation_id
+        WHERE p.coffee_id = $1`, [input.coffeeId]);
+    const prev = cur.rows[0] ?? { hint: null, milk_code: null, photo_asset_key: null };
+    const next = {
+      hint: input.hint === undefined ? prev.hint : blankToNull(input.hint),
+      milkCode: input.milkCode === undefined ? prev.milk_code : blankToNull(input.milkCode),
+      photoAssetKey: input.photoAssetKey === undefined ? prev.photo_asset_key : blankToNull(input.photoAssetKey),
+    };
+    let milkId: number | null = null;
+    if (next.milkCode !== null) {
+      const m = await tx.query<{ id: number }>(`SELECT id FROM coffee_milk_recommendation WHERE code = $1`, [next.milkCode]);
+      if (!m.rows[0]) {
+        const known = await tx.query<{ code: string }>(`SELECT code FROM coffee_milk_recommendation ORDER BY sort_order`);
+        throw new CatalogError(400, 'INVALID_INPUT', `Unknown milk code ${next.milkCode}`, { validCodes: known.rows.map(r => r.code) });
+      }
+      milkId = m.rows[0].id;
+    }
+    const unchanged = !!cur.rows[0] && prev.hint === next.hint && prev.milk_code === next.milkCode && prev.photo_asset_key === next.photoAssetKey;
+    if (!unchanged) {
+      await tx.query(
+        `INSERT INTO coffee_presentation (coffee_id, hint, milk_recommendation_id, photo_asset_key)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (coffee_id) DO UPDATE
+           SET hint = EXCLUDED.hint, milk_recommendation_id = EXCLUDED.milk_recommendation_id,
+               photo_asset_key = EXCLUDED.photo_asset_key, updated_at = timezone('utc', now())`,
+        [input.coffeeId, next.hint, milkId, next.photoAssetKey]
+      );
+      const after = await snapshotRow(tx, 'coffee_presentation', 'coffee_id', input.coffeeId);
+      await logCatalogChange(tx, { entity: 'coffee_presentation', entityId: input.coffeeId, action: 'setCoffeePresentation', before, after, changedBy: ctx.actor });
+      console.info('[catalog] setCoffeePresentation', { actor: ctx.actor, coffeeId: input.coffeeId });
+    }
+    return { result: { coffeeId: input.coffeeId, ...next, unchanged }, warnings: [], integrity: [] };
+  });
+}
+
 // ── SKUs ───────────────────────────────────────────────────────────────────
 
 export interface UpsertSkuInput {

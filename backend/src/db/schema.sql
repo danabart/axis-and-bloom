@@ -2689,6 +2689,9 @@ DROP VIEW IF EXISTS v_evidence_archetype;
 DROP VIEW IF EXISTS v_evidence_archetype_call;
 DROP VIEW IF EXISTS v_evidence_descriptor;
 DROP VIEW IF EXISTS v_evidence_dimension;
+-- Website 2 (2026-11-04): v_coffee_card (WEBSITE 2 block near the end) reads
+-- the portal hint and the pooled ranges; dropped here for the same reason.
+DROP VIEW IF EXISTS v_coffee_card;
 -- brief 6 (2026-10-21): the customer voice reads the consensus; v_palate_shared_traits
 -- (replaced late in this file) reads the customer voice, so CASCADE: both palate views
 -- are recreated below before anything reads them.
@@ -4835,6 +4838,16 @@ DROP VIEW IF EXISTS v_coffee_hop;
 DROP VIEW IF EXISTS v_coffee_slot;
 DROP VIEW IF EXISTS v_coffee_archetype;
 
+-- Website 2 (2026-11-04): the three words under each family name, exactly
+-- three where set (seeded in the WEBSITE 2 block near the end of this file).
+ALTER TABLE coffee_archetype ADD COLUMN IF NOT EXISTS customer_words TEXT[];
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_archetype_customer_words_three') THEN
+    ALTER TABLE coffee_archetype ADD CONSTRAINT coffee_archetype_customer_words_three
+      CHECK (customer_words IS NULL OR cardinality(customer_words) = 3);
+  END IF;
+END $$;
+
 -- One row per archetype (all six, including 'experimental'). This is what
 -- replaces every hand-typed archetype_enum -> name/label CASE map in brief 3
 -- (e.g. v_archetype_dimension_comparison above, admin.ts L55/L1760) — code is
@@ -4851,7 +4864,8 @@ SELECT
   a.dominant_dimension_id,
   d.name                    AS dominant_dimension_name,
   a.descriptor_families,
-  a.id                      AS uuid
+  a.id                      AS uuid,
+  a.customer_words
 FROM coffee_archetype a
 LEFT JOIN coffee_dimensions d ON d.id = a.dominant_dimension_id
 ORDER BY a.sort_order;
@@ -9499,6 +9513,145 @@ LEFT JOIN LATERAL (
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END COMMERCE 3 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN WEBSITE 2 block (2026-11-04): presentation data the handoff needs
+-- backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_2_PRESENTATION_DATA.md
+--
+-- coffee_archetype.customer_words is added next to v_coffee_archetype (the
+-- view reads it, so the column must exist first); its seed is below. The
+-- CATALOG.md check per object is in CLOSING_REPORT_2.md (Task 0).
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 1. The three words under each family name, from Camila's handoff
+-- (source/homepage-data/index.html family panels). Seed only if missing, so
+-- a later edit is never reset; experimental stays NULL (not a family).
+UPDATE coffee_archetype a SET customer_words = v.words, updated_at = timezone('utc', now())
+FROM (VALUES
+  ('floral'::archetype_enum,          ARRAY['Bright', 'Fragrant', 'Delicate']),
+  ('fruity'::archetype_enum,          ARRAY['Lively', 'Vibrant', 'Expressive']),
+  ('balanced_sweet'::archetype_enum,  ARRAY['Easy', 'Smooth', 'Harmonious']),
+  ('chocolate_nutty'::archetype_enum, ARRAY['Full', 'Grounded', 'Comforting']),
+  ('earthy'::archetype_enum,          ARRAY['Deep', 'Bold', 'Lasting'])
+) AS v(code, words)
+WHERE a.code = v.code AND a.customer_words IS NULL;
+
+-- 2. Milk, as a vocabulary (G2.7). portal_takes_it maps each row to the
+-- roastery portal's own answer (roastery_portal_response.takes_it, lookup
+-- roastery_portal_takes_it), so the card can fall back to what the roaster
+-- said without a mapping in code. customer_label is what the card shows; the
+-- seed copies the portal lookup's current wording.
+CREATE TABLE IF NOT EXISTS coffee_milk_recommendation (
+  id               SERIAL PRIMARY KEY,
+  code             TEXT NOT NULL UNIQUE,
+  label            TEXT NOT NULL,
+  customer_label   TEXT NOT NULL,
+  portal_takes_it  TEXT UNIQUE,
+  sort_order       INTEGER NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO coffee_milk_recommendation (code, label, customer_label, portal_takes_it, sort_order) VALUES
+  ('without', 'Without milk', 'Best black',      'black', 1),
+  ('either',  'Either way',   'Works both ways', 'both',  2),
+  ('with',    'With milk',    'Great with milk', 'milk',  3)
+ON CONFLICT (code) DO NOTHING;
+
+-- 3. A&B's editorial layer over a coffee: one row per coffee, one writer
+-- (catalogService.setCoffeePresentation). Not columns on coffees: coffees is
+-- the roaster-facing master with its own writer set; this is our layer
+-- beside it (the decision-beside-evidence split, G2.12).
+CREATE TABLE IF NOT EXISTS coffee_presentation (
+  id                       SERIAL PRIMARY KEY,
+  coffee_id                INTEGER NOT NULL UNIQUE REFERENCES coffees(id),
+  hint                     TEXT,
+  milk_recommendation_id   INTEGER REFERENCES coffee_milk_recommendation(id),
+  photo_asset_key          TEXT,
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  updated_at               TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+
+-- 4. The survey quotes on Home (06 Voices), in the handoff's order. Retired
+-- with is_active, never deleted (G2.11). Seed only if missing.
+CREATE TABLE IF NOT EXISTS marketing_home_quote (
+  id          SERIAL PRIMARY KEY,
+  quote       TEXT NOT NULL UNIQUE,
+  sort_order  INTEGER NOT NULL,
+  is_active   BOOLEAN NOT NULL DEFAULT true,
+  source      TEXT NOT NULL DEFAULT 'survey',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO marketing_home_quote (quote, sort_order) VALUES
+  ('You have no idea what you’ll get. It’s hard to explain taste with words.', 1),
+  ('I can’t know the flavor before I buy. I end up choosing by the brand name and the color of the package.', 2),
+  ('Too many choices, and each one promises a taste that isn’t true.', 3),
+  ('I want high-quality coffee without having to think about it.', 4),
+  ('Give me one or two options I’ll love, not fifty that are hit or miss.', 5),
+  ('Spending real money on a “specialty” coffee and then it’s too bitter to enjoy.', 6),
+  ('When coffee is great, it feels like I found my taste again.', 7),
+  ('When coffee is great, it feels like home.', 8)
+ON CONFLICT (quote) DO NOTHING;
+
+-- 5. The "This week" coffee on Home: a dial slot as archetype_code:sort_order,
+-- seeded to the Chocolate & Nutty landing-default slot (read from the slot
+-- table, not typed). Only if missing; editable on the admin Commerce card.
+INSERT INTO commerce_parameter (key, value_numeric, value_text, note)
+SELECT 'home_featured_slot', NULL, s.archetype::text || ':' || s.sort_order,
+       'The dial slot Home shows as "This week" (archetype_code:sort_order); its price is the slot''s own (coffee_slot_price). Format: dial slot.'
+FROM coffee_dial_slot s
+WHERE s.archetype = 'chocolate_nutty' AND s.is_landing_default
+  AND NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = 'home_featured_slot');
+
+-- 6. One row per active coffee with what its customer card shows beyond the
+-- slot and the price (both stay in catalogReads / buildSlotsForArchetype).
+-- Roaster-blind: no roaster or raw coffee name, no award text.
+--   milk: our editorial choice first, else the roaster's latest submitted
+--         takes_it answer (through portal_takes_it).
+--   leads in cup: the roaster's latest submitted dominant dimension first
+--         (v_roastery_portal_coffee_hint), else the highest pooled midpoint
+--         (v_coffee_dimension_range) among the dimensions the portal asks
+--         about (roastery_portal_dimension.is_active), ties by display_order.
+-- Dropped near the top of this file too (before the views it reads drop
+-- and recreate), so a second boot never meets it as a dependent.
+DROP VIEW IF EXISTS v_coffee_card;
+CREATE VIEW v_coffee_card AS
+SELECT
+  c.id                                   AS coffee_id,
+  p.hint,
+  em.code                                AS editorial_milk_code,
+  COALESCE(em.code, pm.code)             AS milk_code,
+  COALESCE(em.customer_label, pm.customer_label) AS milk_customer_label,
+  CASE WHEN em.id IS NOT NULL THEN 'editorial'
+       WHEN pm.id IS NOT NULL THEN 'roaster' END AS milk_source,
+  p.photo_asset_key,
+  orr.label                              AS origin_region_label,
+  ld.id                                  AS leads_dimension_id,
+  COALESCE(ld.platform_name, ld.name)    AS leads_customer_label,
+  CASE WHEN h.dominant_dimension_id IS NOT NULL THEN 'roaster'
+       WHEN cup.dimension_id IS NOT NULL THEN 'cupping' END AS leads_source,
+  p.updated_at                           AS presentation_updated_at
+FROM coffees c
+LEFT JOIN coffee_presentation p ON p.coffee_id = c.id
+LEFT JOIN coffee_milk_recommendation em ON em.id = p.milk_recommendation_id
+LEFT JOIN v_roastery_portal_coffee_hint h ON h.coffee_id = c.id
+LEFT JOIN roastery_portal_response pr ON pr.id = h.response_id
+LEFT JOIN coffee_milk_recommendation pm ON pm.portal_takes_it = pr.takes_it
+LEFT JOIN lookup_value orr ON orr.id = c.origin_region_id AND orr.category = 'origin_region'
+LEFT JOIN LATERAL (
+  SELECT r.dimension_id
+  FROM v_coffee_dimension_range r
+  JOIN roastery_portal_dimension pd ON pd.dimension_id = r.dimension_id AND pd.is_active
+  JOIN coffee_dimensions d ON d.id = r.dimension_id
+  WHERE r.coffee_id = c.id AND r.value_min IS NOT NULL AND r.value_max IS NOT NULL
+  ORDER BY (r.value_min + r.value_max) DESC, d.display_order, d.id
+  LIMIT 1
+) cup ON true
+LEFT JOIN coffee_dimensions ld ON ld.id = COALESCE(h.dominant_dimension_id, cup.dimension_id)
+WHERE c.is_active;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END WEBSITE 2 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its

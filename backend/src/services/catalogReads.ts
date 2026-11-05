@@ -24,6 +24,8 @@ export interface ArchetypeRow {
   dominant_dimension_name: string | null;
   descriptor_families: string[];
   uuid: string;
+  /** Website 2 (2026-11-04): the three words under the family name; null for experimental or until seeded. */
+  customer_words: string[] | null;
 }
 
 export interface CoffeeRow {
@@ -760,4 +762,35 @@ export async function getCatalogVersion(runner: Runner = db): Promise<string> {
     )::text AS version
   `);
   return new Date(result.rows[0].version).toISOString();
+}
+
+// ── Coffee card presentation (Website 2, 2026-11-04) ─────────────────────────
+// backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_2_PRESENTATION_DATA.md
+
+/** One row of v_coffee_card: what an active coffee's customer card shows beyond its slot and price. */
+export interface CoffeeCardRow {
+  coffee_id: number;
+  hint: string | null;
+  editorial_milk_code: string | null;
+  milk_code: string | null;
+  milk_customer_label: string | null;
+  milk_source: 'editorial' | 'roaster' | null;
+  photo_asset_key: string | null;
+  origin_region_label: string | null;
+  leads_dimension_id: number | null;
+  leads_customer_label: string | null;
+  leads_source: 'roaster' | 'cupping' | null;
+  presentation_updated_at: string | null;
+}
+
+export async function getCoffeeCardRows(coffeeIds: number[], runner: Runner = db): Promise<Map<number, CoffeeCardRow>> {
+  if (!coffeeIds.length) return new Map();
+  const result = await runner.query<CoffeeCardRow>(`SELECT * FROM v_coffee_card WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
+  return new Map(result.rows.map(r => [r.coffee_id, r]));
+}
+
+/** The milk vocabulary (coffee_milk_recommendation), in display order: the admin presentation form's options. */
+export async function getMilkRecommendations(runner: Runner = db): Promise<Array<{ code: string; label: string; customer_label: string }>> {
+  const result = await runner.query(`SELECT code, label, customer_label FROM coffee_milk_recommendation ORDER BY sort_order, id`);
+  return result.rows;
 }

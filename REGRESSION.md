@@ -121,3 +121,15 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_1.md`. Unit ca
 - [ ] **Footer newsletter:** posts `source: 'footer'`, shows "You're on the list.", inline error on failure; `newsletter_subscriber.source_id` = the `footer` row.
 - [ ] **Footer links:** Liam only with `hasLiamAccess`; Terms/Privacy are real routes; Instagram opens the profile (not `/ig`, which carries campaign attribution); year is the current year.
 - [ ] **Home `[data-hero]`:** the header floats over the hero in paper; Liam's chat sits below the header (`--ab-header-h`), The Bloom jump-nav sticks at the top edge.
+
+## Website presentation data (Website 2, 2026-11-04)
+
+Full record: `backend/src/features/website_handoff/CLOSING_REPORT_2.md`. Tests: `backend/src/services/websitePresentation.test.ts`.
+
+- [ ] **`GET /api/coffees/cards`:** five families in `sort_order`, each with `customerWords` and four slot cards; `other` holds the category coffees. A card with no hint / milk / brew / origin / photo has no such key (never a placeholder).
+- [ ] **No roaster or award text in any card:** `hasAward` is a boolean; no `tags`, no award remark, no roaster name, no raw coffee name (an unslotted category coffee has `platformName: null`).
+- [ ] **Collection price:** `collectionOffer.discountedCents = round(sumCents × (1 − collection_discount_pct / 100))`, null below `collection_min_members`.
+- [ ] **Milk and leads in cup:** our choice first, else the roaster's submitted answer; leads falls back to the highest pooled midpoint among the portal's active dimensions.
+- [ ] **`GET /api/home/content`:** facts are counted (main-quiz questions, cupped numeric dimensions, families), quotes are the active `marketing_home_quote` rows in order, featured is the `home_featured_slot` slot with its anchor price; no timing or freshness text.
+- [ ] **`GET /api/coffees/archetypes`:** every family carries `customerWords` (three words), experimental null.
+- [ ] **Admin:** Coffees → Edit shows "Customer card"; saving writes one `coffee_presentation` row and a `catalog_change` row; saving again unchanged writes nothing.

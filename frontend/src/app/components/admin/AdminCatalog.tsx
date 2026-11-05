@@ -529,6 +529,13 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
+interface PresentationForm { hint: string; milkCode: string; photoAssetKey: string }
+interface PresentationState {
+  form: PresentationForm;
+  milkOptions: { code: string; label: string; customer_label: string }[];
+  card: { milk: string | null; milkSource: 'editorial' | 'roaster' | null; leadsInCup: string | null; leadsSource: string | null; originRegion: string | null } | null;
+}
+
 function EditMetadataModal({ coffee, lookups, refreshLookups, apiFetch, onClose, onSaved }: {
   coffee: Coffee; lookups: Record<string, { value: string; label: string }[]>; refreshLookups: () => void | Promise<void>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>; onClose: () => void; onSaved: () => void | Promise<void>;
@@ -540,6 +547,23 @@ function EditMetadataModal({ coffee, lookups, refreshLookups, apiFetch, onClose,
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const field = (k: keyof typeof form) => (v: string) => setForm(f => ({ ...f, [k]: v }));
+  // Website 2 (2026-11-04): the customer card's presentation (hint, milk, photo
+  // key), saved through PUT /presentation (catalogService.setCoffeePresentation).
+  const [pres, setPres] = useState<PresentationState | null>(null);
+  const [presInitial, setPresInitial] = useState<PresentationForm | null>(null);
+  useEffect(() => {
+    let live = true;
+    apiFetch(`/api/admin/catalog/coffees/${coffee.id}/presentation`).then(r => r.ok ? r.json() : null).then(d => {
+      if (!live || !d) return;
+      const f = { hint: d.hint ?? '', milkCode: d.milkCode ?? '', photoAssetKey: d.photoAssetKey ?? '' };
+      setPres({ form: f, milkOptions: d.milkOptions ?? [], card: d.card ?? null });
+      setPresInitial(f);
+    }).catch(() => { /* the form still edits metadata; the presentation block stays hidden */ });
+    return () => { live = false; };
+    // apiFetch is re-created on every parent render; the read depends on the coffee only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coffee.id]);
+  const presField = (k: keyof PresentationForm) => (v: string) => setPres(p => (p ? { ...p, form: { ...p.form, [k]: v } } : p));
 
   async function handleSave() {
     setSaving(true); setErr('');
@@ -549,6 +573,13 @@ function EditMetadataModal({ coffee, lookups, refreshLookups, apiFetch, onClose,
         body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error((await res.json()).message ?? 'Failed to save');
+      if (pres && presInitial && JSON.stringify(pres.form) !== JSON.stringify(presInitial)) {
+        const pr = await apiFetch(`/api/admin/catalog/coffees/${coffee.id}/presentation`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hint: pres.form.hint || null, milkCode: pres.form.milkCode || null, photoAssetKey: pres.form.photoAssetKey || null }),
+        });
+        if (!pr.ok) throw new Error((await pr.json()).message ?? 'Failed to save presentation');
+      }
       await onSaved(); onClose();
     } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to save'); } finally { setSaving(false); }
   }
@@ -572,6 +603,31 @@ function EditMetadataModal({ coffee, lookups, refreshLookups, apiFetch, onClose,
           <label className="block text-xs text-stone-400 mb-1">Roast level</label>
           <LookupSelect category="roast_level" value={form.roastLevel} onChange={field('roastLevel')} lookups={lookups} apiFetch={apiFetch} onAdded={refreshLookups} />
         </div>
+        {pres && (
+          <div className="border-t border-stone-200 pt-3 space-y-3">
+            <p className="text-xs text-stone-500">Customer card</p>
+            <div>
+              <label className="block text-xs text-stone-400 mb-1">One-line hint</label>
+              <input value={pres.form.hint} onChange={e => presField('hint')(e.target.value)} className="w-full border border-stone-300 rounded px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-stone-400 mb-1">Milk</label>
+              <select value={pres.form.milkCode} onChange={e => presField('milkCode')(e.target.value)} className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
+                <option value="">{pres.card?.milkSource === 'roaster' && pres.card.milk ? `Roaster's answer (${pres.card.milk})` : 'Not set'}</option>
+                {pres.milkOptions.map(o => <option key={o.code} value={o.code}>{o.label} ({o.customer_label})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-stone-400 mb-1">Photo asset key</label>
+              <input value={pres.form.photoAssetKey} onChange={e => presField('photoAssetKey')(e.target.value)} className="w-full border border-stone-300 rounded px-3 py-2 text-sm" />
+            </div>
+            {pres.card && (
+              <p className="text-xs text-stone-400">
+                Leads in cup: {pres.card.leadsInCup ?? '—'}{pres.card.leadsSource ? ` (${pres.card.leadsSource})` : ''} · Origin: {pres.card.originRegion ?? '—'}
+              </p>
+            )}
+          </div>
+        )}
         {err && <p className="text-xs text-red-500">{err}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="text-sm text-stone-500 px-3 py-1.5">Cancel</button>

@@ -18,11 +18,14 @@ export class CommerceParameterError extends Error {
 }
 const invalid = (message: string) => new CommerceParameterError(400, 'COMMERCE_PARAMETER_INVALID', message);
 
-const FORMAT = /Format:\s*(email|integer list|stripe tax code)\b/i;
+const FORMAT = /Format:\s*(email|integer list|stripe tax code|dial slot)\b/i;
 const FORMAT_CHECKS: Record<string, (v: string) => boolean> = {
   'email': v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
   'integer list': v => /^\d+(\s*,\s*\d+)*$/.test(v),
   'stripe tax code': v => /^txcd_\d{8}$/.test(v),
+  // Website 2 (2026-11-04): home_featured_slot, archetype_code:sort_order
+  // (homeContentReads.parseDialSlot reads it; an unknown slot shows no featured coffee).
+  'dial slot': v => /^[a-z_]+:\d+$/.test(v),
 };
 
 /** The text format a parameter's note declares, or null when it declares none. */

@@ -1,5 +1,6 @@
 import { auth } from './firebase';
 import { reportError } from './errorReporter';
+import type { Slot, SlotPrice } from '../components/bloom/types';
 
 const BASE = '/api';
 
@@ -104,6 +105,71 @@ export async function quoteCheckout(body: { items: CheckoutItem[]; subscription?
 export async function getCheckoutRules(): Promise<CheckoutRules> {
   const res = await fetch(`${BASE}/checkout/rules`);
   if (!res.ok) throw new Error('Failed to load checkout rules');
+  return res.json();
+}
+
+// ── Website 2 (2026-11-04): presentation data for the handoff pages ─────────
+// backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_2_PRESENTATION_DATA.md
+// Every value below comes from the API; a key that is absent means "no value"
+// and the card leaves that row out (never a placeholder).
+
+/** What a card shows beyond its slot and price (services/coffeeCardReads.ts CardPresentation). */
+export interface CardPresentation {
+  /** the signature notes, the roaster's words first */
+  signatureNotes: string[];
+  hint?: string;
+  bestBrew?: string;
+  alsoGood: string[];
+  milk?: string;
+  leadsInCup?: string;
+  originRegion?: string;
+  /** Premium ★: the coffee carries an award (never its name) */
+  hasAward: boolean;
+  /** asset registry key (frontend/src/design/assets.ts); absent until Camila supplies one */
+  photoKey?: string;
+}
+
+/** A family slot as a card; a slot with no coffee has no presentation keys. */
+export type SlotCard = Slot & { archetype: string; archetypeLabel: string } & Partial<CardPresentation>;
+
+export interface FamilyCards {
+  archetype: string;
+  archetypeLabel: string;
+  sortOrder: number;
+  customerWords: string[] | null;
+  collectionOffer: { memberCount: number; sumCents: number; discountedCents: number } | null;
+  cards: SlotCard[];
+}
+
+export interface OtherCard extends Partial<CardPresentation> {
+  coffeeId: number;
+  /** the home slot's name; null when the coffee has none (never the raw coffee name) */
+  platformName: string | null;
+  archetype: string | null;
+  archetypeLabel: string | null;
+  categories: { code: string; label: string; sortOrder: number }[];
+  prices: (SlotPrice & { isActive: boolean })[];
+  effectivelyActive: boolean;
+  isUnpriced: boolean;
+}
+
+export interface CoffeeCards { families: FamilyCards[]; other: { cards: OtherCard[] } }
+
+export async function getCoffeeCards(): Promise<CoffeeCards> {
+  const res = await fetch(`${BASE}/coffees/cards`);
+  if (!res.ok) throw new Error('Failed to load coffee cards');
+  return res.json();
+}
+
+export interface HomeContent {
+  facts: { questions: number; dimensions: number; families: number };
+  quotes: string[];
+  featured: { card: SlotCard; price: { weightOz: number; retailPriceCents: number; label: string } | null } | null;
+}
+
+export async function getHomeContent(): Promise<HomeContent> {
+  const res = await fetch(`${BASE}/home/content`);
+  if (!res.ok) throw new Error('Failed to load home content');
   return res.json();
 }
 

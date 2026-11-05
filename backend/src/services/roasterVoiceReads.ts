@@ -96,14 +96,27 @@ function brewLabelsOf(response: { bestBrew: string | null; alsoGoodBrews: string
   };
 }
 
-/** The card's tags alone (GET /api/coffees/:id/content): the award count and the best brew, without the rest of the voice. */
-export async function getCardTags(coffeeId: number, runner: Runner = db): Promise<CardTag[]> {
+/** What a customer card takes from the roaster's side: the tags, both brew answers as labels, and whether an award exists (never its text). */
+export interface CardFacts { tags: CardTag[]; bestBrew: string | null; alsoGoodBrews: string[]; hasAward: boolean }
+
+/**
+ * The card's roaster-side facts in one read (Website 2, 2026-11-04: the
+ * handoff card shows Also good beside Best brew, and Premium ★ as a flag).
+ * getCardTags is this, tags only.
+ */
+export async function getCardFacts(coffeeId: number, runner: Runner = db): Promise<CardFacts> {
   // in parallel on the pool; one after another on a transaction's single client
   const [remarkRows, response, labels] = runner === db
     ? await Promise.all([listRemarks({ coffeeId, currentOnly: true }, runner), getCurrentResponseForCoffee(coffeeId, runner), getBrewLabels(runner)])
     : [await listRemarks({ coffeeId, currentOnly: true }, runner), await getCurrentResponseForCoffee(coffeeId, runner), await getBrewLabels(runner)];
   const awardCount = remarkRows.filter((r: any) => r.topic === 'award').length;
-  return cardTags(awardCount, brewLabelsOf(response, labels).bestBrew, runner);
+  const brews = brewLabelsOf(response, labels);
+  return { tags: await cardTags(awardCount, brews.bestBrew, runner), ...brews, hasAward: awardCount > 0 };
+}
+
+/** The card's tags alone (GET /api/coffees/:id/content): the award count and the best brew, without the rest of the voice. */
+export async function getCardTags(coffeeId: number, runner: Runner = db): Promise<CardTag[]> {
+  return (await getCardFacts(coffeeId, runner)).tags;
 }
 
 /**
