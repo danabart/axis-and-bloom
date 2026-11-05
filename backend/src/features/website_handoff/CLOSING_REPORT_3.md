@@ -205,3 +205,63 @@ Upload to `gs://axis-bloom-assets/`. The image pipeline writes `optimized/home/<
 7. **09's second icon is pause/play of the loop, not "Unmute":** the brief keeps `FilmModal` (the film with sound) on the play icon, so sound already has a door. A pause control for the auto-playing loop is the WCAG 2.2.2 need.
 8. **Two G4.4 lines beyond the brief's three** were rewritten (07 card 02 and the 07 foot), as listed above.
 9. **Content the handoff has no place for** (pull quote, photo essay with its dead `/essays` link, "months" strip): retired with the old layout and listed as OT-75 ("needs a design"), not silently dropped.
+
+## Tests and checks (before push)
+
+- **Frontend `npm test`:** 36/36 pass. That is 23 new `home/home.test.tsx` cases plus the 13 chrome cases.
+  - For every `stageCode`: headline, primary link and secondary links; SUBSCRIBER's date; NEW_NO_QUIZ and signed-out invite.
+  - Feedback nudge: above the headline, "Not now" stores the dismissal, hidden under 14 days.
+  - `CompanyGiftRedemption` mounted with the refresh callback.
+  - The name is written to the quiz's session key.
+  - Facts, quiz count and "8 dimensions · 0–15" come from the payload; no "seven".
+  - Family panels (number, words, `/shop#code`); Liam's gentle-end slot; quotes.
+  - Featured add-to-cart: dial item shape plus `setDialPosition(…, {trigger:'add_to_cart', source:'home', coffeeId: 2914})`.
+  - Liam link signed out / with access / without; gated hides the featured card, Liam and Shop, and family panels lead to the quiz.
+- **Frontend `tsc --noEmit`:** only the known pre-existing errors (ArchetypeSection, useAdjacentArchetype, Profile, TheAxis); none in touched files.
+- **Backend:**
+  - `tsc` is clean.
+  - All six lints pass: catalog, retention, customer, roastery-portal, cupping, lineage.
+  - `websitePresentation.test.ts` is 16/16 (adds `sortOrder` and the facts scale).
+  - Full suite: 1,122 / 1,129. The 7 failures are the known set: 6 `quizScoring` (OT-19) and `schema.catalog_blueprint` (OT-73), in 2 files.
+- **Local (Vite on :5179, API proxied to prod):** 390 and 1280 with no horizontal scroll. This run caught "undefined–undefined" while prod did not yet serve `scaleMin`; the guard now treats a missing value as none.
+
+## Production evidence (2026-11-05)
+
+- **Commits:** `ef18558` (the page) and `3d7ae03` (a fix found in the smoke, below).
+- **Deploys:** runs 42059651116 and 42060939892, both success.
+- **Backend revision:** `axis-bloom-backend-00819-j7t`.
+- **Startup log:** no ERROR lines. The `[data-catalog]` report is "1 of 6 checks with findings": the 25 dead-table candidates, unchanged. The integrity findings are the same ones the previous revision reported (sommelier #3, evidence #2/#6, quiz #10). No schema change, so no `catalog:md`.
+- **API:**
+  - `GET /api/home/content` facts: `{questions 6, dimensions 8, families 5, scaleMin 0, scaleMax 15}`.
+  - `GET /api/coffees/archetypes`: `sortOrder` 1–5.
+- **Smoke method:** the Firebase origin `axis-and-bloom-prod.web.app`, which serves the same build as `axisandbloomcoffee.com` without Cloudflare, `?preview=true`, signed out, headless Chromium at 390 and 1280.
+  - **What the page shows:**
+    - Families `01 — Floral … 05 — Earthy`, each with its three words → `/shop#<code>`.
+    - Menu row → `/the-axis`, `/bloom`, `/find-my-flavor`.
+    - Facts `06 08 05 01`, hover lines with "0 to 15, 8 ways" and the family names.
+    - "6 questions…", "Take the 6-question quiz", "Have a profile? Sign in".
+    - Gift widget "Have a code? Redeem".
+    - Featured "This week · 04 — Chocolate & Nutty · Coado · Almond · Chocolate · Peanuts · 12 oz whole bean · $32.00 · Add to cart ↗".
+    - First survey quote.
+    - Steps "Answer 6 questions", "8 dimensions · 0–15".
+    - Liam "…gentle end of Fruity, next to Clean Fruit." and Talk to Liam → `/sign-in?redirect=/sommelier`.
+    - Footer present; header floating in paper.
+    - Film plays the `home-hero.mp4` fallback with the `home-hero-poster` fallback; family photos fall back to `archetypes/*/hero`.
+  - **Checks:** no "seven", no roasting or timing promise, no "[ … ]" placeholder, no page errors, `scrollWidth == clientWidth` at both widths.
+  - **Defect found and fixed:** at 390 the family panel text rendered in ink, nearly invisible on the photos. `.hm a { color: inherit }` outranked `.hm-fam`. Fixed in `3d7ae03`; after redeploy the name colour is `rgb(241, 239, 229)` (paper), confirmed on prod.
+  - **Screenshots** (scratchpad, per section, both widths): `prod-{390,1280}-{top,quiz,why,shop,voices,axis,liam,film}.png` plus full pages.
+- **Lighthouse accessibility:** 96 mobile, 96 desktop (prod origin). The only failing audit is `color-contrast` (9 / 14 nodes): the handoff palette (paper on the Balanced plate `#d1ac11`, the family numbers, `#e1a99c` hints). These are design values and were left as drawn.
+- **Not verified live: the signed-in state.**
+  - Chrome is signed in on `axisandbloomcoffee.com`. After the new bundle loaded there, the Claude in Chrome extension could neither script nor screenshot the tab: "Cannot access a chrome-extension:// URL of different extension". Another extension's frame is in the page; this held across three tries and two fresh tabs. Before the reload, the same tab showed "Profile · Sign out · Cart (0) · Admin" with Talk to Liam → `/sommelier`.
+  - Headless runs cannot sign in, since entering a password is not allowed.
+  - The stage CTAs, nudge and gift widget are covered by the tests above.
+  - The live signed-in screenshot is left for Dana's own browser: open `/?preview=true` signed in and look at section 03.
+
+## What the next brief needs
+
+- **Website 4 (Shop all):** family panels link to `/shop#<archetype code>` (`#balanced_sweet`, `#chocolate_nutty`, …). The new Shop needs those anchors.
+- **Camila:** the eleven uploads above. No deploy is needed after them.
+- **Dana:**
+  - Review the six rewritten lines and the Liam example in place (OT-76).
+  - OT-75 lists the old Home content that has no section now.
+
