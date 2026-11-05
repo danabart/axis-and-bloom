@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-05 from database `axisandbloom` · 155 tables · 77 views · 1413 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `d67dff5826a7` (full value in the footer).
+Generated 2026-11-05 from database `axisandbloom` · 155 tables · 77 views · 1414 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `ad67a31ce400` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -114,7 +114,7 @@ Cross-cutting coffee categories orthogonal to archetype (experimental, decaf, ha
 
 Many-to-many join tagging coffees with cross-cutting categories (experimental, decaf, half_caf, flavored), independent of archetype or dial slot.
 
-- **Writer:** catalogService.applyCategoryCodes (via createCoffee and updateCoffee); seed
+- **Writer:** catalogService.applyCategoryCodes (via createCoffee and updateCoffee), catalogService.setCategoryCustomerName; seed
 - **Readers:** v_coffee, catalogReads.getCategoryAssignments, catalogReads.getCategoryCoffees, catalogService.deleteCategory, routes/admin
 - **Since:** 2026-07-10 (#78)
 
@@ -124,6 +124,7 @@ Many-to-many join tagging coffees with cross-cutting categories (experimental, d
 | `coffee_id` | integer | yes | References coffees.id, the tagged coffee (ON DELETE CASCADE); UNIQUE together with category_id. |
 | `category_id` | integer | yes | References coffee_category.id, the category applied (ON DELETE CASCADE); the app refuses to delete a category while rows exist. |
 | `assigned_at` | timestamp with time zone | yes | UTC timestamp the tag was applied. |
+| `customer_name` | text | yes | The name customers see for this coffee in this category role (Shop all "Other", The Bloom's Other Categories), as a slot coffee's name lives on coffee_dial_slot; NULL until set in admin, and then the home slot name is used if the coffee has one, else the coffee is not listed (never coffees.name). Written by catalogService.setCategoryCustomerName; read by catalogReads.getCategoryCoffees (Website 4, OT-70, 2026-11-05). |
 
 #### `coffee_dial_slot`
 
@@ -3889,7 +3890,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `coffee_archetype` | catalogService, seed | catalogService (UPDATE), seed (INSERT, UPDATE) | axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, correct-subscriber-archetypes, cuppingReads, customerIntegrity, customerReads, evidenceReads, exportCalibration, freeSlots, index, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession, roasteryPortalReads, sommelierRag, users | v_archetype_dimension_comparison, v_archetype_vectors, v_coffee_archetype, v_coffee_customer_descriptor, v_customer_quiz_current, v_customer_timeline, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_roastery_portal_dimension_match, v_subscriber_quiz_results |
 | `coffee_archetype_assignment` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, compatibilityReads, cuppingReads, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, setMatch2916, setMatch2917 | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_coffee, v_roastery_portal_dimension_match |
 | `coffee_category` | catalogService, seed | catalogService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, roasteryPortalService, setMatch2917 | v_coffee |
-| `coffee_category_assignment` | catalogService, seed | catalogService (DELETE, INSERT), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, setMatch2917 | v_coffee |
+| `coffee_category_assignment` | catalogService, seed | catalogService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, setMatch2917 | v_coffee |
 | `coffee_dial_slot` | catalogService, seed | catalogService (UPDATE), seed (INSERT) | admin, axis, backfillCustomerFacts, catalogImport, catalogIntegrity, catalogReads, catalogService, checkoutService, commerceAdminReads, cuppingService, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, setMatch2917, sommelier, sommelierRag, subscriptionService, subscriptionShipment, users | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_roastery_portal_dimension_match, v_subscription_status |
 | `coffee_dimensions` | seed | seed (INSERT, UPDATE) | admin, axis, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceReads, freeSlots, homeContentReads, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_archetype_vectors, v_coffee_archetype, v_coffee_card, v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_evidence_cupper_calibration, v_evidence_dimension, v_evidence_roastery_calibration, v_roastery_portal_dimension_match |
 | `coffee_hop` | catalogService | catalogService (DELETE, INSERT) | admin, axis, catalogIntegrity, catalogReads, catalogService, dialSuggestion, qrDoor, sommelierRag | v_coffee_hop |
@@ -4046,5 +4047,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: d67dff5826a7c5ee680f003d5b73a028526500424ae03468ff5364af6c27de9c
-lineage-hash: 95081c95a5c134ddbbdf13babc68b57692f138274f9ddf5e8cb06e206e4ab5c6
+catalog-hash: ad67a31ce400be293209c459fffe9b4e09d247ed23df518785c1aeef3112b6ed
+lineage-hash: f46007c81a2d92373b0978290d8565cf26f7a4a3ab01364734d6b789d5b8f74d

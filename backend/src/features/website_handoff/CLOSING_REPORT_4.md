@@ -176,3 +176,60 @@ Upload to `gs://axis-bloom-assets/`. The image pipeline writes the optimized cop
 8. **Shop.tsx's 24 images** are not deleted: they are Camila's originals. They simply stop being bundled.
 9. **"Coming soon" covers "Temporarily unavailable" too:** the brief maps both unavailable and coming soon to "Coming soon".
 10. **Only the family menu is sticky,** not the "for you" line, which keeps the stuck bar short. This matches the old Shop's sticky nav.
+
+## Tests and checks (before push)
+
+- **Frontend `npm test`:** 48/48 pass (12 new in `shop/shop.test.tsx`, plus 23 Home and 13 chrome).
+  - Sections render in `sort_order` with the archetype codes as ids.
+  - Your family first, from `getArchetypeOrder('chocolate_nutty')`, labelled "Your family"; the toggle restores `sort_order` and stores `off`.
+  - Anonymous visitors get the quiz link.
+  - Absent rows are omitted (`dt` list exact).
+  - Premium ★ appears only with `hasAward`, and there is no "award" text in the DOM.
+  - Unpriced shows "Price coming"; a slot with no coffee or no available roaster shows "Coming soon"; neither can be added.
+  - Add sends the dial item, then `setDialPosition(…, {trigger:'add_to_cart', source:'shop', coffeeId})`.
+  - Weight chips; the collection item from the payload.
+  - Other lists only named coffees, with the direct item.
+  - Gated: no prices, cart links or collection row.
+- **Frontend `tsc --noEmit`:** only the 9 known pre-existing errors.
+- **Backend:**
+  - `tsc` is clean and all six lints pass.
+  - New `websiteShop.test.ts`: 7/7, covering an unnamed coffee left unlisted with its raw name absent, the writer with its `catalog_change` row, idempotency, a name kept across `updateCoffee`, an untagged category refused, blank clearing the name, and the declared writer.
+  - Full suite: 1,128/1,136 on the first run. The eighth failure was `catalogWriteDoor.test.ts` expecting an unnamed decaf coffee listed under its raw name. That behaviour is what OT-70 removes, so the test now sets a customer name and asserts it (5/5).
+  - The other 7 failures are the known set: 6 `quizScoring` (OT-19) and `schema.catalog_blueprint` (OT-73).
+- **Local acceptance on the test DB** (local backend on `axisandbloom_test`, Vite on :5179):
+  - Labelled fixtures added through the real writers for the states prod lacks: three priced Chocolate & Nutty coffees, one with a hint and milk; a decaf coffee named "Evening Hush"; a nameless decaf.
+  - At 390 and 1280: no horizontal scroll. The collection row shows "4 coffees · $109.80". The hint row shows. The Other section shows only "Evening Hush", in the unpriced state, and the nameless decaf is absent. No raw name anywhere.
+  - `/shop#fruity` lands. Add to cart opens the drawer (Cart (1)).
+  - Fixtures removed afterwards; only the three price rows the script inserted were deleted, and the test DB's own prices (ids 17, 9, 2460, 2462) are untouched.
+
+## Production evidence (2026-11-05)
+
+- **Commit and deploy:** commit `08e9269`, deploy run 42073592017 success, revision `axis-bloom-backend-00822-lpt`.
+- **Startup log:**
+  - No ERROR lines.
+  - `[data-catalog]` "2 of 6 checks with findings": the 25 dead-table candidates (unchanged) and "CATALOG.md stale". The stale finding was expected, since the live DB gained the column (1,414 columns).
+  - `npm run catalog:md -- --expect-db axisandbloom` regenerated `CATALOG.md` at catalog-hash `ad67a31c…`, which equals the live hash in the log. The diff is the new column, the extra writer and the UPDATE in the lineage table.
+  - The other integrity findings are the same ones the previous revisions reported (sommelier #3, evidence #2/#6, quiz #10).
+- **Smoke** on the Firebase origin `axis-and-bloom-prod.web.app/shop?preview=true` (same build, no Cloudflare), headless, signed out, at 390 and 1280:
+  - Five sections in `sort_order` with code ids.
+  - Lead "5 families, a handful of coffees in each. Every one cupped on 8 dimensions, from partner roasteries." and "Find your family first →".
+  - Chocolate & Nutty: "The collection · 3 coffees · $81.00" with Add the collection.
+  - 7 cards in the buy state: Light Floral Edge, Clean Fruit, Classic Balanced, Bright & Balanced, Quieta Non Movere, Coado, There's No Place Like Home. The other 13 slots show "Coming soon".
+  - One Premium ★ (Coado). No "award" text, no roaster name, no timing promise.
+  - The menu is sticky at 1280 and static at 390. `scrollWidth == clientWidth` at both widths, and no page errors.
+  - `/shop#fruity` lands on Fruity (top 0 at 390, 72 at 1280, below the sticky menu).
+  - Home's family panel `/shop#earthy` lands on Earthy.
+  - Add to cart opens the drawer.
+  - Screenshots in the scratchpad: `prod-shop-{390,1280}.png`, `-choc.png`, `-drawer.png`.
+- **OT-70 on prod:**
+  - `/api/coffees/other-categories` and the `/cards` "other" list are both `[]`. Both decaf coffees (2909, 2930) have no customer name yet, so Shop all's Other section and The Bloom's Other Categories are hidden until a name is entered in admin (Coffees → Edit → Customer card → "Customer name as Decaf").
+  - Before this brief, The Bloom showed them under their raw `coffees.name`.
+- **Not verified live:**
+  - The signed-in "Your family first" view: no signed-in session is available headless, and the Chrome extension was blocked on this site in Website 3. It is covered by the tests.
+  - The admin category-name field on prod: saving it writes production data. Covered by the backend tests.
+
+## What the next brief needs
+
+- **Dana:** enter customer names for the two decaf coffees (admin, Coffees → Edit → Customer card) if they should show on Shop all and The Bloom.
+- **Camila:** the six `raw/shop/…` uploads above, and per-coffee photos later (OT-77).
+- **Website 5 (The Bloom):** reuse `bloom/cartItems.ts` and `useSlotAvailability` rather than building items inline. `/other-categories` now applies the OT-70 rule.
