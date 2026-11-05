@@ -123,3 +123,28 @@ Vite dev server on :5179 with `/api` proxied to prod. Coffee data failing to loa
 **Keyboard walk** (both widths), from the page: Tab to `Menu` → Enter opens it. Focus order is mark → Close → 01 Shop all → 02 The Axis → 03 The Bloom → 04 Find my flavor → Sign in → Cart (0) → mark (wraps). Escape closes it, focus is back on `Menu`, `aria-expanded="false"`, and body overflow is restored. `/the-axis` is marked current (underlined, `aria-current="page"`).
 
 Unit tests 13/13. Frontend `tsc` has 10 errors, all pre-existing in untouched files (Home 1, Profile 3, TheAxis 2, bloom/ArchetypeSection 1, bloom/useAdjacentArchetype 3); the #250 baseline was 13. `vite build` is green, and `npm audit --omit=dev --audit-level=high` passes.
+
+## Push, deploy, smoke (production)
+
+- Commit `19130f0`, pushed to `main`. Deploy run `41952553039` succeeded: backend and frontend jobs green, and the frontend `npm audit --omit=dev --audit-level=high` found 0 vulnerabilities.
+- Backend revision `axis-bloom-backend-00815-gfj` (no backend change; redeployed by the workflow). The startup log has no ERROR lines. `[data-catalog] report only: 152 tables, 76 views, 1391 columns; 1 of 6 checks with findings` (dead-table candidates). The other integrity lines are the standing ones: sommelier #3 "oz" (OT-37), quiz #10, evidence #2/#6.
+- **Smoke.** Headless runs against production get Cloudflare's bot challenge, which was not bypassed. The smoke therefore ran in Dana's Chrome (signed in as admin) at desktop width, read through the DOM:
+  - `/the-axis?preview=true`: header "Axis & Bloom | Profile | Sign out | Cart (0) | Admin | Menu", 94px. Menu `/shop, /the-axis (aria-current), /bloom, /find-my-flavor`.
+  - Footer "The Axis | The Bloom Dial | Liam | Find My Flavor | Flavor Intelligence | Cart | Instagram | Contact | newsletter | © 2026 … | Terms · Privacy". Liam shows because this account has access.
+  - Menu overlay live: open → `aria-expanded=true`, focus inside, body overflow hidden, foot row "Profile · Sign out · Cart (0) · Admin · Coffee, personalized.". Escape → closed, `aria-expanded=false`, overflow restored, focus on Menu.
+  - `/sommelier`: chat panel top 94 = header bottom 94 (no overlap). No footer (Liam chat, unchanged).
+  - `/bloom`: after scrolling 1000px the jump-nav sticks at top 0.
+  - `/profile`: header bottom 94, first content ("Your flavor memory.") at 253, new footer.
+  - `/checkout` with an empty cart redirects to `/bloom` (existing behaviour); header and footer are the new ones.
+  - **Gated** (preview flag cleared, `/privacy`): header "Profile | Sign out | Menu" with no cart and no Admin, menu `/find-my-flavor` only, footer nav "Find My Flavor" only, no floating cart. The preview flag was restored afterwards.
+- 390px: verified locally (headless; table above). Phone-width production was not re-checked, because the Chrome window did not resize below its DPI-scaled width.
+- Screenshots: local headless captures were saved during the run (session scratchpad, not committed). The extension's screenshot capture was unreliable on this machine (timeouts and "chrome-extension://" errors), so production evidence is DOM measurement, as above.
+
+## What the next brief needs
+
+- **Website 2** (presentation data) does not depend on this brief's code.
+- **Website 3–7** use `Wrap / Caps / Titled / Btn / Frame / ArrowIcon / MarkSvg` from `components/chrome` and the `--ab-*` tokens.
+  - Pass `<Navigation tone="paper" />` or `floating` by route when a page needs it. For example, Home drops `data-hero` in brief 3 and PublicLayout decides the variant.
+  - Swap the page's inline hex literals (list in 0.5).
+- **Website 8** flips `CART_PAGE_ROUTE_EXISTS` in `Navigation.tsx` when `/cart` lands. Header and footer then link to `/cart`, and the drawer glyph appears.
+- **7A** decides whether the quiz route moves under `PublicLayout` or keeps its own chrome.
