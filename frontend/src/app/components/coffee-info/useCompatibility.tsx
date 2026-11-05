@@ -7,6 +7,28 @@ export { ARCHETYPE_LABEL, ARCHETYPE_COLOR };
 
 export type CompatLevel = 'wheelhouse' | 'exploring' | 'stretch';
 
+/** Website 5 (2026-11-05): The Bloom's comfort-zone pill, from GET /:id/compatibility's `zone`. */
+export type ComfortZone = 'in' | 'edge' | 'outside';
+
+/** The handoff's pill words (brand copy, as BADGE_CONFIG's labels are). */
+export const COMFORT_ZONE_LABEL: Record<ComfortZone, string> = {
+  in: 'In your comfort zone',
+  edge: 'At the edge of your comfort zone',
+  outside: 'Outside your comfort zone',
+};
+
+/**
+ * The pill for a coffee: the server's zone (thresholds in evidence_parameter,
+ * applied by compatibilityReads.compareCoffee) when it has one; otherwise the
+ * family level (same family = in, adjacent = at the edge, else outside), as
+ * decided 2026-11-05. Null when there is no customer family to compare with.
+ */
+export function comfortZoneOf(compat: CompatLevel | null, zone: ComfortZone | null): ComfortZone | null {
+  if (zone) return zone;
+  if (!compat) return null;
+  return compat === 'wheelhouse' ? 'in' : compat === 'exploring' ? 'edge' : 'outside';
+}
+
 // Part 13/15 — the one pill styling for CompatibilityBadge, shared by both variants
 // (Part 15 folded 'default' onto this exact palette so the badge never renders two
 // different ways on the site).
@@ -42,18 +64,24 @@ export function useCompatibility(coffeeArchetype: string | null, userArchetype: 
   const adjacency = useArchetypeAdjacency();
   const compat = getCompatibility(coffeeArchetype, userArchetype, adjacency);
   const [dimCompText, setDimCompText] = useState<string | null>(null);
+  const [zone, setZone] = useState<ComfortZone | null>(null);
   const wanted = !!(compat && userArchetype && coffeeId);
   useEffect(() => {
     setDimCompText(null);
+    setZone(null);
     if (!wanted) return;
     let alive = true;
     fetch(`/api/coffees/${coffeeId}/compatibility?userArchetype=${encodeURIComponent(userArchetype!)}`)
       .then(r => r.json())
-      .then((data: { sentence?: string | null }) => { if (alive) setDimCompText(data.sentence ?? null); })
+      .then((data: { sentence?: string | null; zone?: ComfortZone | null }) => {
+        if (!alive) return;
+        setDimCompText(data.sentence ?? null);
+        setZone(data.zone ?? null);
+      })
       .catch(err => reportError('[useCompatibility/compatibility]', err));
     return () => { alive = false; };
   }, [wanted, coffeeId, userArchetype]);
-  return { compat, dimCompText };
+  return { compat, dimCompText, zone, comfortZone: comfortZoneOf(compat, zone) };
 }
 
 /**

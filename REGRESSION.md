@@ -156,3 +156,23 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_4.md`. Tests: 
 - [ ] **No roaster or award names:** "Premium ★" is the only award sign; no roaster name, award name or raw `coffees.name` anywhere on the page.
 - [ ] **OT-70:** a category coffee shows its category customer name (else its home slot name) on Shop all and The Bloom; with neither, it is not listed.
 - [ ] **Prelaunch:** `/shop` stays behind the gate; the gated branch hides prices, cart links and the collection row.
+
+## The Bloom (Website 5, 2026-11-05)
+
+Full record: `backend/src/features/website_handoff/CLOSING_REPORT_5.md`. Tests: `frontend/src/app/components/bloom/bloom.test.tsx`, `backend/src/routes/users.dialPosition.test.ts`, `backend/src/db/coffeePresentation2.test.ts` (comfort zone).
+
+- [ ] **Silent auto-save + pre-set:** a signed-in turn writes `user_bloom_dial_current_position` only (no trigger); the wheel reopens on the saved stop; a deep-linked slot wins over the saved one.
+- [ ] **Save to flavor memory:** signed in, real slot: `explicit_save`, source `bloom`, then "View in flavor memory ↗" to `/profile?tab=memory`.
+- [ ] **Add to cart:** the payload price, the drawer, `add_to_cart` source `bloom` (field button, lineup cards, classic quick pick).
+- [ ] **States:** weight chips with more than one price; "Price coming", "Temporarily unavailable", "Coming soon" cannot be added; the shipping line comes from `GET /api/checkout/rules`.
+- [ ] **Quick picks:** the classic and the Collection (the discount from the offer, never typed); hidden while gated.
+- [ ] **Compare** opens from the reveal ("Compare with the neighbour").
+- [ ] **Reveal:** roaster's words left, cupping bars with end words right, notes wheel collapsed; footer links; Liam only with access; Full breakdown and Ask Liam hidden while gated.
+- [ ] **Comfort zone:** pill from the server `zone` (params `comfort_zone_edge_delta`, `dimension_delta_significant`), else the family level; sentence from the server; guests see "Find your flavor to see your match"; no percentage, no per-user value.
+- [ ] **Tabs:** five, personalized order with YOUR / TO EXPLORE, sticky, `?archetype=` state, ←/→ between tabs.
+- [ ] **Deep links:** `/bloom?archetype=fruity&slot=2` lands on the stop; Liam's and Flavor Intelligence's links still land; `?archetype=experimental&slot=n` scrolls to the Experimental group and marks the card.
+- [ ] **Strip:** the 01/02/03 strip shows; the wheel's hint line hides after the first turn (`axisbloom.hasTurnedDial`) or for a customer with a saved position.
+- [ ] **Other block:** Experimental cards first, then named category coffees only (OT-70).
+- [ ] **Doors:** none while `DOORS_ENABLED` is false; switching it on shows "Turn the {neighbour} dial" under the Other block.
+- [ ] **Wheel a11y:** keyboard-only turn (←/→/Home/End on the slider), `aria-valuetext` = the stop label, reduced motion paints without the spin.
+- [ ] **Quiz result and Profile** still use the per-archetype dial (`layout` default) with their fold, ceremony and quick picks.

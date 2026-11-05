@@ -137,13 +137,38 @@ interface DimensionBarsProps {
    * (CompareOverlay and FlavorIntelligencePage, which must stay as-is). Compare mode
    * (compareDimensions set) always renders the default/compare presentation regardless
    * of variant — 'reveal' never carries a comparison. */
-  variant?: 'default' | 'reveal';
+  variant?: 'default' | 'reveal' | 'field';
+}
+
+/** Website 5 (2026-11-05): The Bloom field's reveal bars, the handoff's `.cp` rows
+ * (name, a hairline track, the range segment, the end words under it). Colours come
+ * from the field's CSS variables (bloomField.css); the scale is the dimension's 0 to 15. */
+function DimensionBarsField({ dimensions }: { dimensions: DimensionRow[] }) {
+  return (
+    <div className="bf-cp" data-testid="field-bars">
+      {dimensions.map(dim => {
+        const min = Number(dim.avg_min), max = Number(dim.avg_max);
+        return (
+          <div key={dim.dimension} style={{ display: 'contents' }}>
+            <span className="bf-cl">{dim.dimension}</span>
+            <span className="bf-ct" role="img" aria-label={`${dim.dimension}: ${min} to ${max} of 15, from ${dim.scale_min_label} to ${dim.scale_max_label}`}>
+              <i className="bf-track" />
+              <i className="bf-seg" style={{ left: `${(min / 15) * 100}%`, width: `${Math.max(((max - min) / 15) * 100, 1.5)}%` }} />
+              <span className="bf-ce" aria-hidden="true"><span>{dim.scale_min_label}</span><span>{dim.scale_max_label}</span></span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /** "Cupping profile" section — single-coffee bars, or side-by-side comparison when compareDimensions is passed. */
 export function DimensionBars({ dimensions, compareDimensions, primaryLabel, compareLabel, variant = 'default' }: DimensionBarsProps) {
   const isCompare = !!compareDimensions;
   if (!dimensions.length && !(compareDimensions?.length)) return null;
+
+  if (variant === 'field' && !isCompare) return <DimensionBarsField dimensions={dimensions} />;
 
   if (variant === 'reveal' && !isCompare) {
     return (

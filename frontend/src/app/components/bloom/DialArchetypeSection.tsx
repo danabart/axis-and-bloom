@@ -1,28 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import { useAuth } from '../../context/AuthContext';
-import { setDialPosition } from '../../lib/api';
-import { reportError } from '../../lib/errorReporter';
 import { BloomDial, type BloomDialHandle } from './dial/BloomDial';
 import { buildDialConfig } from './dial/archetypeConfig';
-import { computeDefaultSortOrder } from './ArchetypeSection';
 import { RevealedPanel } from './RevealedPanel';
 import { DoorBand } from './DoorBand';
-import { usePositionCardData } from './usePositionCardData';
-import { dialCartItem, collectionCartItem, syncDialAddToCart } from './cartItems';
 import { CardTags } from '../coffee-info/CardTags';
+import { DialFieldLayout } from './field/DialFieldLayout';
+import { classicOf, collectionPct, arrivingSoonLine, numberWord, useDialSlot } from './useDialSlot';
+import type { SlotCard } from '../../lib/api';
 import type { ArchetypeData, CartItem, DoorTarget, Slot } from './types';
-import { slotKey, formatPrice, priceLabel } from './types';
+import { formatPrice, priceLabel } from './types';
 
 // Part 21 — small-number spellout for the /bloom why-line ("Four {Archetype}
 // coffees live here..."); falls back to the numeral itself past Ten (never
 // happens today — every archetype has exactly 4 — but the prompt's own
 // "when a slot count != 4, use the real count" means this must hold for any
 // real value, not just the current one).
-const NUMBER_WORDS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
-function numberWord(n: number): string {
-  return NUMBER_WORDS[n] ?? String(n);
-}
+export { numberWord } from './useDialSlot';
 
 /**
  * The Bloom Part 12 — unified archetype section built on Camila's Bloom Dial
@@ -32,7 +26,47 @@ function numberWord(n: number): string {
  * swap; `index` is accepted for compatibility but unused (no more flip/eager
  * layout — the dial owns its own presentation).
  */
-export function DialArchetypeSection({
+export function DialArchetypeSection(props: DialArchetypeSectionProps) {
+  // Website 5 (2026-11-05): The Bloom's field layout (the flower wheel, the
+  // coffee, the comfort zone, the reveal, the lineup). The per-archetype dial
+  // below stays the default for the quiz result and Profile.
+  if (props.layout === 'field') return <DialFieldLayout {...props} />;
+  return <DialLayout {...props} />;
+}
+
+export interface DialArchetypeSectionProps {
+  data: ArchetypeData;
+  index: number;
+  selectedSortOrder: number;
+  revealedKeys: Set<string>;
+  onDialSelect: (archetype: string, dialSortOrder: number) => void;
+  onToggleReveal: (key: string) => void;
+  onAddToCart: (item: CartItem) => void;
+  onCompare: (archetype: string, archetypeLabel: string, slot: Slot) => void;
+  userArchetype: string | null;
+  registerDialRef: (archetype: string, handle: BloomDialHandle | null) => void;
+  source?: 'bloom' | 'find_my_flavor_returning' | 'find_my_flavor_results' | 'profile' | null;
+  hideProfileLink?: boolean;
+  embedded?: boolean;
+  onDoorClick?: (archetype: string, edge: 'left' | 'right', target: DoorTarget) => void;
+  folded?: boolean;
+  ceremonyTag?: string;
+  unfoldMode?: 'inline' | 'breakout';
+  showBreakoutHeader?: boolean;
+  prelaunch?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  forceFold?: boolean;
+  /** Website 5: 'dial' (default) = the per-archetype canvas dial; 'field' = The Bloom's handoff field. */
+  layout?: 'dial' | 'field';
+  /** layout="field" only: the family's /api/coffees/cards slots (presentation fields) for the coffee block and the lineup. */
+  cards?: SlotCard[];
+  /** layout="field" only: rendered between the quick picks and the door row (The Bloom's Other block). */
+  between?: ReactNode;
+  /** layout="field" only: hide the wheel's hint line (after the visitor's first turn, hasTurnedDial). */
+  hideHints?: boolean;
+}
+
+function DialLayout({
   data, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onCompare,
   userArchetype, registerDialRef, source = null, hideProfileLink = false, embedded = false, onDoorClick,
   folded = false, ceremonyTag = 'YOUR SPOT', unfoldMode = 'inline', showBreakoutHeader = true, prelaunch = false,
@@ -107,7 +141,6 @@ export function DialArchetypeSection({
    * section can still be opened again later in the normal accordion flow. */
   forceFold?: boolean;
 }) {
-  const { user } = useAuth();
   const config = buildDialConfig(data);
   // Part 19 §B — a local handle to THIS dial (in addition to forwarding one up
   // via registerDialRef) so "the classic" CTA can turn the dial itself as
@@ -128,13 +161,7 @@ export function DialArchetypeSection({
   // s.isDefault) here would have picked chocolate_nutty's UNPRICED
   // dialSortOrder-1 row over its real, priced dialSortOrder-2 default —
   // caught live during Part 19's own QA.
-  const isDefaultSlots = data.slots.filter(s => s.isDefault);
-  const defaultSlot = isDefaultSlots.length === 1
-    ? isDefaultSlots[0]
-    : data.slots.find(s => s.dialSortOrder === computeDefaultSortOrder(data));
-  const defaultSortOrder = defaultSlot?.dialSortOrder ?? computeDefaultSortOrder(data);
-  const defaultPrice = defaultSlot?.prices.find(p => p.isAnchor) ?? defaultSlot?.prices[0];
-  const classicAvailable = !!(defaultSlot && defaultSlot.isActive && defaultSlot.platformName && defaultPrice);
+  const { defaultSortOrder } = classicOf(data);
 
   // Part 21 — fold/unfold state. Purely local: each mount of this component
   // (one per surface) owns its own fold state; nothing here persists across
@@ -197,76 +224,13 @@ export function DialArchetypeSection({
   const matchMode = folded && !everOpened;
   const displaySortOrder = matchMode ? defaultSortOrder : selectedSortOrder;
 
-  // Synthetic slot for placeholders (hooks must run unconditionally) — a dial
-  // position with no resolved catalogue slot at all, distinct from a real slot
-  // that's merely inactive/unpriced.
-  const realSlot = data.slots.find(s => s.dialSortOrder === displaySortOrder);
-  const isPlaceholder = !realSlot;
-  const currentSlot: Slot = realSlot ?? {
-    dialSortOrder: displaySortOrder,
-    positionLabel: '',
-    description: null,
-    isActive: false,
-    platformName: null,
-    isDefault: false,
-    prices: [],
-    coffeeId: null,
-  };
-  const currentKey = slotKey(data.archetype, currentSlot.dialSortOrder);
-  const isRevealed = revealedKeys.has(currentKey);
-
-  // Shared fetch/derived state for this position — one fetch, used by both the
-  // commerce controls below and the full-width RevealedPanel underneath. In
-  // match mode this is the CLASSIC's data (currentSlot is the classic then),
-  // so "Reveal the full profile" folded shows the classic's profile — never
-  // whatever position the user happens to be personally matched to but
-  // hasn't looked at yet.
-  const cardData = usePositionCardData(currentSlot, data.archetype, isRevealed);
-
-  // "Save to my flavor memory" — signed-in + a real (non-placeholder) slot only.
-  const [savedKey, setSavedKey] = useState<string | null>(null);
-  useEffect(() => { setSavedKey(null); }, [currentKey]);
-
-  function handleExplicitSave() {
-    if (!user) return;
-    setDialPosition(data.archetype, currentSlot.dialSortOrder, {
-      trigger: 'explicit_save', source, coffeeId: currentSlot.coffeeId, platformName: currentSlot.platformName,
-    })
-      .then(() => setSavedKey(currentKey))
-      .catch(err => reportError('[DialArchetypeSection/explicit-save]', err));
-  }
-
-  function handleAddToCart() {
-    if (!cardData.selectedPrice) return;
-    const item = dialCartItem(data, currentSlot, cardData.selectedPrice);
-    if (!item) return;
-    onAddToCart(item);
-    syncDialAddToCart(user, data.archetype, currentSlot.dialSortOrder, source, currentSlot.coffeeId);
-  }
-
-  function handleClassicAdd() {
-    if (!defaultSlot || !defaultPrice) return;
-    const item = dialCartItem(data, defaultSlot, defaultPrice);
-    if (!item) return;
-    onAddToCart(item);
-    // Turn the dial to the default position as feedback — same snap animation
-    // as any other settle, via the imperative handle this component keeps a
-    // local copy of specifically for this.
-    dialRef.current?.rotateTo(defaultSlot.dialSortOrder);
-    onDialSelect(data.archetype, defaultSlot.dialSortOrder);
-    syncDialAddToCart(user, data.archetype, defaultSlot.dialSortOrder, source, defaultSlot.coffeeId);
-  }
-
-  // Part 19 §C — "the collection": data.collectionOffer is already the
-  // backend-computed, backend-verified-at-order-time preview (null when fewer
-  // than 3 positions are purchasable — the CTA's own hide condition). No
-  // client-side discount math anywhere in this component.
-  function handleCollectionAdd() {
-    const item = collectionCartItem(data);
-    if (item) onAddToCart(item);
-  }
-
-  const showReveal = currentSlot.coffeeId != null && currentSlot.isActive;
+  // Website 5: the slot logic both layouts share (useDialSlot.ts, moved there unchanged).
+  const {
+    user, defaultSlot, classicAvailable, isPlaceholder, currentSlot, currentKey, isRevealed, cardData,
+    isSaved, showReveal, handleExplicitSave, handleAddToCart, handleCollectionAdd, handleClassicAdd: classicAdd,
+  } = useDialSlot({ data, displaySortOrder, revealedKeys, source, onAddToCart, onDialSelect });
+  const handleClassicAdd = () => classicAdd(n => dialRef.current?.rotateTo(n));
+  const savedKey = isSaved ? currentKey : null;
 
   // Part 21 — /bloom-only copy layer (§4). Both null on every folded/embedded
   // surface — computed here (not in BloomDial) since both need data this
@@ -314,7 +278,7 @@ export function DialArchetypeSection({
           {(!isPlaceholder && cardData.teaser) ? (
             <p className="bd-card-teaser">{cardData.teaser}</p>
           ) : (isPlaceholder || !cardData.hasVoiceRows) ? (
-            <p className="bd-card-teaser">{`A ${data.archetypeLabel} coffee for this turn of the dial. Its full tasting notes are arriving soon.`}</p>
+            <p className="bd-card-teaser">{arrivingSoonLine(data.archetypeLabel)}</p>
           ) : null}
 
           {isPlaceholder ? (
@@ -417,7 +381,7 @@ export function DialArchetypeSection({
             {data.collectionOffer && (
               <button type="button" className="bd-qp-row" onClick={handleCollectionAdd}>
                 <span className="bd-qp-what">
-                  The {data.archetypeLabel} Collection <em>· {data.collectionOffer.memberCount} coffees — 10% off</em>
+                  The {data.archetypeLabel} Collection <em>· {data.collectionOffer.memberCount} coffees — {collectionPct(data.collectionOffer)}% off</em>
                 </span>
                 <span className="bd-qp-act">Add the collection →</span>
               </button>

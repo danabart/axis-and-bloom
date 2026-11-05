@@ -28,7 +28,12 @@ const CHANGE_SUFFIX = / \| changed .*$/s;
 
 // Coffee presentation brief 2: pairs of keys whose values must stay ordered,
 // [lower, upper], checked against the other key's current value on every change.
-const ORDERED_PAIRS: Array<[string, string]> = [['dimension_delta_slight', 'dimension_delta_significant']];
+// Website 5 (2026-11-05): the comfort-zone edge sits between the two.
+const ORDERED_PAIRS: Array<[string, string]> = [
+  ['dimension_delta_slight', 'dimension_delta_significant'],
+  ['dimension_delta_slight', 'comfort_zone_edge_delta'],
+  ['comfort_zone_edge_delta', 'dimension_delta_significant'],
+];
 
 /** The range a parameter's note declares, or null when it declares none. */
 export function parseSaneRange(note: string | null | undefined): SaneRange | null {

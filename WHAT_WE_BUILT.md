@@ -6400,6 +6400,29 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_4_SHOP_AL
 
 ---
 
+### 255. Website 5: The Bloom (`/bloom`) on the handoff design: one flower wheel, the field, the comfort zone (2026-11-05)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_5_THE_BLOOM.md`; full record (Task 0 inventory ticked line by line, S1/S2 decisions, evidence) `backend/src/features/website_handoff/CLOSING_REPORT_5.md`.
+
+**Decided 2026-11-05 (Dana, after the Task 0 stop):** S1 A, the door row is drawn under the lineup and rendered only while `DOORS_ENABLED` (Part 23 kill switch, still off); S2 A, Experimental is a group of compact cards at the head of the Other block, `?archetype=experimental&slot=` scrolls there and marks the card; the comfort-zone pill is computed server-side from the handoff thresholds x 1.5.
+
+**Files:**
+- New `frontend/src/app/components/bloom/wheel/`: `FlowerWheel.tsx` (the handoff SVG wheel: drag, `<input type=range>` with `aria-valuenow`/`aria-valuetext`, ←/→/Home/End, reduced motion paints at once), `wheelGeometry.ts` (27 petals ported by script, geometry only), `tints.ts` (the handoff `tints()` rule from the family colour).
+- New `bloom/field/`: `DialFieldLayout.tsx` (`DialArchetypeSection layout="field"`: field, coffee block, commerce line, save links, reveal button, aside, reveal, lineup, quick picks, Other slot, doors, quiz link), `ComfortZoneAside.tsx`, `bloomField.css` (`bf-` prefix, handoff CSS values).
+- New `bloom/useDialSlot.ts`: the slot logic both layouts share, moved out of `DialArchetypeSection` unchanged (classic, placeholder stand-in, card data, explicit save, add-to-cart events, classic and collection quick picks); `collectionPct` replaces the typed "10% off" on both layouts; `numberWord`, `arrivingSoonLine`.
+- `DialArchetypeSection.tsx`: `layout?: 'dial' | 'field'` (default `dial`: the quiz result and Profile are unchanged), `cards`, `between`, `hideHints`.
+- `RevealedPanel.tsx` `variant="field"` (two columns, notes wheel collapsed, Compare / Full breakdown / Ask Liam / Your profile); `DimensionBars` and `TastingNotes` gain `variant="field"`; `useCompatibility` returns `zone` and `comfortZone`, with `comfortZoneOf` and `COMFORT_ZONE_LABEL`; `archetypeConfig.fieldLook` (the Balanced ink/accent override).
+- `shop/ShopCoffeeCard.tsx`: `compact`, `selected`, `onSelect` (the card turns the wheel), `SlotShopCard` `source`; `familyLookOf` moved here from `ShopAll.tsx` (shared).
+- `BloomPage.tsx` rewritten: top + 01/02/03 strip, sticky family tabs (ARIA tabs, URL state `?archetype=`), one field, the Other block (Experimental cards; category coffees from `/cards` `other`, OT-70), `CompareOverlay`.
+- Backend: `evidence_parameter` seed row `comfort_zone_edge_delta = 3` (`schema.sql`, idempotent per key); `evidenceParameterService` keeps it between `dimension_delta_slight` and `dimension_delta_significant`; `compatibilityReads.compareCoffee` returns `zone` ('in' | 'edge' | 'outside', null with the sentence); `GET /api/coffees/:id/compatibility` carries it; the `comments.sql` table comment lists the key.
+- Tests: `frontend/src/app/components/bloom/bloom.test.tsx` (19), `backend/src/db/coffeePresentation2.test.ts` (+2, one existing case adjusted for the new ordering), `backend/src/routes/users.dialPosition.test.ts` (dial events on the test DB).
+
+**How it works:** the tab picks the family (personalized order, `?archetype=` honoured, unknown → first). The wheel's stops are the family's visible slots (`k/(N-1)`); it opens on the deep-linked slot, else the saved one, else the classic. A settled turn (drag release, slider release, keys, lineup card) calls the page's `handleDialSelect`: the silent auto-save, unchanged. Save and add-to-cart send `explicit_save` / `add_to_cart` with source `bloom`, as before. The aside's pill is the server `zone` (largest midpoint difference to the customer's family profile: >= 3 at the edge, > 4 outside, 0 to 15 scale), else the family level (same / adjacent / other); guests see "Find your flavor to see your match"; "Unsure? Talk to Liam" only with Liam access, never while gated. `BloomDial.tsx` and the `dial` layout stay for the quiz result and Profile.
+
+**Verified:** see `CLOSING_REPORT_5.md`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

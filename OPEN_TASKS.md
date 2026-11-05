@@ -555,3 +555,8 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-11-05 | OT-76: Liam example on Home is copy in code | Done 2026-11-05 (Website 4 Part B2: comparison dropped, #254) |
 | 2026-11-05 | OT-77: per-coffee Shop photos (Camila) | Open |
 | 2026-11-05 | OT-78: /flavor-intelligence has tokens only until a design | Open |
+| 2026-11-05 | OT-79: retire the per-archetype dial layout (`BloomDial.tsx`, `DialArchetypeSection` layout `dial`) once the quiz result (7B) and Profile move to the field (Website 5) | Open |
+| 2026-11-05 | OT-80: per-user dimension profile and match % in The Bloom's comfort zone, when palate data exists (Website 5; not built by decision 2026-09-26) | Open |
+| 2026-11-05 | OT-81: flower wheel accessibility audit (screen reader pass, Safari / iOS drag) (Website 5) | Open |
+| 2026-11-05 | OT-82: `GET /api/coffees/other-categories` still names a category coffee by `coffees.name` as a fallback (read by Flavor Intelligence's `OtherCategoryCard`); The Bloom now reads `/cards` `other` instead (Website 5) | Open |
+| 2026-11-05 | OT-83: comfort-zone pill words and the dial state words live in the component (as `BADGE_CONFIG` does); a lookup if Dana wants them editable (Website 5) | Open |

@@ -135,7 +135,7 @@ describe('compatibilityReads (A2)', () => {
       expect(ok.reason).toBe('ok');
       expect(ok.sentence).toMatch(/^This coffee has /);
       expect(await compareCoffee(a, { kind: 'customer_bags', canonicalUserId: '00000000-0000-0000-0000-000000000000' }, c))
-        .toEqual({ sentence: null, reason: 'not_built', coffee_count: 0, divergences: [] });
+        .toEqual({ sentence: null, zone: null, reason: 'not_built', coffee_count: 0, divergences: [] });
       expect((await compareCoffee(a, { kind: 'archetype', archetype: 'not_an_archetype' }, c)).reason).toBe('no_reference');
     });
   });
@@ -150,6 +150,8 @@ describe('compatibilityReads (A2)', () => {
       await setParameterInTx(c, { key: 'archetype_profile_min_coffees', value: 2, note: 'vitest, rolled back' });
       const at4 = await compareCoffee(a, { kind: 'archetype', archetype: ARCH }, c);
       expect(at4.divergences).toEqual([{ dimension: d1.name.toLowerCase(), delta: -3.5, direction: 'slightly less' }]);
+      // Website 5: the comfort-zone edge (3) must stay below significant, so it moves first
+      await setParameterInTx(c, { key: 'comfort_zone_edge_delta', value: 2, note: 'vitest, rolled back' });
       await setParameterInTx(c, { key: 'dimension_delta_significant', value: 3, note: 'vitest, rolled back' });
       const at3 = await compareCoffee(a, { kind: 'archetype', archetype: ARCH }, c);
       expect(at3.divergences[0].direction).toBe('significantly less');
@@ -301,6 +303,39 @@ describe('the Fabricator loader (Part C)', () => {
       expect(again).toMatchObject({ wrote: false, plan: { skip: true } });
       expect(await rows()).toHaveLength(2);
       expect(regenerated).toEqual([coffeeId]);
+    });
+  });
+});
+
+// Website 5 (2026-11-05): The Bloom's comfort-zone pill, from compareCoffee's
+// largest difference and the parameter rows (comfort_zone_edge_delta 3 and
+// dimension_delta_significant 4 on the 0-15 scale; the handoff's 2 and 3 x 1.5).
+describe('comfort zone (Website 5)', () => {
+  it('seeded 3, kept between slight and significant', async () => {
+    await withRollback(async ({ client: c }) => {
+      expect(Number((await c.query(`SELECT param('comfort_zone_edge_delta') v`)).rows[0].v)).toBe(3);
+      await expect(setParameterInTx(c, { key: 'comfort_zone_edge_delta', value: 1 })).rejects.toThrow(/must stay below/);
+      await expect(setParameterInTx(c, { key: 'comfort_zone_edge_delta', value: 4 })).rejects.toThrow(/must stay below/);
+      await expect(setParameterInTx(c, { key: 'dimension_delta_slight', value: 3 })).rejects.toThrow(/must stay below/);
+    });
+  });
+
+  it('largest difference < edge is in, >= edge is edge, > significant is outside; moving the parameter moves the pill', async () => {
+    await withRollback(async ({ client: c }) => {
+      await isolateArchetype(c);
+      const [d1] = await numericDims(c);
+      await setParameterInTx(c, { key: 'archetype_profile_min_coffees', value: 2, note: 'vitest, rolled back' });
+      await cupped(c, ARCH, { [d1.id]: [7, 9] });                // reference midpoint 8
+      await cupped(c, ARCH, { [d1.id]: [7, 9] });
+      const zoneOf = async (lo: number, hi: number) =>
+        (await compareCoffee(await cupped(c, null, { [d1.id]: [lo, hi] }), { kind: 'archetype', archetype: ARCH }, c)).zone;
+      expect(await zoneOf(9, 11)).toBe('in');                   // delta 2
+      expect(await zoneOf(10, 12)).toBe('edge');                // delta 3 (= edge)
+      expect(await zoneOf(11, 13)).toBe('edge');                // delta 4 (= significant, not more)
+      expect(await zoneOf(11.5, 13.5)).toBe('outside');         // delta 4.5
+      await setParameterInTx(c, { key: 'comfort_zone_edge_delta', value: 2, note: 'vitest, rolled back' });
+      expect(await zoneOf(9, 11)).toBe('edge');                 // delta 2 now at the edge
+      expect(await zoneOf(8, 8)).toBe('in');
     });
   });
 });

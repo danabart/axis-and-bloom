@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { Wrap, Caps, Titled } from '../chrome';
-import { SlotShopCard, OtherShopCard, type FamilyLook } from './ShopCoffeeCard';
+import { SlotShopCard, OtherShopCard, familyLookOf, type FamilyLook } from './ShopCoffeeCard';
 import { ARCHETYPE_VISUALS } from '../bloom/bloomVisuals';
 import { collectionCartItem } from '../bloom/cartItems';
 import { formatPrice } from '../bloom/types';
@@ -25,27 +25,12 @@ import './shop.css';
 export const FAMILY_FIRST_KEY = 'ab.shop.familyFirst';
 const OTHER_ID = 'other';
 
-const SLUG_BY_CODE: Record<string, Exclude<ArchetypeSlug, 'experimental'>> = {
-  floral: 'floral', fruity: 'fruity', balanced_sweet: 'balanced-sweet', chocolate_nutty: 'chocolate-nutty', earthy: 'spicy-earthy',
-};
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const INK = 'var(--ab-ink)';
 const PAPER = 'var(--ab-paper)';
 
-function familyLook(f: FamilyCards): FamilyLook {
-  const v = ARCHETYPE_VISUALS[f.archetype];
-  const slug = SLUG_BY_CODE[f.archetype];
-  return {
-    archetype: f.archetype,
-    archetypeLabel: f.archetypeLabel,
-    color: v?.color ?? INK,
-    plateInk: v?.plateInk ?? PAPER,
-    words: f.customerWords,
-    photo: slug
-      ? { asset: shopAssets.family[slug], fallback: archetypeAssets[slug].sm1 }
-      : { asset: shopAssets.other, fallback: lifestyleAssets.coffee15 },
-  };
-}
+/** Website 5: moved to ShopCoffeeCard.familyLookOf (shared with The Bloom). */
+const familyLook = (f: FamilyCards): FamilyLook => familyLookOf(f);
 
 function readFamilyFirst(): boolean {
   try { return localStorage.getItem(FAMILY_FIRST_KEY) !== 'off'; } catch { return true; }

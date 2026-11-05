@@ -64,3 +64,9 @@
 .sh-chip[aria-pressed="true"] { opacity: 1; font-weight: 700; }
 
 @media (prefers-reduced-motion: reduce) { .sh *, .sh { transition: none !important; } }
+
+/* Website 5 (2026-11-05): The Bloom's lineup cards (compact, selectable; the handoff's bloom-b .card). */
+.sh-card.is-compact { min-height: 260px; }
+.sh-card.is-select { cursor: pointer; }
+.sh-card.is-select:focus-visible { outline: 2px solid var(--c); outline-offset: 3px; }
+.sh-card.on, .sh-card.is-soon.on { background: var(--c); color: var(--ink); }

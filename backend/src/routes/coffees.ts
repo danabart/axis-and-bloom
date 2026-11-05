@@ -876,12 +876,14 @@ router.get('/:id/dimensions', async (req, res) => {
 // or origin. `sentence` is null below param('archetype_profile_min_coffees')
 // reference coffees; the page then shows the badge alone (the badge level
 // stays client-side on v_coffee_archetype_adjacency).
+// Website 5 (2026-11-05): `zone` ('in' | 'edge' | 'outside', null with the
+// sentence) is The Bloom's comfort-zone pill, thresholds from param().
 router.get('/:id/compatibility', async (req, res) => {
   const coffeeId = Number(req.params.id);
   const userArchetype = typeof req.query.userArchetype === 'string' ? req.query.userArchetype : '';
   try {
     if (!Number.isInteger(coffeeId) || !userArchetype) {
-      res.json({ sentence: null, reason: 'no_reference', coffee_count: 0, divergences: [] });
+      res.json({ sentence: null, zone: null, reason: 'no_reference', coffee_count: 0, divergences: [] });
       return;
     }
     res.json(await compareCoffee(coffeeId, { kind: 'archetype', archetype: userArchetype }));

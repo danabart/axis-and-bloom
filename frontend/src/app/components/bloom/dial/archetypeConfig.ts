@@ -112,3 +112,21 @@ export function buildDialConfig(data: ArchetypeData): DialConfig | null {
     doors: DOORS_ENABLED ? data.doors : null,
   };
 }
+
+// ── Website 5 (2026-11-05): The Bloom field's colours ───────────────────────
+// The field is the family colour with the family's ink on it (ARCHETYPE_VISUALS.
+// plateInk: paper everywhere, #912f2f on Balanced's yellow). The accent (the
+// reveal panel's text and the range segments, the handoff's --pink) is the
+// family colour, except Balanced, whose yellow fails on white: the handoff's
+// one per-family override, kept here rather than in the wheel.
+const FIELD_ACCENT_OVERRIDE: Record<string, string> = {
+  balanced_sweet: '#912f2f',
+};
+
+export interface FieldLook { color: string; ink: string; accent: string; num: string }
+
+export function fieldLook(archetype: string): FieldLook | null {
+  const v = ARCHETYPE_VISUALS[archetype];
+  if (!v) return null;
+  return { color: v.color, ink: v.plateInk, accent: FIELD_ACCENT_OVERRIDE[archetype] ?? v.color, num: v.num };
+}

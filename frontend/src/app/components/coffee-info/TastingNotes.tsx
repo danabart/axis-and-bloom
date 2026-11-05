@@ -59,7 +59,7 @@ interface TastingNotesProps {
   /** Reveal-panel trimmed presentation (Part 13) — renders ONLY the description block,
    * no action links (those move to RevealedPanel's own footer). 'full' (Flavor
    * Intelligence) adds the actions row when link props are given. */
-  variant?: 'full' | 'reveal';
+  variant?: 'full' | 'reveal' | 'field';
 }
 
 /**
@@ -70,6 +70,12 @@ interface TastingNotesProps {
  */
 export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamLink, profileLink, variant = 'full' }: TastingNotesProps) {
   const story = content?.threeVoiceStory ?? null;
+
+  // Website 5 (2026-11-05): The Bloom field's reveal draws its own "In the roaster's words" heading.
+  if (variant === 'field') {
+    if (contentLoading && !story) return <ContentSkeletonReveal />;
+    return story ? <p className="bf-story">{story}</p> : null;
+  }
 
   if (variant === 'reveal') {
     if (contentLoading && !story) return <ContentSkeletonReveal />;

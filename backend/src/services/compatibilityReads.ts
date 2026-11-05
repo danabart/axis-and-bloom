@@ -37,8 +37,12 @@ export type CompareReason = 'ok' | 'below_min_coffees' | 'no_reference' | 'not_b
 
 export interface Divergence { dimension: string; delta: number; direction: string }
 
+/** Website 5 (2026-11-05): The Bloom's comfort-zone pill; null whenever the sentence is null. */
+export type ComfortZone = 'in' | 'edge' | 'outside';
+
 export interface CompareResult {
   sentence: string | null;
+  zone: ComfortZone | null;
   reason: CompareReason;
   coffee_count: number;
   divergences: Divergence[];
@@ -84,14 +88,15 @@ export async function getReferenceProfile(
  * coffee itself is left out).
  */
 export async function compareCoffee(coffeeId: number, reference: ReferenceSpec, runner: Runner = db): Promise<CompareResult> {
-  const none = (reason: CompareReason, coffee_count = 0): CompareResult => ({ sentence: null, reason, coffee_count, divergences: [] });
+  const none = (reason: CompareReason, coffee_count = 0): CompareResult => ({ sentence: null, zone: null, reason, coffee_count, divergences: [] });
   if (reference.kind === 'customer_bags') return none('not_built');
 
   const profile = await getReferenceProfile(reference, { excludeCoffeeId: coffeeId }, runner);
   if (!profile) return none('no_reference');
-  const p = (await runner.query<{ min_coffees: string; slight: string; significant: string }>(
+  const p = (await runner.query<{ min_coffees: string; slight: string; significant: string; edge: string }>(
     `SELECT param('archetype_profile_min_coffees') AS min_coffees,
-            param('dimension_delta_slight') AS slight, param('dimension_delta_significant') AS significant`
+            param('dimension_delta_slight') AS slight, param('dimension_delta_significant') AS significant,
+            param('comfort_zone_edge_delta') AS edge`
   )).rows[0];
   if (profile.coffee_count < Number(p.min_coffees)) return none('below_min_coffees', profile.coffee_count);
 
@@ -104,9 +109,11 @@ export async function compareCoffee(coffeeId: number, reference: ReferenceSpec, 
   const slight = Number(p.slight), significant = Number(p.significant);
   const label = (await getArchetypes(runner)).find(a => a.code === reference.archetype)?.label ?? reference.archetype;
   const divergences: Divergence[] = [];
+  let largest = 0;
   for (const r of rows) {
     const coffeeMid = (Number(Number(r.value_min).toFixed(1)) + Number(Number(r.value_max).toFixed(1))) / 2;
     const delta = coffeeMid - profile.dimensions[r.dimension_id].midpoint;
+    largest = Math.max(largest, Math.abs(delta));
     if (Math.abs(delta) < slight) continue;
     const direction = delta > significant ? 'significantly more' : delta > 0 ? 'slightly more'
                     : delta < -significant ? 'significantly less' : 'slightly less';
@@ -123,5 +130,8 @@ export async function compareCoffee(coffeeId: number, reference: ReferenceSpec, 
       ? `This coffee has ${top[0].direction} ${top[0].dimension} than your typical ${label} profile.`
       : `This coffee has ${top[0].direction} ${top[0].dimension} and ${top[1].direction} ${top[1].dimension} than your usual ${label} profile.`;
   }
-  return { sentence, reason: 'ok', coffee_count: profile.coffee_count, divergences };
+  // Website 5 (2026-11-05): the comfort-zone pill from the largest difference,
+  // "Outside" exactly where the sentence says "significantly".
+  const zone: ComfortZone = largest > significant ? 'outside' : largest >= Number(p.edge) ? 'edge' : 'in';
+  return { sentence, zone, reason: 'ok', coffee_count: profile.coffee_count, divergences };
 }

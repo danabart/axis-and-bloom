@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from 'react';
 import { Link } from 'react-router';
 import { Caps, Titled } from '../chrome';
 import { Photo, type RegistryImage } from '../home/Photo';
@@ -9,7 +9,8 @@ import { dialCartItem, directCartItem, syncDialAddToCart } from '../bloom/cartIt
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import type { SlotCard, OtherCard, CardPresentation } from '../../lib/api';
-import { optimizedAsset } from '../../../design/assets';
+import { optimizedAsset, archetypeAssets, shopAssets, lifestyleAssets, type ArchetypeSlug } from '../../../design/assets';
+import { ARCHETYPE_VISUALS } from '../bloom/bloomVisuals';
 import './shop.css';
 
 // Website 4 (2026-11-05) — Shop all's coffee card, built once (G4.1). The look
@@ -40,10 +41,30 @@ export interface ShopCoffeeCardProps {
   /** the coffee's full profile (Flavor Intelligence); absent for a slot with no coffee */
   profileHref: string | null;
   gated: boolean;
+  /** Website 5 (The Bloom lineup): no photo, no words, no hint, no spec rows. */
+  compact?: boolean;
+  /** Website 5: the card the dial is on (the handoff's `.card.on`). */
+  selected?: boolean;
+  /** Website 5: clicking (or Enter/Space on) the card turns the dial to it; its buttons and links keep their own action. */
+  onSelect?: () => void;
 }
 
 export function ShopCoffeeCard(p: ShopCoffeeCardProps) {
   const style = { ['--c' as string]: p.color, ['--ink' as string]: p.plateInk } as CSSProperties;
+  const own = (e: { target: EventTarget | null; currentTarget: EventTarget }) =>
+    !(e.target as HTMLElement | null)?.closest?.('button, a') || e.target === e.currentTarget;
+  const select = p.onSelect ? {
+    role: 'button' as const,
+    tabIndex: 0,
+    'aria-pressed': !!p.selected,
+    'aria-label': `Turn the dial to ${p.name}`,
+    onClick: (e: MouseEvent) => { if (own(e)) p.onSelect!(); },
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+      e.preventDefault();
+      p.onSelect!();
+    },
+  } : {};
   const pres = p.presentation;
   const selected = p.prices.find(x => x.weightOz === p.selectedWeight) ?? p.prices[0];
   const spec: Array<[string, string]> = [];
@@ -54,14 +75,17 @@ export function ShopCoffeeCard(p: ShopCoffeeCardProps) {
   if (pres.originRegion) spec.push(['Origin', pres.originRegion]);
 
   return (
-    <article className={`sh-card${p.state === 'soon' ? ' is-soon' : ''}`} style={style} data-testid="shop-card" data-state={p.state}>
-      <Photo asset={p.photo.asset} fallback={p.photo.fallback} alt="" sizes="(max-width: 560px) 100vw, (max-width: 1000px) 50vw, 33vw" className="sh-card-img" />
+    <article
+      className={`sh-card${p.state === 'soon' ? ' is-soon' : ''}${p.compact ? ' is-compact' : ''}${p.selected ? ' on' : ''}${p.onSelect ? ' is-select' : ''}`}
+      style={style} data-testid="shop-card" data-state={p.state} {...select}
+    >
+      {!p.compact && <Photo asset={p.photo.asset} fallback={p.photo.fallback} alt="" sizes="(max-width: 560px) 100vw, (max-width: 1000px) 50vw, 33vw" className="sh-card-img" />}
       <div className="sh-in">
         <Caps as="div" className="sh-row">
           <span>The coffee{p.premium && <span style={{ fontWeight: 400 }} data-testid="premium"> · Premium ★</span>}</span>
           <span style={{ fontWeight: 400 }}>{p.stopLabel}</span>
         </Caps>
-        {p.words && p.words.length > 0 && <Caps weight={400} style={{ letterSpacing: '.3em' }}>{p.words.join(' · ')}</Caps>}
+        {!p.compact && p.words && p.words.length > 0 && <Caps weight={400} style={{ letterSpacing: '.3em' }}>{p.words.join(' · ')}</Caps>}
         <h3 className="sh-cn">{p.name}</h3>
         {pres.signatureNotes && pres.signatureNotes.length > 0 && (
           <>
@@ -69,8 +93,8 @@ export function ShopCoffeeCard(p: ShopCoffeeCardProps) {
             <span className="sh-sig">{pres.signatureNotes.join(', ')}</span>
           </>
         )}
-        {pres.hint && <span className="sh-hint">{pres.hint}</span>}
-        {spec.length > 0 && (
+        {!p.compact && pres.hint && <span className="sh-hint">{pres.hint}</span>}
+        {!p.compact && spec.length > 0 && (
           <dl className="sh-spec">
             {spec.map(([k, v]) => <div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v}</dd></div>)}
           </dl>
@@ -121,12 +145,37 @@ export interface FamilyLook {
   photo: { asset: RegistryImage; fallback: RegistryImage };
 }
 
+const SLUG_BY_CODE: Record<string, Exclude<ArchetypeSlug, 'experimental'>> = {
+  floral: 'floral', fruity: 'fruity', balanced_sweet: 'balanced-sweet', chocolate_nutty: 'chocolate-nutty', earthy: 'spicy-earthy',
+};
+
+/** A family's card look (colours from ARCHETYPE_VISUALS, words and label from the payload). Shared by Shop all and The Bloom. */
+export function familyLookOf(f: { archetype: string; archetypeLabel: string; customerWords?: string[] | null }): FamilyLook {
+  const v = ARCHETYPE_VISUALS[f.archetype];
+  const slug = SLUG_BY_CODE[f.archetype];
+  return {
+    archetype: f.archetype,
+    archetypeLabel: f.archetypeLabel,
+    color: v?.color ?? 'var(--ab-ink)',
+    plateInk: v?.plateInk ?? 'var(--ab-paper)',
+    words: f.customerWords ?? null,
+    photo: slug
+      ? { asset: shopAssets.family[slug], fallback: archetypeAssets[slug].sm1 }
+      : { asset: shopAssets.other, fallback: lifestyleAssets.coffee15 },
+  };
+}
+
 function photoFor(photoKey: string | undefined, fallbackPhoto: { asset: RegistryImage; fallback: RegistryImage }) {
   return photoKey ? { asset: optimizedAsset(photoKey), fallback: fallbackPhoto.asset } : fallbackPhoto;
 }
 
 /** A dial slot's card: availability from the shared hook, add = the dial item + dial sync. */
-export function SlotShopCard({ family, card, gated }: { family: FamilyLook; card: SlotCard; gated: boolean }) {
+export function SlotShopCard({ family, card, gated, source = 'shop', compact, selected, onSelect }: {
+  family: FamilyLook; card: SlotCard; gated: boolean;
+  /** the dial-event source for add-to-cart ('shop', or 'bloom' on The Bloom's lineup) */
+  source?: string;
+  compact?: boolean; selected?: boolean; onSelect?: () => void;
+}) {
   const { user } = useAuth();
   const { addToCart } = useCart();
   const avail = useSlotAvailability(card, family.archetype);
@@ -139,7 +188,7 @@ export function SlotShopCard({ family, card, gated }: { family: FamilyLook; card
     const item = dialCartItem(family, card, price);
     if (!item) return;
     addToCart(item);
-    syncDialAddToCart(user, family.archetype, card.dialSortOrder, 'shop', card.coffeeId);
+    syncDialAddToCart(user, family.archetype, card.dialSortOrder, source, card.coffeeId);
   };
   return (
     <ShopCoffeeCard
@@ -157,6 +206,7 @@ export function SlotShopCard({ family, card, gated }: { family: FamilyLook; card
       onAdd={onAdd}
       profileHref={hasCoffee ? `/flavor-intelligence?archetype=${family.archetype}&slot=${card.dialSortOrder}` : null}
       gated={gated}
+      compact={compact} selected={selected} onSelect={onSelect}
     />
   );
 }

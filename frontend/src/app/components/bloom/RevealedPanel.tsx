@@ -6,6 +6,7 @@ import { TastingNotes, type ContentData } from '../coffee-info/TastingNotes';
 import { DimensionBars, type DimensionRow } from '../coffee-info/DimensionBars';
 import { CollaborativeFlavorWheel, type WheelRow } from '../coffee-info/CollaborativeFlavorWheel';
 import { CompatibilityBadge, useCompatibility } from '../coffee-info/useCompatibility';
+import { Titled, Caps } from '../chrome';
 
 interface RevealedPanelProps {
   isRevealed: boolean;
@@ -28,6 +29,13 @@ interface RevealedPanelProps {
    * derived by DialArchetypeSection from the same lib/prelaunch.ts source of
    * truth as the route guard. */
   prelaunch?: boolean;
+  /** Website 5 (2026-11-05): 'field' = The Bloom's handoff reveal (two columns, the
+   * verdict lives in the comfort-zone aside instead). Default 'default' is unchanged. */
+  variant?: 'default' | 'field';
+  /** variant="field": opens CompareOverlay ("Compare with the neighbour"); absent hides the link. */
+  onCompare?: () => void;
+  /** variant="field": the panel's id, for the reveal button's aria-controls. */
+  panelId?: string;
 }
 
 const RULE_STYLE: CSSProperties = { border: 'none', borderTop: '1px solid #deded1', margin: '32px 0' };
@@ -58,13 +66,63 @@ export const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[
  * every breakpoint and every evidence-presence combination without a
  * JS-computed template per case.
  */
-export function RevealedPanel({ isRevealed, archetype, coffeeId, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false, prelaunch = false }: RevealedPanelProps) {
-  const { compat, dimCompText } = useCompatibility(archetype, userArchetype, isRevealed ? coffeeId : null);
+export function RevealedPanel({ isRevealed, archetype, coffeeId, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false, prelaunch = false, variant = 'default', onCompare, panelId }: RevealedPanelProps) {
+  const isField = variant === 'field';
+  const { compat, dimCompText } = useCompatibility(archetype, userArchetype, isRevealed && !isField ? coffeeId : null);
   const { hasLiamAccess } = useAuth();
   const exploreLink = archetype && dialSortOrder != null ? `/flavor-intelligence?archetype=${archetype}&slot=${dialSortOrder}` : '/flavor-intelligence';
   const hasDimensions = dimensions.length > 0;
   const hasWheel = wheelRows.length > 0;
   const hasEvidence = hasDimensions || hasWheel;
+
+  if (isField) {
+    return (
+      <AnimatePresence initial={false}>
+        {isRevealed && (
+          <motion.div
+            id={panelId}
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+            className="bf-profile"
+            data-testid="field-reveal"
+          >
+            <div className="bf-pcols">
+              <div className="bf-pcol">
+                <Titled style={{ alignSelf: 'flex-start' }}>In the roaster’s words</Titled>
+                <TastingNotes content={content} contentLoading={!content} variant="field" />
+              </div>
+              {hasEvidence && (
+                <div className="bf-pcol">
+                  {hasDimensions && (
+                    <>
+                      <Titled style={{ alignSelf: 'flex-start' }}>Cupping profile</Titled>
+                      <DimensionBars dimensions={dimensions} variant="field" />
+                    </>
+                  )}
+                  {hasWheel && (
+                    <details className="bf-noteswheel">
+                      <summary><Caps>See the notes wheel</Caps></summary>
+                      <CollaborativeFlavorWheel wheelRows={wheelRows} variant="signature" />
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="bf-pfoot">
+              <div className="bf-plinks">
+                {onCompare && <button type="button" className="ab-caps bf-ulink" onClick={onCompare}>Compare with the neighbour ↗</button>}
+                {!prelaunch && <Link to={exploreLink} className="ab-caps bf-ulink">Full breakdown ↗</Link>}
+                {!prelaunch && hasLiamAccess && <Link to="/sommelier" className="ab-caps bf-ulink">Ask Liam ↗</Link>}
+                {!hideProfileLink && <Link to="/profile" className="ab-caps bf-ulink">Your profile ↗</Link>}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  }
 
   return (
     <AnimatePresence initial={false}>
