@@ -426,16 +426,21 @@ The full list is in `CLOSING_REPORT_3.md` → "What Commerce 4 needs".
 
 One cart can resolve to SKUs from several roasteries (dial slots fall back across roasters). The order is one row with one `fulfillment_roaster_id` (NULL = manual), and the manual email lists each line's roaster. Before roaster adapters place orders automatically, decide how a multi-roaster order splits into shipments and what the customer sees. Since #250 `roastery_shipment_details` is written (`shipmentService.markShipped`, linked by `order_id`, one shipment per order assumed by `v_order_status`); `order_line_item.shipment_id` stays reserved (D11), so a per-line split needs either a link table or Dana reopening D11.
 
+### OT-77 / OT-78: Shop all follow-ups (Website 4, 2026-11-05)
+
+- **OT-77 Per-coffee photos.** Shop cards show their family photo (`shopAssets.family.*`) until a coffee has its own. Camila supplies one per coffee: upload it under `raw/shop/coffee/<name>.jpg`, then enter `shop/coffee/<name>` as the coffee's photo key (admin Coffees → Edit → Customer card).
+- **OT-78 `/flavor-intelligence` chrome.** The "Full profile ↗" target has only the new tokens and chrome; the page itself waits for a design (D1).
+
 ### OT-74 / OT-75 / OT-76: homepage follow-ups (Website 3, 2026-11-05)
 
 - **OT-74 The real film.** 09 Film plays `videoAssets.homeLoop` (`raw/video/home-loop.mp4`, the handoff's placeholder loop), falling back to `home-hero.mp4` until it is uploaded. The final film replaces the bucket object; no deploy is needed.
 - **OT-75 Home content that left with the redesign.** The pull quote ("The best gift is time"), the photo essay (its "See all photographs" link pointed at `/essays`, which is not a route) and the "months" film strip have no section in the handoff. They need a design if they return.
-- **OT-76 The Liam example is typed in.** The 08 exchange keeps the handoff's example. The family words come from the payload and the coffee is Fruity's gentle-end slot, but the sentences are copy in `Home.tsx`. They could move to a marketing table beside the quotes (with OT-69).
+- **OT-76 The Liam example is typed in.** **Done 2026-11-05 (Website 4 B2):** the answer drops the comparison. The 08 exchange keeps the handoff's example. The family words come from the payload and the coffee is Fruity's gentle-end slot, but the sentences are copy in `Home.tsx`. They could move to a marketing table beside the quotes (with OT-69).
 
 ### OT-69 / OT-70 / OT-71 / OT-72: presentation data follow-ups (Website 2, 2026-11-04)
 
 - **OT-69 Admin door for family words and Home quotes.** `coffee_archetype.customer_words` and `marketing_home_quote` are seed-only. Edit them with a `catalogService` verb (words) and a marketing writer (quotes), each declared in `comments.sql`.
-- **OT-70 Category coffees without a customer name.** `GET /api/coffees/other-categories` falls back to the raw `coffees.name` when a category coffee has no home slot (prod: both decaf coffees, 2909 and 2930). The new card payload sends `platformName: null` instead. Brief 4 (Shop all, Other section) needs a name source for them.
+- **OT-70 Category coffees without a customer name.** **Done 2026-11-05 (Website 4):** `coffee_category_assignment.customer_name`, written by `catalogService.setCategoryCustomerName`; no raw-name fallback. `GET /api/coffees/other-categories` falls back to the raw `coffees.name` when a category coffee has no home slot (prod: both decaf coffees, 2909 and 2930). The new card payload sends `platformName: null` instead. Brief 4 (Shop all, Other section) needs a name source for them.
 - **OT-71 Origin regions unset.** `coffees.origin_region_id` is NULL on all 22 active prod coffees, so no card shows an Origin row. Content entry through the existing coffee edit (admin Coffees page).
 - **OT-72 One portal version per card.** The brew tags read the portal's current response (an open draft wins, `getCurrentResponseForCoffee`); milk and leads-in-cup read the latest submitted one (`v_roastery_portal_coffee_hint`). Pick one rule for every customer-facing portal answer.
 - **OT-73 Stale test assumption.** `schema.catalog_blueprint.test.ts` ("suggested_slot_id is populated for every pre-existing row that had a suggestion") counts `dial_position_signal` rows with `raw_value` and no `suggested_slot_id`; since coffee presentation brief 3 a cupping signal may legitimately carry a value and no suggestion ("no band" notes; test DB row 29, coffee 2916, 2026-10-25). The test needs the no-band case excluded. Test hygiene, not a gate (G1.12).
@@ -541,10 +546,12 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-11-04 | OT-67: per-page palette swaps (`#9a2918` / `#a33726` / `#f2f1ea` inline literals → `--ab-*` tokens) left to the website page briefs; file list in `website_handoff/CLOSING_REPORT_1.md` (Website 1) | Open |
 | 2026-11-04 | OT-68: frontend `npm test` (vitest, added by Website 1) is not run in `deploy.yml` yet | Open |
 | 2026-11-04 | OT-69: admin door for family words and Home quotes (Website 2) | Open |
-| 2026-11-04 | OT-70: category coffees with no home slot have no customer name (Website 2) | Open |
+| 2026-11-04 | OT-70: category coffees with no home slot have no customer name (Website 2) | Done 2026-11-05 (Website 4: `coffee_category_assignment.customer_name`, #254) |
 | 2026-11-04 | OT-71: origin region unset on every active coffee (Website 2) | Open |
 | 2026-11-04 | OT-72: brew tags read the portal draft, milk/leads the submitted version (Website 2) | Open |
 | 2026-11-04 | OT-73: catalog_blueprint test counts legitimate no-band cupping signals as missing suggestions | Open |
 | 2026-11-05 | OT-74: the real film for Home 09 (bucket object swap) | Open |
 | 2026-11-05 | OT-75: Home pull quote / photo essay / months strip need a design to return | Open |
-| 2026-11-05 | OT-76: Liam example on Home is copy in code | Open |
+| 2026-11-05 | OT-76: Liam example on Home is copy in code | Done 2026-11-05 (Website 4 Part B2: comparison dropped, #254) |
+| 2026-11-05 | OT-77: per-coffee Shop photos (Camila) | Open |
+| 2026-11-05 | OT-78: /flavor-intelligence has tokens only until a design | Open |

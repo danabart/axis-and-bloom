@@ -9,7 +9,7 @@ import Home from './components/Home';
 import HowItWorks from './components/HowItWorks';
 import FlavorQuiz from './components/FlavorQuiz';
 import About from './components/About';
-import Shop from './components/Shop';
+import ShopAll from './components/shop/ShopAll';
 import SignIn from './components/SignIn';
 import Profile from './components/Profile';
 import AdminRoute from './components/admin/AdminRoute';
@@ -175,7 +175,7 @@ export default function App() {
                   is an old, admin-only-linked page not used on the live site — closed
                   like everything else, not kept open as the written prompt listed it. */}
               <Route path="/about" element={<PrelaunchGate><About /></PrelaunchGate>} />
-              <Route path="/shop" element={<PrelaunchGate><Shop /></PrelaunchGate>} />
+              <Route path="/shop" element={<PrelaunchGate><ShopAll /></PrelaunchGate>} />
               <Route path="/sign-in" element={<SignIn />} />
               <Route
                 path="/profile"

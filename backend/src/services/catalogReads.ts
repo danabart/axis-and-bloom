@@ -412,9 +412,12 @@ export async function getCategoryAssignments(runner: Runner = db): Promise<Array
 // /other-categories' source rows.
 export async function getCategoryCoffees(codes: string[], runner: Runner = db): Promise<Array<{
   coffee_id: number; category_code: string; category_label: string; category_sort_order: number;
+  /** Website 4 (OT-70): the customer-facing name for this coffee in this category role, NULL until set */
+  customer_name: string | null;
 }>> {
   const result = await runner.query(
-    `SELECT cca.coffee_id, cc.code AS category_code, cc.label AS category_label, cc.sort_order AS category_sort_order
+    `SELECT cca.coffee_id, cc.code AS category_code, cc.label AS category_label, cc.sort_order AS category_sort_order,
+            cca.customer_name
      FROM coffee_category_assignment cca
      JOIN coffee_category cc ON cc.id = cca.category_id
      WHERE cc.code = ANY($1::text[])

@@ -9,7 +9,7 @@ import type { Server } from 'http';
 import coffeesRouter from '../routes/coffees.js';
 import { db } from '../db/client.js';
 import {
-  createCoffee, setMatchArchetype, upsertSku, updateCoffee, setCoffeeRetailPrice,
+  createCoffee, setMatchArchetype, upsertSku, updateCoffee, setCoffeeRetailPrice, setCategoryCustomerName,
   createCategory, updateCategory, deleteCategory,
 } from './catalogService.js';
 import { getCategories, getCoffeeRetailPrices } from './catalogReads.js';
@@ -126,9 +126,15 @@ describe('GET /api/coffees/other-categories', () => {
     await updateCoffee({ coffeeId, categoryCodes: ['decaf'] }, ACTOR);
     await setCoffeeRetailPrice({ coffeeId, weightOz: 12, retailPriceCents: 2200 }, ACTOR);
 
-    const rows = await (await fetch(`${baseUrl}/other-categories`)).json();
+    // Website 4 (OT-70): a category coffee is listed only under a customer-facing name, never its raw name
+    let rows = await (await fetch(`${baseUrl}/other-categories`)).json();
+    expect(rows.find((r: { coffeeId: number }) => r.coffeeId === coffeeId)).toBeUndefined();
+    await setCategoryCustomerName({ coffeeId, categoryCode: 'decaf', customerName: 'Vitest WD Evening' }, ACTOR);
+
+    rows = await (await fetch(`${baseUrl}/other-categories`)).json();
     const row = rows.find((r: { coffeeId: number }) => r.coffeeId === coffeeId);
     expect(row).toBeTruthy();
+    expect(row.displayName).toBe('Vitest WD Evening');
     expect(row.categories.map((c: { code: string }) => c.code)).toEqual(['decaf']);
     expect(row.prices).toEqual([{ weightOz: 12, retailPriceCents: 2200, isActive: true, label: '12 oz', isAnchor: true }]);
     expect(row).toMatchObject({ effectivelyActive: true, isUnpriced: false });

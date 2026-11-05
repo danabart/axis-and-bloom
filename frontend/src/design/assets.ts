@@ -18,6 +18,12 @@ function raw(path: string) {
 
 type OptimizedAsset = ReturnType<typeof optimized>;
 
+/** A registry path chosen as data (coffee_presentation.photo_asset_key, Website 2): the
+ * optimized copy of raw/<path>.<ext>. Website 4 (2026-11-05). */
+export function optimizedAsset(path: string): OptimizedAsset {
+  return optimized(path.replace(/^\/+|\.(jpe?g|png|webp)$/gi, ''));
+}
+
 export const ARCHETYPE_SLUGS = [
   'floral', 'fruity', 'balanced-sweet', 'chocolate-nutty', 'spicy-earthy', 'experimental',
 ] as const;
@@ -186,6 +192,22 @@ export const campaignAssets = {
   hobokenCrawl2026: {
     photoBand: optimized('campaigns/hoboken-crawl-2026/photo-band'),
   },
+};
+
+// Website 4 (2026-11-05): Shop all's photographs. Camila uploads the originals to
+// raw/shop/<name>.jpg; the image pipeline writes the optimized copies. One per
+// family (the handoff generator's first card photo for that family) and one for
+// "Other"; a card uses its own coffee_presentation.photo_asset_key when set.
+// Until uploaded, Shop all falls back to archetypeAssets[slug].sm1 / lifestyle.
+export const shopAssets = {
+  family: {
+    floral: optimized('shop/family-floral'),
+    fruity: optimized('shop/family-fruity'),
+    'balanced-sweet': optimized('shop/family-balanced-sweet'),
+    'chocolate-nutty': optimized('shop/family-chocolate-nutty'),
+    'spicy-earthy': optimized('shop/family-spicy-earthy'),
+  } as Record<Exclude<ArchetypeSlug, 'experimental'>, OptimizedAsset>,
+  other: optimized('shop/other'),
 };
 
 export const videoAssets = {

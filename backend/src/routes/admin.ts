@@ -51,14 +51,14 @@ import {
   renameSlot, setSlotSpec, setSlotPrice, setLandingDefault, setArchetypeDescriptorFamilies,
   upsertSku, setHop, removeHop, setCoffeeRetailPrice, createCategory, updateCategory, deleteCategory,
   deactivateRoastery, reactivateRoastery, buildDeactivationPreview, buildReactivationPreview,
-  setCoffeePresentation,
+  setCoffeePresentation, setCategoryCustomerName,
 } from '../services/catalogService.js';
 import { importCatalog } from '../services/catalogImport.js';
 import {
   getArchetypes, getSlots, getCoffee, getCoffees, getSlotsForCoffee, getHops, getNotSellable, getChanges,
   getSizes, getSlotPrices, getCoffeeVisibility, getSlotVisibility,
   getCoffeeRetailPrices, getCategories, getCategory, getCategoryAssignments,
-  getCoffeeCardRows, getMilkRecommendations,
+  getCoffeeCardRows, getMilkRecommendations, getCategoryCoffees,
 } from '../services/catalogReads.js';
 
 const router = Router();
@@ -2736,7 +2736,10 @@ catalogRouter.get('/coffees/:id/presentation', async (req: AuthRequest, res) => 
   const coffeeId = Number(req.params.id);
   if (!Number.isInteger(coffeeId)) { res.status(400).json({ error: 'INVALID_INPUT', message: 'id must be an integer' }); return; }
   try {
-    const [rows, milkOptions] = await Promise.all([getCoffeeCardRows([coffeeId]), getMilkRecommendations()]);
+    const [rows, milkOptions, categoryRows] = await Promise.all([
+      getCoffeeCardRows([coffeeId]), getMilkRecommendations(),
+      getCategoryCoffees(['decaf', 'half_caf', 'flavored', 'experimental']),
+    ]);
     const row = rows.get(coffeeId) ?? null;
     res.json({
       coffeeId,
@@ -2748,6 +2751,9 @@ catalogRouter.get('/coffees/:id/presentation', async (req: AuthRequest, res) => 
         leadsInCup: row.leads_customer_label, leadsSource: row.leads_source, originRegion: row.origin_region_label,
       } : null,
       milkOptions,
+      // Website 4 (OT-70): one customer name per category role the coffee carries
+      categories: categoryRows.filter(r => r.coffee_id === coffeeId)
+        .map(r => ({ code: r.category_code, label: r.category_label, customerName: r.customer_name })),
     });
   } catch (err) {
     console.error('[admin/catalog/coffees presentation GET]', err);
@@ -2767,6 +2773,23 @@ catalogRouter.put('/coffees/:id/presentation', async (req: AuthRequest, res) => 
     if (handleCatalogError(err, res)) return;
     console.error('[admin/catalog/coffees presentation PUT]', err);
     res.status(500).json({ error: 'Failed to save presentation' });
+  }
+});
+
+// Website 4 (2026-11-05), OT-70: a category coffee's customer-facing name; the one door is
+// catalogService.setCategoryCustomerName.
+catalogRouter.put('/coffees/:id/category-name', async (req: AuthRequest, res) => {
+  const { categoryCode, customerName } = req.body ?? {};
+  try {
+    const { result } = await setCategoryCustomerName(
+      { coffeeId: Number(req.params.id), categoryCode, customerName: customerName ?? null },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees category-name PUT]', err);
+    res.status(500).json({ error: 'Failed to save the category name' });
   }
 });
 

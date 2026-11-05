@@ -145,3 +145,14 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_3.md`. Tests: 
 - [ ] **Data, not copy:** facts, "Take the {n}-question quiz", "Answer {n} questions", "{n} dimensions · {min}–{max}", family numbers and words, quotes and the "This week" coffee and price all come from the API. No "seven" anywhere.
 - [ ] **Prelaunch:** `/` is the curtain while gated; Home's gated branch hides the featured cart, Liam and Shop links, and family panels lead to the quiz.
 - [ ] **390px:** no horizontal scroll; family panels scroll sideways; the menu row stacks.
+
+## Shop all (Website 4, 2026-11-05)
+
+Full record: `backend/src/features/website_handoff/CLOSING_REPORT_4.md`. Tests: `frontend/src/app/components/shop/shop.test.tsx`, `backend/src/services/websiteShop.test.ts`.
+
+- [ ] **Anchors:** `/shop#floral`, `#fruity`, `#balanced_sweet`, `#chocolate_nutty`, `#earthy` (Home's family panels) land on that family; `/shop` links from Home's lifecycle CTAs, the menu, Profile and admin still open the page.
+- [ ] **Your family first:** a customer with a known family sees it first, labelled "Your family", while the toggle is on (remembered per browser); off = `sort_order`. Anonymous visitors see "Find your family first →" to the quiz.
+- [ ] **Card states:** a row with no value is absent. "Price coming" (unpriced) and "Coming soon" (no coffee, or no roaster can fill it now) cannot be added. Add to cart opens the drawer, and a signed-in add moves the dial (`trigger: add_to_cart`, source `shop`). "Add the collection ↗" adds the backend's collection offer.
+- [ ] **No roaster or award names:** "Premium ★" is the only award sign; no roaster name, award name or raw `coffees.name` anywhere on the page.
+- [ ] **OT-70:** a category coffee shows its category customer name (else its home slot name) on Shop all and The Bloom; with neither, it is not listed.
+- [ ] **Prelaunch:** `/shop` stays behind the gate; the gated branch hides prices, cart links and the collection row.

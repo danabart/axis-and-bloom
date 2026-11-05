@@ -4,6 +4,7 @@ import { ARCHETYPE_VISUALS } from './bloomVisuals';
 import { PositionCard } from './PositionCard';
 import { RevealedPanel } from './RevealedPanel';
 import { usePositionCardData } from './usePositionCardData';
+import { syncDialAddToCart } from './cartItems';
 import { BloomDialWidget, type BloomDialHandle, type DialPosition } from '../BloomDialWidget';
 import { useAuth } from '../../context/AuthContext';
 import { setDialPosition } from '../../lib/api';
@@ -96,11 +97,7 @@ export function ArchetypeSection({
 
   function handleAddToCart(item: CartItem) {
     onAddToCart(item);
-    if (user) {
-      setDialPosition(data.archetype, currentSlot.dialSortOrder, {
-        trigger: 'add_to_cart', source, coffeeId: currentSlot.coffeeId,
-      }).catch(err => reportError('[ArchetypeSection/add-to-cart-dial-sync]', err));
-    }
+    syncDialAddToCart(user, data.archetype, currentSlot.dialSortOrder, source ?? null, currentSlot.coffeeId);
   }
 
   return (

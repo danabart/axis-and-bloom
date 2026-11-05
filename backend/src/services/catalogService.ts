@@ -987,6 +987,44 @@ export async function setCoffeePresentation(input: SetCoffeePresentationInput, c
   });
 }
 
+// ── Category customer name (Website 4, OT-70, 2026-11-05) ─────────────────
+// The one writer of coffee_category_assignment.customer_name: the name
+// customers see for a category coffee (Shop all "Other", The Bloom's Other
+// Categories). Blank clears it; the coffee must already carry the category.
+// backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_4_SHOP_ALL.md
+
+export interface SetCategoryCustomerNameInput { coffeeId: number; categoryCode: string; customerName: string | null }
+export interface CategoryCustomerNameResult { coffeeId: number; categoryCode: string; customerName: string | null; unchanged: boolean }
+
+export async function setCategoryCustomerName(input: SetCategoryCustomerNameInput, ctx: Ctx): Promise<CatalogWriteResult<CategoryCustomerNameResult>> {
+  if (!Number.isInteger(input.coffeeId)) throw new CatalogError(400, 'INVALID_INPUT', 'coffeeId must be an integer');
+  if (typeof input.categoryCode !== 'string' || !input.categoryCode.trim()) throw new CatalogError(400, 'INVALID_INPUT', 'categoryCode is required');
+  if (input.customerName !== null && input.customerName !== undefined && typeof input.customerName !== 'string') {
+    throw new CatalogError(400, 'INVALID_INPUT', 'customerName must be a string or null');
+  }
+  const code = input.categoryCode.trim();
+  const next = blankToNull(input.customerName ?? null);
+  return withTransaction(async (tx) => {
+    await fetchCoffeeRow(tx, input.coffeeId);
+    const cur = await tx.query<{ id: number; customer_name: string | null }>(
+      `SELECT cca.id, cca.customer_name
+         FROM coffee_category_assignment cca JOIN coffee_category cc ON cc.id = cca.category_id
+        WHERE cca.coffee_id = $1 AND cc.code = $2
+        FOR UPDATE OF cca`, [input.coffeeId, code]);
+    const row = cur.rows[0];
+    if (!row) throw new CatalogError(400, 'INVALID_INPUT', `Coffee ${input.coffeeId} is not tagged ${code}`);
+    const unchanged = (row.customer_name ?? null) === next;
+    if (!unchanged) {
+      const before = await snapshotRow(tx, 'coffee_category_assignment', 'id', row.id);
+      await tx.query(`UPDATE coffee_category_assignment SET customer_name = $1 WHERE id = $2`, [next, row.id]);
+      const after = await snapshotRow(tx, 'coffee_category_assignment', 'id', row.id);
+      await logCatalogChange(tx, { entity: 'coffee_category_assignment', entityId: input.coffeeId, action: 'setCategoryCustomerName', before, after, changedBy: ctx.actor });
+      console.info('[catalog] setCategoryCustomerName', { actor: ctx.actor, coffeeId: input.coffeeId, categoryCode: code });
+    }
+    return { result: { coffeeId: input.coffeeId, categoryCode: code, customerName: next, unchanged }, warnings: [], integrity: [] };
+  });
+}
+
 // ── SKUs ───────────────────────────────────────────────────────────────────
 
 export interface UpsertSkuInput {

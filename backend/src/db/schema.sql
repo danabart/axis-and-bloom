@@ -9654,6 +9654,13 @@ WHERE c.is_active;
 -- END WEBSITE 2 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
+-- Website 4 (2026-11-05), OT-70: a category coffee's customer-facing name lives
+-- with its role (the category tag), as a slot coffee's name lives on its slot.
+-- NULL until set in admin (catalogService.setCategoryCustomerName); a category
+-- coffee with neither this nor a home slot name is not listed to customers.
+-- backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_4_SHOP_ALL.md
+ALTER TABLE coffee_category_assignment ADD COLUMN IF NOT EXISTS customer_name TEXT;
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.

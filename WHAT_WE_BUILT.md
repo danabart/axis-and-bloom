@@ -6375,6 +6375,29 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_3_HOME.md
 
 **Verified:** see `CLOSING_REPORT_3.md`.
 
+### 254. Website 4: Shop all (`/shop`) on the handoff design; Shop.tsx retired; OT-70 category names (2026-11-05)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_4_SHOP_ALL.md`; full record (Task 0, CATALOG.md check, states, upload paths, evidence) `backend/src/features/website_handoff/CLOSING_REPORT_4.md`.
+
+**Files:**
+- New `frontend/src/app/components/shop/`: `ShopAll.tsx` (the page), `ShopCoffeeCard.tsx` (`ShopCoffeeCard` plus `SlotShopCard` / `OtherShopCard`), `shop.css` (handoff CSS, `sh-` prefix), `shop.test.tsx` (12 cases).
+- `App.tsx`: `/shop` → `ShopAll` (still behind `PrelaunchGate`). `components/Shop.tsx` is deleted. Its 24 local PNGs under `design/IMAGES/` are no longer bundled; the files stay as design originals. `design/CLAUDE.md`: the "never touch Shop.tsx" rule is replaced by the retirement note.
+- Shared rather than forked (G4.1):
+  - `bloom/cartItems.ts`: `dialCartItem`, `collectionCartItem`, `directCartItem` and `syncDialAddToCart`, used by `DialArchetypeSection`, `ArchetypeSection`, `Home` and the Shop cards.
+  - `bloom/useSlotAvailability.ts`, extracted from `usePositionCardData` (which now calls it).
+- `design/assets.ts`: `shopAssets.family.*`, `shopAssets.other`, `optimizedAsset(path)` (for `photo_asset_key`). `bloomVisuals.ts`: `plateInk` per family. `lib/api.ts`: `getArchetypeOrder()`.
+- Admin: the coffee Edit modal's "Customer card" block gains one "Customer name as {category}" field per category tag.
+- Home (OT-76): Liam's example answer drops "over fragrant ones".
+- Backend (OT-70):
+  - `coffee_category_assignment.customer_name` (schema, comment).
+  - The one writer `catalogService.setCategoryCustomerName`, via `PUT /api/admin/catalog/coffees/:id/category-name`; `GET …/presentation` lists the category names.
+  - `catalogReads.getCategoryCoffees` reads it. `coffeeCardReads.getOtherCategoryCoffees` names a category coffee by `customer_name`, else its home slot name; it never falls back to `coffees.name`, and drops the coffee when it has neither.
+  - Test `services/websiteShop.test.ts` (7 cases).
+
+**How it works:** sections come from `GET /api/coffees/cards` in `sort_order`. With a known family and "Your family first" on (remembered in `localStorage ab.shop.familyFirst`), they follow `GET /api/coffees/archetype-order?archetype=`. Each section's `id` is the archetype code (`/shop#chocolate_nutty`). The family menu is scroll-spied and sticky on desktop. A card shows only the rows present, and has three states: buy (price, chips, Add to cart), "Price coming" and "Coming soon". Prelaunch hides prices and cart links. "Premium ★" comes from the `hasAward` boolean only. "Full profile ↗" goes to `/flavor-intelligence?archetype=&slot=` (or `?directCoffee=`).
+
+**Verified:** see `CLOSING_REPORT_4.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

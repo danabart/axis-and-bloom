@@ -9,6 +9,7 @@ import { computeDefaultSortOrder } from './ArchetypeSection';
 import { RevealedPanel } from './RevealedPanel';
 import { DoorBand } from './DoorBand';
 import { usePositionCardData } from './usePositionCardData';
+import { dialCartItem, collectionCartItem, syncDialAddToCart } from './cartItems';
 import { CardTags } from '../coffee-info/CardTags';
 import type { ArchetypeData, CartItem, DoorTarget, Slot } from './types';
 import { slotKey, formatPrice, priceLabel } from './types';
@@ -236,48 +237,24 @@ export function DialArchetypeSection({
   }
 
   function handleAddToCart() {
-    if (!currentSlot.platformName || !cardData.selectedPrice) return;
-    const item: CartItem = {
-      kind: 'dial',
-      archetype: data.archetype,
-      archetypeLabel: data.archetypeLabel,
-      dialSortOrder: currentSlot.dialSortOrder,
-      weightOz: cardData.selectedPrice.weightOz,
-      platformName: currentSlot.platformName,
-      retailPriceCents: cardData.selectedPrice.retailPriceCents,
-      qty: 1,
-    };
+    if (!cardData.selectedPrice) return;
+    const item = dialCartItem(data, currentSlot, cardData.selectedPrice);
+    if (!item) return;
     onAddToCart(item);
-    if (user) {
-      setDialPosition(data.archetype, currentSlot.dialSortOrder, {
-        trigger: 'add_to_cart', source, coffeeId: currentSlot.coffeeId,
-      }).catch(err => reportError('[DialArchetypeSection/add-to-cart-dial-sync]', err));
-    }
+    syncDialAddToCart(user, data.archetype, currentSlot.dialSortOrder, source, currentSlot.coffeeId);
   }
 
   function handleClassicAdd() {
-    if (!defaultSlot || !defaultPrice || !defaultSlot.platformName) return;
-    const item: CartItem = {
-      kind: 'dial',
-      archetype: data.archetype,
-      archetypeLabel: data.archetypeLabel,
-      dialSortOrder: defaultSlot.dialSortOrder,
-      weightOz: defaultPrice.weightOz,
-      platformName: defaultSlot.platformName,
-      retailPriceCents: defaultPrice.retailPriceCents,
-      qty: 1,
-    };
+    if (!defaultSlot || !defaultPrice) return;
+    const item = dialCartItem(data, defaultSlot, defaultPrice);
+    if (!item) return;
     onAddToCart(item);
     // Turn the dial to the default position as feedback — same snap animation
     // as any other settle, via the imperative handle this component keeps a
     // local copy of specifically for this.
     dialRef.current?.rotateTo(defaultSlot.dialSortOrder);
     onDialSelect(data.archetype, defaultSlot.dialSortOrder);
-    if (user) {
-      setDialPosition(data.archetype, defaultSlot.dialSortOrder, {
-        trigger: 'add_to_cart', source, coffeeId: defaultSlot.coffeeId,
-      }).catch(err => reportError('[DialArchetypeSection/add-to-cart-dial-sync]', err));
-    }
+    syncDialAddToCart(user, data.archetype, defaultSlot.dialSortOrder, source, defaultSlot.coffeeId);
   }
 
   // Part 19 §C — "the collection": data.collectionOffer is already the
@@ -285,17 +262,8 @@ export function DialArchetypeSection({
   // than 3 positions are purchasable — the CTA's own hide condition). No
   // client-side discount math anywhere in this component.
   function handleCollectionAdd() {
-    if (!data.collectionOffer) return;
-    const item: CartItem = {
-      kind: 'collection',
-      archetype: data.archetype,
-      archetypeLabel: data.archetypeLabel,
-      memberCount: data.collectionOffer.memberCount,
-      retailPriceCents: data.collectionOffer.discountedCents,
-      undiscountedPriceCents: data.collectionOffer.sumCents,
-      qty: 1,
-    };
-    onAddToCart(item);
+    const item = collectionCartItem(data);
+    if (item) onAddToCart(item);
   }
 
   const showReveal = currentSlot.coffeeId != null && currentSlot.isActive;

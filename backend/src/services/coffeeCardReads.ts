@@ -98,11 +98,14 @@ export async function getOtherCategoryCoffees() {
   const coffees = coffeeIds.length ? await getCoffees({ ids: coffeeIds, active: true }) : [];
   const coffeeMap = new Map(coffees.map(c => [c.id, c]));
 
-  const byCoffee = new Map<number, { categories: { code: string; label: string; sortOrder: number }[] }>();
+  const byCoffee = new Map<number, { categories: { code: string; label: string; sortOrder: number }[]; customerName: string | null }>();
   for (const row of categoryRows) {
     if (!coffeeMap.has(row.coffee_id)) continue; // inactive (or not found) — excluded, same as the old c.is_active filter
-    if (!byCoffee.has(row.coffee_id)) byCoffee.set(row.coffee_id, { categories: [] });
-    byCoffee.get(row.coffee_id)!.categories.push({ code: row.category_code, label: row.category_label, sortOrder: row.category_sort_order });
+    if (!byCoffee.has(row.coffee_id)) byCoffee.set(row.coffee_id, { categories: [], customerName: null });
+    const entry = byCoffee.get(row.coffee_id)!;
+    entry.categories.push({ code: row.category_code, label: row.category_label, sortOrder: row.category_sort_order });
+    // rows come in category sort_order: the first category role with a name wins
+    if (!entry.customerName && row.customer_name?.trim()) entry.customerName = row.customer_name.trim();
   }
 
   const sizes = await getSizes();
@@ -114,6 +117,11 @@ export async function getOtherCategoryCoffees() {
   for (const [coffeeId, info] of byCoffee) {
     const coffee = coffeeMap.get(coffeeId)!;
     const homeSlot = await getHomeSlot(coffeeId);
+    // Website 4, OT-70 (2026-11-05): the customer-facing name is the category
+    // role's customer_name, else the coffee's home slot name; never the raw
+    // coffees.name (the roaster's own). A coffee with neither is not listed.
+    const displayName = info.customerName ?? homeSlot?.slot_name ?? null;
+    if (!displayName) continue;
     const prices = [];
     for (const { weight_oz: weightOz, label, is_anchor: isAnchor } of sizes) {
       const cents = priceMap.get(`${coffeeId}|${weightOz}`);
@@ -123,7 +131,7 @@ export async function getOtherCategoryCoffees() {
     }
     result.push({
       coffeeId,
-      displayName: homeSlot?.slot_name ?? coffee.name,
+      displayName,
       archetype: coffee.match_archetype,
       archetypeLabel: coffee.match_archetype ? await archetypeLabel(coffee.match_archetype) : null,
       categories: info.categories.sort((a, b) => a.sortOrder - b.sortOrder),
@@ -215,10 +223,10 @@ export async function getCoffeeCards() {
   const otherRows = await getOtherCategoryCoffees();
   const presentations = await getCardPresentations(otherRows.map(r => r.coffeeId));
   const other = await Promise.all(otherRows.map(async r => {
-    const home = await getHomeSlot(r.coffeeId);
     return {
       coffeeId: r.coffeeId,
-      platformName: home?.slot_name ?? null,
+      // OT-70: the same name /other-categories shows (category customer_name, else home slot)
+      platformName: r.displayName,
       archetype: r.archetype,
       archetypeLabel: r.archetypeLabel,
       categories: r.categories,

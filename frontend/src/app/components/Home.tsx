@@ -12,10 +12,11 @@ import './home/home.css';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
-import { getHomepageState, getHomeContent, getArchetypes, setDialPosition, type HomeContent } from '../lib/api';
+import { getHomepageState, getHomeContent, getArchetypes, type HomeContent } from '../lib/api';
+import { dialCartItem, syncDialAddToCart } from './bloom/cartItems';
 import { reportError } from '../lib/errorReporter';
 import { formatCalendarDate } from '../lib/calendarDate';
-import { formatPrice, type ArchetypeData, type CartItem } from './bloom/types';
+import { formatPrice, type ArchetypeData } from './bloom/types';
 import { ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
 import { archetypeAssets, homeAssets, quizAssets, lifestyleAssets, videoAssets, type ArchetypeSlug } from '../../design/assets';
 
@@ -181,7 +182,7 @@ export default function Home() {
   const gentleEnd = liamFamily?.slots.slice().sort((a, b) => a.dialSortOrder - b.dialSortOrder)[0]?.platformName ?? null;
   const liamExample = liamFamily && liamNeighbor ? {
     question: `Why ${liamFamily.archetypeLabel} and not ${liamNeighbor.archetypeLabel}?`,
-    answer: `Your answers leaned toward ripe, juicy moments over fragrant ones. On the dial that places you at the gentle end of ${liamFamily.archetypeLabel}`
+    answer: `Your answers leaned toward ripe, juicy moments. On the dial that places you at the gentle end of ${liamFamily.archetypeLabel}`
       + (gentleEnd ? `, next to ${gentleEnd}.` : '.')
       + ` Want to see the ${liamNeighbor.archetypeLabel} neighbor side by side?`,
     suggestions: [`Show me the ${liamNeighbor.archetypeLabel} neighbor`, 'How should I brew it?'],
@@ -192,25 +193,13 @@ export default function Home() {
   const liamHref = gated ? null : signedOut ? '/sign-in?redirect=/sommelier' : hasLiamAccess ? '/sommelier' : null;
 
   function handleFeaturedAdd() {
-    if (!featured?.price || !featured.card.platformName) return;
+    if (!featured?.price) return;
     const { card, price } = featured;
-    const item: CartItem = {
-      kind: 'dial',
-      archetype: card.archetype,
-      archetypeLabel: card.archetypeLabel,
-      dialSortOrder: card.dialSortOrder,
-      weightOz: price.weightOz,
-      platformName: card.platformName!,
-      retailPriceCents: price.retailPriceCents,
-      qty: 1,
-    };
+    const item = dialCartItem(card, card, price);
+    if (!item) return;
     addToCart(item);
-    // The same dial-event sync the dial card performs (ArchetypeSection / DialArchetypeSection).
-    if (user) {
-      setDialPosition(card.archetype, card.dialSortOrder, {
-        trigger: 'add_to_cart', source: 'home', coffeeId: card.coffeeId ?? null,
-      }).catch(err => reportError('[Home/add-to-cart-dial-sync]', err));
-    }
+    // The same dial-event sync the dial card performs (bloom/cartItems.ts).
+    syncDialAddToCart(user, card.archetype, card.dialSortOrder, 'home', card.coffeeId);
   }
 
   // ── 03: signed-in / lifecycle CTA (same texts as the previous Home) ────────

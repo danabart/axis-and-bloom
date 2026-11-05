@@ -532,6 +532,8 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 interface PresentationForm { hint: string; milkCode: string; photoAssetKey: string }
 interface PresentationState {
   form: PresentationForm;
+  /** Website 4 (OT-70): one customer-facing name per category role (decaf, half-caf, flavored, experimental) */
+  categories: { code: string; label: string; customerName: string }[];
   milkOptions: { code: string; label: string; customer_label: string }[];
   card: { milk: string | null; milkSource: 'editorial' | 'roaster' | null; leadsInCup: string | null; leadsSource: string | null; originRegion: string | null } | null;
 }
@@ -551,13 +553,16 @@ function EditMetadataModal({ coffee, lookups, refreshLookups, apiFetch, onClose,
   // key), saved through PUT /presentation (catalogService.setCoffeePresentation).
   const [pres, setPres] = useState<PresentationState | null>(null);
   const [presInitial, setPresInitial] = useState<PresentationForm | null>(null);
+  const [catInitial, setCatInitial] = useState<Record<string, string>>({});
   useEffect(() => {
     let live = true;
     apiFetch(`/api/admin/catalog/coffees/${coffee.id}/presentation`).then(r => r.ok ? r.json() : null).then(d => {
       if (!live || !d) return;
       const f = { hint: d.hint ?? '', milkCode: d.milkCode ?? '', photoAssetKey: d.photoAssetKey ?? '' };
-      setPres({ form: f, milkOptions: d.milkOptions ?? [], card: d.card ?? null });
+      const cats = (d.categories ?? []).map((c: { code: string; label: string; customerName: string | null }) => ({ ...c, customerName: c.customerName ?? '' }));
+      setPres({ form: f, milkOptions: d.milkOptions ?? [], card: d.card ?? null, categories: cats });
       setPresInitial(f);
+      setCatInitial(Object.fromEntries(cats.map((c: { code: string; customerName: string }) => [c.code, c.customerName])));
     }).catch(() => { /* the form still edits metadata; the presentation block stays hidden */ });
     return () => { live = false; };
     // apiFetch is re-created on every parent render; the read depends on the coffee only.
@@ -579,6 +584,15 @@ function EditMetadataModal({ coffee, lookups, refreshLookups, apiFetch, onClose,
           body: JSON.stringify({ hint: pres.form.hint || null, milkCode: pres.form.milkCode || null, photoAssetKey: pres.form.photoAssetKey || null }),
         });
         if (!pr.ok) throw new Error((await pr.json()).message ?? 'Failed to save presentation');
+      }
+      // Website 4 (OT-70): each changed category name through PUT /category-name (catalogService.setCategoryCustomerName).
+      for (const c of pres?.categories ?? []) {
+        if ((catInitial[c.code] ?? '') === c.customerName) continue;
+        const cr = await apiFetch(`/api/admin/catalog/coffees/${coffee.id}/category-name`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ categoryCode: c.code, customerName: c.customerName || null }),
+        });
+        if (!cr.ok) throw new Error((await cr.json()).message ?? 'Failed to save the category name');
       }
       await onSaved(); onClose();
     } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to save'); } finally { setSaving(false); }
@@ -621,6 +635,16 @@ function EditMetadataModal({ coffee, lookups, refreshLookups, apiFetch, onClose,
               <label className="block text-xs text-stone-400 mb-1">Photo asset key</label>
               <input value={pres.form.photoAssetKey} onChange={e => presField('photoAssetKey')(e.target.value)} className="w-full border border-stone-300 rounded px-3 py-2 text-sm" />
             </div>
+            {pres.categories.map(c => (
+              <div key={c.code}>
+                <label className="block text-xs text-stone-400 mb-1">Customer name as {c.label} (shown in Shop all "Other"; without it the coffee is not listed)</label>
+                <input
+                  value={c.customerName}
+                  onChange={e => { const v = e.target.value; setPres(p => (p ? { ...p, categories: p.categories.map(x => x.code === c.code ? { ...x, customerName: v } : x) } : p)); }}
+                  className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
+                />
+              </div>
+            ))}
             {pres.card && (
               <p className="text-xs text-stone-400">
                 Leads in cup: {pres.card.leadsInCup ?? '—'}{pres.card.leadsSource ? ` (${pres.card.leadsSource})` : ''} · Origin: {pres.card.originRegion ?? '—'}

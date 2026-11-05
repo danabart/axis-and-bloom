@@ -175,6 +175,14 @@ export async function getArchetypes(): Promise<ArchetypeData[]> {
   return res.json();
 }
 
+/** GET /api/coffees/archetype-order?archetype=: the customer's family first, then its neighbours (catalogReads.getArchetypeOrder). */
+export async function getArchetypeOrder(archetype: string | null): Promise<string[]> {
+  const qs = archetype ? `?archetype=${encodeURIComponent(archetype)}` : '';
+  const res = await fetch(`${BASE}/coffees/archetype-order${qs}`);
+  if (!res.ok) throw new Error('Failed to load archetype order');
+  return (await res.json()).order ?? [];
+}
+
 export async function getHomeContent(): Promise<HomeContent> {
   const res = await fetch(`${BASE}/home/content`);
   if (!res.ok) throw new Error('Failed to load home content');

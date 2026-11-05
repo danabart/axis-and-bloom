@@ -13,7 +13,7 @@ This folder contains `assets.ts`, the single source of truth mapping semantic as
 
 ## Hard rules
 
-- **Never touch `Shop.tsx`.** It's being retired once The Bloom absorbs it — permanently out of scope for this registry until Dana says otherwise.
+- **`Shop.tsx` was retired on 2026-11-05** (Website 4, Dana's D4 of 2026-11-04 lifted the old "never touch Shop.tsx" rule). `/shop` is now `components/shop/ShopAll.tsx`, and its photographs are `shopAssets` keys. The local PNGs `Shop.tsx` imported under `design/IMAGES/` are no longer bundled; the files stay as design originals.
 - **Never rename or remove an existing key without explicit confirmation.** Live pages import these keys directly — a silent rename breaks them.
 - **When adding a new key, always report back the exact `raw/...` bucket path** the human needs to upload the source file to. The code change alone does nothing until a file exists at that path — this is the other half of the task, not optional.
 - **Bucket objects use a short cache (`max-age=300`), not the `immutable` long-cache convention used for hashed JS/CSS bundles.** This is intentional, not a bug to "fix" — stable filenames + short cache is what makes swap-in-place replacements actually show up promptly. Don't change it to match the JS/CSS convention.
