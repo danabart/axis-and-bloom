@@ -13,7 +13,7 @@
 
 /* 01 families */
 .hm-fams { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.hm-fam { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; height: clamp(480px, 42vw, 680px); padding: clamp(88px, 7vw, 112px) clamp(18px, 1.8vw, 28px) clamp(18px, 1.8vw, 28px); color: var(--ab-paper); min-width: 0; }
+.hm .hm-fam { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; height: clamp(480px, 42vw, 680px); padding: clamp(88px, 7vw, 112px) clamp(18px, 1.8vw, 28px) clamp(18px, 1.8vw, 28px); color: var(--ab-paper); min-width: 0; }
 .hm-fam-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transform: scale(1.04); transition: opacity .6s ease, transform 1.2s ease; }
 .hm-fam-tint { position: absolute; inset: 0; opacity: 0; transition: opacity .6s ease; }
 .hm-fam:hover .hm-fam-photo, .hm-fam:focus-visible .hm-fam-photo { opacity: 1; transform: scale(1); }
