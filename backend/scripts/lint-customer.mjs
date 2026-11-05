@@ -311,7 +311,9 @@ for (const relPath of files) {
 // Deviation from the brief's literal "any SELECT ... outside a view fails":
 // disclosed here and in the C3 closing report, same precedent as rule 3's
 // own documented strengthening beyond its brief's literal wording.
-const RULE6_ALLOWLIST = new Set(['routes/admin.ts', 'routes/axis.ts', 'routes/users.ts']);
+// Website 6 (2026-11-05): The Axis's Bloom Notes count moved, unchanged, from
+// routes/axis.ts into services/axisStatsReads.ts (G3.1), so its entry moved too.
+const RULE6_ALLOWLIST = new Set(['routes/admin.ts', 'services/axisStatsReads.ts', 'routes/users.ts']);
 for (const relPath of files) {
   if (RULE6_ALLOWLIST.has(relPath)) continue;
   const lines = fileText(relPath).split('\n');

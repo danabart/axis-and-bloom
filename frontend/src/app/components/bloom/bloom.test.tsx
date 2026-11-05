@@ -73,6 +73,7 @@ import BloomPage from '../BloomPage';
 import { FlowerWheel, stopOf, tOf } from './wheel/FlowerWheel';
 import { PETALS } from './wheel/wheelGeometry';
 import { comfortZoneOf } from '../coffee-info/useCompatibility';
+import { openingSortOrder } from './useDialSlot';
 
 function route(url: string): unknown {
   if (url.startsWith('/api/coffees/archetypes')) return ARCHETYPES;
@@ -325,5 +326,39 @@ describe('The Bloom page', () => {
     await waitFor(() => expect(field().getAttribute('data-archetype')).toBe('floral'));
     await act(async () => { fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' }); });
     await waitFor(() => expect(field().getAttribute('data-archetype')).toBe('fruity'));
+  });
+});
+
+// Website 6 B2 (decided 2026-11-05): the stop a family opens on.
+describe('opening stop (Website 6 B2)', () => {
+  const live = (n: number, extra: Record<string, unknown> = {}) => slot(n, { isActive: true, coffeeId: 100 + n, platformName: `Live ${n}`, prices: [price(2900)], ...extra });
+  const fam = (slots: unknown[]) => arch('floral', 'Floral', 1, slots) as unknown as Parameters<typeof openingSortOrder>[0];
+
+  it('the classic when it is sellable', () => {
+    expect(openingSortOrder(fam([live(1), live(2), live(3), slot(4)]))).toBe(2);
+  });
+  it('else the nearest sellable stop', () => {
+    expect(openingSortOrder(fam([slot(1), slot(2), slot(3), live(4)]))).toBe(4);
+    expect(openingSortOrder(fam([slot(1), slot(2), live(3), slot(4)]))).toBe(3);
+  });
+  it('on a tie, the lower stop', () => {
+    expect(openingSortOrder(fam([live(1), slot(2), live(3), slot(4)]))).toBe(1);
+  });
+  it('a priced-less or coffee-less classic is not sellable; nothing sellable keeps the classic', () => {
+    expect(openingSortOrder(fam([live(1), live(2, { prices: [] }), slot(3), slot(4)]))).toBe(1);
+    expect(openingSortOrder(fam([slot(1), slot(2), slot(3), slot(4)]))).toBe(2);
+  });
+  it('on the page: Floral (classic has no coffee) opens on its live stop; a deep link still wins', async () => {
+    renderBloom('/bloom?archetype=floral');
+    await waitFor(() => expect(coffeeName()).toBe('Light Floral Edge'));
+    cleanup();
+    renderBloom('/bloom?archetype=floral&slot=3');
+    await waitFor(() => expect(within(field()).getByTestId('stop-label').textContent).toBe('3 · Richer'));
+  });
+  it('a saved position still wins', async () => {
+    auth.user = { isAnonymous: false };
+    saved = { floral: 4 };
+    renderBloom('/bloom?archetype=floral');
+    await waitFor(() => expect(within(field()).getByTestId('stop-label').textContent).toBe('4 · Full'));
   });
 });

@@ -9665,6 +9665,24 @@ WHERE c.is_active;
 -- backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_4_SHOP_ALL.md
 ALTER TABLE coffee_category_assignment ADD COLUMN IF NOT EXISTS customer_name TEXT;
 
+-- Website 6 (2026-11-05): The Axis hero's origin list. Sellable coffees
+-- (v_coffee_sellable_slot, a coffee counted once however many slots or sizes
+-- it sells in) per origin region (coffees.origin_region_id → lookup_value
+-- category origin_region), in the lookup's sort_order. A region with no
+-- sellable coffee has no row: the page never shows an empty region.
+-- Aggregates only (no coffee ids or names), like the rest of /api/axis/stats.
+-- backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_6_THE_AXIS.md
+CREATE OR REPLACE VIEW v_axis_origin_region_count AS
+SELECT lv.id         AS region_id,
+       lv.value      AS region_code,
+       lv.label      AS region_label,
+       lv.sort_order AS sort_order,
+       COUNT(DISTINCT s.coffee_id)::int AS coffee_count
+FROM v_coffee_sellable_slot s
+JOIN coffees c       ON c.id = s.coffee_id
+JOIN lookup_value lv ON lv.id = c.origin_region_id AND lv.category = 'origin_region'
+GROUP BY lv.id, lv.value, lv.label, lv.sort_order;
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.

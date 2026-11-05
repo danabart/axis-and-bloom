@@ -6,9 +6,9 @@ import { getUserProfile, getDialPosition, setDialPosition, getCoffeeCards, type 
 import { reportError } from '../lib/errorReporter';
 import { usePrelaunchGated } from '../lib/prelaunch';
 import { ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
-import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
+import { openingSortOrder } from './bloom/useDialSlot';
 import { resolveLandingSortOrder } from './bloom/doorConfig';
 import { SlotShopCard, OtherShopCard, familyLookOf } from './shop/ShopCoffeeCard';
 import { Wrap, Caps, Titled } from './chrome';
@@ -74,7 +74,8 @@ export default function BloomPage() {
         setArchetypes(data);
         setSelectedSortOrder(prev => {
           const next = { ...prev };
-          for (const a of data) if (!(a.archetype in next)) next[a.archetype] = computeDefaultSortOrder(a);
+          // Website 6 B2: open on the classic when sellable, else the nearest sellable stop.
+          for (const a of data) if (!(a.archetype in next)) next[a.archetype] = openingSortOrder(a);
           return next;
         });
       })
@@ -317,7 +318,7 @@ export default function BloomPage() {
           data={selected!}
           cards={familyCards}
           index={0}
-          selectedSortOrder={selectedSortOrder[selected!.archetype] ?? computeDefaultSortOrder(selected!)}
+          selectedSortOrder={selectedSortOrder[selected!.archetype] ?? openingSortOrder(selected!)}
           revealedKeys={revealedKeys}
           onDialSelect={handleDialSelect}
           onToggleReveal={toggleReveal}

@@ -163,6 +163,16 @@ export const lifestyleAssets = {
   coffee15Vertical: optimized('lifestyle/coffee-15-vertical'),
 };
 
+// Website 6 (2026-11-05): The Axis's three photos (handoff source/axis/media).
+// Upload paths for Camila: raw/axis/axis-story.jpg, raw/axis/axis-bowl.jpg,
+// raw/axis/axis-start.jpg (the pipeline writes optimized/axis/…). Until then the
+// page's Photo falls back to the lifestyle photos above.
+export const axisAssets = {
+  story: optimized('axis/axis-story'),
+  bowl: optimized('axis/axis-bowl'),
+  start: optimized('axis/axis-start'),
+};
+
 // Only the 2 logo files actually referenced anywhere in the app today
 // (LogoCircle/LogoQuarter2-4 have no current import — left unmigrated, same as
 // any other unused design asset).

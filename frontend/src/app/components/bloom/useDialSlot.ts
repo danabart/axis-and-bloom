@@ -5,6 +5,7 @@ import { reportError } from '../../lib/errorReporter';
 import { computeDefaultSortOrder } from './ArchetypeSection';
 import { usePositionCardData } from './usePositionCardData';
 import { dialCartItem, collectionCartItem, syncDialAddToCart } from './cartItems';
+import { slotSellable } from './useSlotAvailability';
 import type { ArchetypeData, CartItem, Slot } from './types';
 import { slotKey } from './types';
 
@@ -30,6 +31,25 @@ export function classicOf(data: ArchetypeData) {
   const defaultPrice = defaultSlot?.prices.find(p => p.isAnchor) ?? defaultSlot?.prices[0];
   const classicAvailable = !!(defaultSlot && defaultSlot.isActive && defaultSlot.platformName && defaultPrice);
   return { defaultSlot, defaultSortOrder, defaultPrice, classicAvailable };
+}
+
+/**
+ * Website 6 B2 (decided 2026-11-05): the stop a family opens on when there is no
+ * saved position or deep link. The classic when it is sellable; else the sellable
+ * stop nearest to it (the lower one on a tie); else the classic (nothing sellable).
+ */
+export function openingSortOrder(data: ArchetypeData): number {
+  const { defaultSortOrder } = classicOf(data);
+  const slots = [...data.slots].sort((a, b) => a.dialSortOrder - b.dialSortOrder);
+  const home = slots.findIndex(s => s.dialSortOrder === defaultSortOrder);
+  if (home >= 0 && slotSellable(slots[home])) return defaultSortOrder;
+  const from = home >= 0 ? home : 0;
+  let best: number | null = null;
+  slots.forEach((s, i) => {
+    if (!slotSellable(s)) return;
+    if (best === null || Math.abs(i - from) < Math.abs(best - from)) best = i;
+  });
+  return best === null ? defaultSortOrder : slots[best].dialSortOrder;
 }
 
 /** The Collection's discount as the offer itself states it (sum vs discounted), never a typed percentage. */

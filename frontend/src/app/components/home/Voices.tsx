@@ -1,18 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { Titled, Caps, Wrap } from '../chrome';
+import { widow } from '../../lib/widow';
 
 // 06 Voices (Website 3). The quotes are marketing_home_quote rows from
 // GET /api/home/content (D10). Timing is the handoff's: each quote holds 7 s,
 // then fades over 1.4 s; hovering pauses; reduced motion shows the first one.
 const HOLD_MS = 7000;
 const FADE_MS = 1400;
-
-/** Keep the last two words together (the handoff's widow fix). */
-function widow(t: string) {
-  const k = t.lastIndexOf(' ');
-  return k > 0 ? `${t.slice(0, k)} ${t.slice(k + 1)}` : t;
-}
 
 export default function Voices({ quotes }: { quotes: string[] }) {
   const reduce = useReducedMotion();

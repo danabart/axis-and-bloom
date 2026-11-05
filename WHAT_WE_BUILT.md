@@ -6423,6 +6423,46 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_5_THE_BLO
 
 ---
 
+### 256. Website 6: The Axis (`/the-axis`) on the handoff design; Bloom opening stop; OT-82 closed (2026-11-05)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_6_THE_AXIS.md`; full record (Task 0, S1/S2 decisions, copy diff, `raw/` paths, evidence) `backend/src/features/website_handoff/CLOSING_REPORT_6.md`.
+
+**Decided 2026-11-05 (Dana, after the Task 0 stop):**
+- **S1 A:** the Place bands and the 02 list show each family's three words (`customerWords`), not `coffee_archetype.description`. Two descriptions are NULL and two are off the copy rule; the rewrite is OT-84.
+- **S2 A:** the hero lists only origin regions with sellable coffees, from the data; with none set (OT-71) the hero runs full width.
+
+**Files:**
+- **Backend:**
+  - New view `v_axis_origin_region_count` (sellable coffees per origin region, lookup order; `schema.sql`, `comments.sql`).
+  - New `services/axisStatsReads.getAxisStats`: the stats SQL moved out of `routes/axis.ts` (G3.1) with every field kept, plus `originRegions`.
+  - `GET /api/axis/stats` answers 500 on failure instead of a 200 with typed numbers (29 coffees, "last tightened" = now).
+  - `lint-customer.mjs` rule 6: the allow-list entry for the Bloom Notes count follows it from the route to the service.
+  - Test: `services/axisStats.test.ts` (3).
+- **Frontend:**
+  - `TheAxis.tsx` rewritten.
+  - New `components/axis/AxisParts.tsx` (origin list, bands, family list, family wheel, readers panel, accordion, `useInView`), `axisWheel.ts` (Website 5's petals in angle order, `tierFill`, `allocateSegments`) and `axis.css` (`ax-` prefix, the handoff CSS values).
+  - `AxisMap.tsx` and `worldOutline.ts` deleted; nothing else imported them.
+  - `lib/widow.ts` is shared (moved out of `home/Voices.tsx`). `design/assets.ts`: `axisAssets` (story, bowl, start).
+  - Test: `components/axis/axis.test.tsx` (11).
+- **Part B2:**
+  - **OT-82:** the reader already applied OT-70 since Website 4. Only the route comment was stale, so it is corrected, and the rule stays pinned by `services/websiteShop.test.ts`.
+  - **Bloom opening stop:** `useDialSlot.openingSortOrder` with `useSlotAvailability.slotSellable`: the classic when sellable, else the nearest sellable stop (the lower one on a tie); a saved position or a deep link still wins. 6 tests in `bloom.test.tsx`.
+
+**How it works:**
+- **Data:** the page reads `GET /api/axis/stats` (region and family counts, Experimental count, the stats line, the last-tightened date) and `GET /api/coffees/archetypes` (names, `sort_order`, three words). Colours come from `ARCHETYPE_VISUALS`.
+- **Chapter nav:** scroll-spied.
+- **`?archetype=`:** highlights that family's band and list item and scrolls to 02.
+- **The 03 wheel:** one segment per coffee of each family, then hollow ones for Experimental, the rest open.
+- **04:** ends on the live stats line.
+- **Accordions:** buttons with `aria-expanded`.
+- **Reduced motion:** dots and segments show at once.
+- **Copy:** the approved copy, except three G4.4 rewrites (closing report).
+- **Gate:** the route stays behind the prelaunch gate.
+
+**Verified:** see `CLOSING_REPORT_6.md`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

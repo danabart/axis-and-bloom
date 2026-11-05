@@ -41,3 +41,17 @@ export function useSlotAvailability(slot: Pick<Slot, 'isActive' | 'coffeeId' | '
 
   return { availability, availableWeights, isUnpriced, effectivelyActive, selectedWeight, setSelectedWeight, selectedPrice };
 }
+
+/**
+ * Website 6 B2 (2026-11-05): the same rule as `effectivelyActive` above, as a pure
+ * function over the payload, for places that pick a slot before any availability
+ * is fetched (The Bloom's opening stop): a coffee on the slot, active, priced, and,
+ * when the per-weight availability is known, at least one weight a roaster can fill.
+ */
+export function slotSellable(
+  slot: Pick<Slot, 'isActive' | 'coffeeId' | 'prices'>,
+  availability: Record<number, boolean> | null = null,
+): boolean {
+  return slot.isActive && slot.coffeeId != null && slot.prices.length > 0
+    && (availability === null || slot.prices.some(p => availability[p.weightOz]));
+}

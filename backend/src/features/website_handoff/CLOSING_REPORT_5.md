@@ -128,6 +128,7 @@ See `WHAT_WE_BUILT.md` #255 for the file list. In short:
 ## Deviations from the brief (and why)
 
 1. **Category coffees use `OtherShopCard` instead of `OtherCategoryCard`.** `OtherCategoryCard` reads `/api/coffees/other-categories`, which still falls back to the raw `coffees.name`. That breaks the OT-70 rule the brief cites, so I took the coffees from `/cards` `other` (OT-70 applied) and drew them with Website 4's handoff-style card. `OtherCategoryCard` stays for Flavor Intelligence. The leftover fallback is OT-82.
+   - **Correction (Website 6, 2026-11-05):** the reason given here was wrong. `GET /api/coffees/other-categories` (`coffeeCardReads.getOtherCategoryCoffees`) already applied the OT-70 rule since Website 4; only its route comment still described the old raw-name fallback, and I took the comment for the code. The choice of `OtherShopCard` (one card look across the block) stands; OT-82 is closed.
 2. **No "optional note"** in the reveal. The handoff's per-coffee `note` has no source field (D9: nothing typed). The left column shows the roaster's words alone.
 3. **State words.** A slot with no coffee says "Coming soon" and an unpriced one "Price coming", the same words as the lineup cards (Website 4). The dial used to say "Temporarily unavailable" or "Unpriced" for these; "Temporarily unavailable" is kept for a priced coffee that no roaster can fill right now.
 4. **"Take the quiz" sits at the end** of the lineup section, after the doors, in the brief's order. The handoff draws it in the lineup header.

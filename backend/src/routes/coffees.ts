@@ -704,11 +704,12 @@ router.get('/archetype-order', async (req, res) => {
 // matched to an archetype (Liam/quiz) and still shoppable where a real SKU
 // exists. This is their presentation surface — grouped by category tag on the
 // frontend (Other Categories = decaf/half_caf/flavored, The Unexpected =
-// experimental), not by dial slot. displayName falls back from the coffee's
-// current active home slot name (a category coffee can still have one — e.g.
-// an experimental-tagged coffee placed on the experimental dial) to the
-// coffee's raw name when it has none, same fallback shape as before (Catalog
-// Blueprint brief 3 — coffee_alias is no longer a trusted read).
+// experimental), not by dial slot. displayName (coffeeCardReads.
+// getOtherCategoryCoffees, Website 4 OT-70) is the category role's
+// customer_name, else the coffee's home slot name; a coffee with neither is
+// not listed, and the raw coffees.name never is (pinned by
+// services/websiteShop.test.ts). Website 6 (2026-11-05) corrected this comment,
+// which still described the old raw-name fallback (OT-82).
 router.get('/other-categories', async (_req, res) => {
   try {
     const result = await getOtherCategoryCoffees();

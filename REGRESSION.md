@@ -176,3 +176,17 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_5.md`. Tests: 
 - [ ] **Doors:** none while `DOORS_ENABLED` is false; switching it on shows "Turn the {neighbour} dial" under the Other block.
 - [ ] **Wheel a11y:** keyboard-only turn (←/→/Home/End on the slider), `aria-valuetext` = the stop label, reduced motion paints without the spin.
 - [ ] **Quiz result and Profile** still use the per-archetype dial (`layout` default) with their fold, ceremony and quick picks.
+
+## The Axis (Website 6, 2026-11-05)
+
+Full record: `backend/src/features/website_handoff/CLOSING_REPORT_6.md`. Tests: `frontend/src/app/components/axis/axis.test.tsx`, `backend/src/services/axisStats.test.ts`.
+
+- [ ] **Live counts:** hero regions and dots = `originRegions` (sellable coffees per region; regions with none absent; none at all = the hero full width); 03 wheel segments = `archetypes[].coffeeCount`, hollow = `experimentalCount`; 04 ends on "{n} Bloom Notes this month · {n} positions refined this quarter"; "Map last tightened {date}" (UTC calendar date). On a stats error the live lines hide.
+- [ ] **Focus param:** `/the-axis?archetype=floral` highlights Floral's band and list item and scrolls to 02 (profile links use it).
+- [ ] **Families:** five bands and list items in `sort_order`, each with its three words; hovering or focusing a list item opens its band.
+- [ ] **Liam copy:** "What Liam can and can't see" holds the live answer ("…he never invents a coffee. If he suggests a step, that step exists."), never a placeholder.
+- [ ] **Competitive safety:** no scale, dimension name, formula, weight, coffee name or roaster on the page; `/api/axis/stats` carries aggregates only.
+- [ ] **Accordions:** buttons (Enter/Space), `aria-expanded`, `aria-controls`.
+- [ ] **Reduced motion:** dots and wheel segments shown without animation.
+- [ ] **Prelaunch:** `/the-axis` stays behind the gate.
+- [ ] **The Bloom opening stop (B2):** with no saved position or deep link a family opens on its classic when sellable, else the nearest sellable stop (lower on a tie).
