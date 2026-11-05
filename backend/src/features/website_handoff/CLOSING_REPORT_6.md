@@ -157,7 +157,35 @@ No scale, dimension name, formula or weight appears.
 - `?archetype=floral` highlights only Floral, with 02 at the top of the viewport.
 - Enter on the focused Liam accordion button opens it.
 
-PROD_EVIDENCE
+**Production (2026-11-05):**
+- **Commit and deploy:** `91ad45c` pushed to `main`; Deploy run 42109582359 green (backend + frontend); Cloud Run revision `axis-bloom-backend-00826-kst` (us-central1).
+- **Startup log** (52 lines, two boots):
+  - 0 ERROR.
+  - `[data-catalog] report only: 155 tables, 78 views` (the new view included). The one new finding was check #4 "CATALOG.md stale", expected; `CATALOG.md` was regenerated from prod (`npm run catalog:md -- --expect-db axisandbloom`, catalog-hash `c1ae3c6d11d1…`) and committed after.
+  - The other findings are the same as on revisions `00823`–`00825`: data-catalog #6, evidence-integrity #2 / #6, quiz-integrity #10, sommelier-integrity #3.
+- **Live `GET /api/axis/stats`:** every earlier field, plus `originRegions: []` (OT-71: no sellable coffee has a region yet).
+- **Smoke:** headless Chromium against `https://axis-and-bloom-prod.web.app/the-axis?preview=true` (same build as www, without Cloudflare), signed out, 390 and 1280. Screenshots of the hero, 01, 02, 02 with `?archetype=floral`, 03, 04 and Start here at both widths. At both widths:
+  - no horizontal scroll, no page errors, no placeholder text;
+  - the hero is full width (no regions yet) with "Map last tightened October 25, 2026.";
+  - the bands are floral, fruity, balanced_sweet, chocolate_nutty, earthy, with the three words;
+  - the wheel reads "Floral: 2, Fruity: 8, Balanced: 4, Chocolate & Nutty: 5, Earthy: 3" (no Experimental today, so no hollow segments);
+  - 04 ends on "0 Bloom Notes this month · 13 positions refined this quarter";
+  - `?archetype=floral` highlights only Floral, with 02 scrolled to the top of the viewport;
+  - Enter on the focused "What Liam can and can't see" button opens it (`aria-expanded="true"`);
+  - digits in the rendered text: only the chapter numbers and the payload values listed above.
+- **Photos:** until the three uploads land, "The story" and "The cupping" both fall back to the same lifestyle photo (two crops of `coffee-15`), and Start here shows `lifestyle/family`.
+- **The Bloom opening stop (B2)**, prod, signed out, `/bloom?archetype=<family>` with no slot:
+
+  | Family | Opens on | Before |
+  |---|---|---|
+  | Floral | 1 · Delicate, Light Floral Edge (buyable) | 2, Coming soon |
+  | Fruity | 1 · Mellow, Clean Fruit (buyable) | 2, Coming soon |
+  | Balanced | 2 · Balanced, Classic Balanced (buyable) | same |
+  | Chocolate & Nutty | 2 · Classic, Coado (buyable) | same |
+  | Earthy | 2 · Earthy, Grounded & Earthy, Coming soon (nothing sellable, classic kept) | same |
+
+**Not checked:** a signed-in pass in a browser (Firebase Auth is shared with production; no test user was created). The page has no signed-in-only behaviour. For The Bloom, a saved position winning over the opening stop is covered by `bloom.test.tsx`.
+
 
 ## Open tasks
 
