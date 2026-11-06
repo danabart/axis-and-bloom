@@ -96,7 +96,17 @@ Read for Task 0: `DEVELOPMENT_GUARDRAILS.md` and `CLAUDE.md` (unchanged), the br
 - **The six results via `?result=`** as a recognized guest (unlocked), both widths: family, line, `/bloom?archetype=&slot=` href, Liam `/sign-in?redirect=/sommelier`, share row (0 for Experimental), "Turn the dial" lands on the field (top 84 px at 390, 109 px at 1280) with the stop label matching the hero, end row "Back to home →", no "%", no "Take the quiz", no horizontal scroll, no page errors. Test-DB lines, e.g. Floral "Bright · Fragrant · Delicate. Your place on the dial: stop 1 — Delicate — next to Light Floral Edge."; Earthy "Deep · Bold · Lasting. Your place on the dial: stop 2 — Earthy."; Experimental "Your place on the dial: stop 2 — Adventurous."
 - Two `POST /api/client-errors` per guest run: `[FlavorQuiz/prefill-profile]` and `[FlavorQuiz/dial-position-read]` for the anonymous Firebase user against the local backend; both paths predate 7B.
 
-**Production:** see the section below.
+**Production (2026-11-06):**
+- **Commit and deploy:** `a1dad4b` pushed to `main`; Deploy run 42270466729 green (backend + frontend); Cloud Run revision `axis-bloom-backend-00832-kz9` (us-central1).
+- **Startup log** (52 lines, two boots): 0 ERROR; `[data-catalog] report only: 155 tables, 78 views, 1415 columns; 1 of 6 checks with findings`. The findings are the same as on 7A's revision: data-catalog #6, evidence-integrity #2 / #6, quiz-integrity #10, sommelier-integrity #3. No schema change, so `CATALOG.md` was not regenerated.
+- **Bundle:** `https://axis-and-bloom-prod.web.app` serves `index-Brt4ppac.js`, which contains "Your place on the dial" and "family of taste" and none of the old typed copy ("Ethiopia Yirgacheffe", "You are drawn to coffees").
+- **Page smoke in Dana's Chrome** (the extension opened `/find-my-flavor` this time). The account is signed in with Liam access, so this is the signed-in full result:
+  - `?preview=true&result=chocolate`: "Your family of taste" / "Chocolate & Nutty." / "Full · Grounded · Comforting. Your place on the dial: stop 2 — Classic — next to Coado."; Ask Liam why → `/sommelier`; share row shown; no gate (member); no horizontal scroll.
+  - Turn the dial scrolls to the field (top 112 px): stop "2 · Classic", coffee "Coado", the comfort zone "From your quiz · At the edge of your comfort zone…", no "Take the quiz", end row "Your flavor profile → · Back to home →".
+  - The only "%" on the page is the field's quick pick "The Chocolate & Nutty Collection · 3 coffees · 10% off" (the offer's discount from data), not a match percentage.
+  - The other five: Floral "…stop 1 — Delicate — next to Light Floral Edge.", Fruity "…stop 1 — Mellow — next to Clean Fruit.", Balanced "…stop 4 — Lively.", Earthy "…stop 4 — Intense." (Balanced and Earthy open on this account's saved dial positions, as designed), Experimental "Your place on the dial: stop 2 — Adventurous." with no share row.
+  - A screenshot at desktop width was taken. The 390 width could not be set in Dana's window (the resize left `innerWidth` at 2195), so the 390 screenshots are the local ones above.
+- **Not done on prod:** a guest run to the gate. It needs a signed-out private window, and a real run writes production quiz rows; the guest path is covered by the local runs (same build, test DB). OT-90 is left for Dana's own signed-in look at a fresh quiz, including the comfort-zone wording.
 
 ## What the next brief needs
 

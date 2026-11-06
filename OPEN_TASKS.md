@@ -566,4 +566,4 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-11-06 | OT-87: the handoff's 7 question photos map by position onto the live quiz's 6 questions + the branch; Camila to confirm or swap per scene (same keys) (Website 7A) | Open |
 | 2026-11-06 | OT-88: the quiz result's "Your match" header line (`bloom/matchCopy.ts` `FAMILY_LINES`) is copy in code; a column or the customer words if Dana wants it editable (Website 7B kept it as the brief listed the header unchanged) | Open |
 | 2026-11-06 | OT-89: the result hero uses the per-family result photos (`quizResultAssets`); `quizSceneAssets.result` (`raw/quiz/scene-result.jpg`, the handoff's one Chocolate photo) is now only their fallback. Camila to say whether one photo for every family is wanted instead (Website 7B) | Open |
-| 2026-11-06 | OT-90: signed-in live check of the 7B result on prod (Dana's browser; the extension cannot open /find-my-flavor) (Website 7B) | Open |
+| 2026-11-06 | OT-90: a fresh guest run to the gate on prod (private window) and Dana's look at the result copy; the signed-in `?result=` previews were checked on prod in Dana's browser (Website 7B) | Open |
