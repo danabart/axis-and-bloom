@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-05 from database `axisandbloom` · 155 tables · 78 views · 1414 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `c1ae3c6d11d1` (full value in the footer).
+Generated 2026-11-06 from database `axisandbloom` · 155 tables · 78 views · 1415 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `64066c5b0054` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -2110,6 +2110,7 @@ Versioned (SCD Type 2) questions of each quiz, one row per question version.
 | `valid_from` | timestamp with time zone | no | UTC timestamp when this question version became current (SCD2); defaults to now. |
 | `valid_to` | timestamp with time zone | yes | UTC timestamp when this version was retired; NULL while current. |
 | `is_current` | boolean | no | True for the live version of the question, false once retired; CHECK ties it to valid_to being NULL. |
+| `image_asset_key` | text | yes | Asset-registry path of the photo behind this question's scene on Find my flavor (e.g. quiz/scene-q1; the original is raw/<key>.jpg in the asset bucket, the page resolves it with optimizedAsset); NULL shows the entry photo. Presentation, not answered content: additive on the SCD2 table (no new version), filled once while NULL by the seed and never edited in place (quiz_content_guard). Since 2026-11-06 (Website 7A). |
 
 #### `quiz_type`
 
@@ -4056,5 +4057,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: c1ae3c6d11d197d7c9d243b2491a557a0e29f8a087de9702efa743033829b7e9
-lineage-hash: 1146fa3ee5219070c3e36881a9707e14c04f1004f8b190d50afa831958c7dd68
+catalog-hash: 64066c5b0054f9942e3b059647b007d52714a85422efddb76d60ff9c01baa1d6
+lineage-hash: 992aa7c0233b98d94fcb85215565380ade3103c8821f7157d07cb8f2cde458c3

@@ -161,5 +161,18 @@ The media script's dry run reads 29 rows: the 20 earlier ones `same`, these 9 `m
 - **Screenshots:** entry, question and branch at both widths. The 390 progress bar was tightened after the first pass: on phones the bar no longer wraps, and "One more" shows only in the counter.
 - **Reduced motion:** with `prefers-reduced-motion: reduce`, the scene photo's animation is `none` at both widths.
 
-PROD_EVIDENCE
+**Production (2026-11-06):**
+- **Commit and deploy:** `baddcc6` pushed to `main`; Deploy run 42250474446 green (backend + frontend); Cloud Run revision `axis-bloom-backend-00829-hqt` (us-central1).
+- **Startup log** (54 lines, two boots):
+  - 0 ERROR.
+  - The schema, with the guard exemption and the key seed, applied without error. `[data-catalog] report only: 155 tables, 78 views, 1415 columns` (one column more).
+  - The one new finding was check #4 "CATALOG.md stale", expected; `CATALOG.md` was regenerated from prod (`npm run catalog:md -- --expect-db axisandbloom`, catalog-hash `64066c5b0054…`) and committed after.
+  - All other findings are the same as on the earlier revisions: data-catalog #6, evidence-integrity #2 / #6, quiz-integrity #10, sommelier-integrity #3.
+- **Live `GET /api/quiz/questions`:** six questions, `image_asset_key` `quiz/scene-q1` … `quiz/scene-q6`, 3 answers each. The prod seed ran.
+- **Page smoke on prod: not done.** Both routes to a browser were closed:
+  - Headless Chromium is redirected to www by `VITE_CANONICAL_HOST` and gets Cloudflare's "Just a moment…" challenge; it was not bypassed.
+  - In Dana's Chrome, the Claude extension fails on `/find-my-flavor` with "Cannot access a chrome-extension:// URL of different extension" (scripts and screenshots, three tries), the same conflict as on Home.
+  - So the 390/1280 screenshots, the keyboard-only run and the funnel ids come from the local acceptance above (the same build, against the test DB), and **Dana is asked to look at `/find-my-flavor?preview=true` in a private window** (entry, a question, the branch) and once signed in (the returning-user scene).
+  - No anonymous run was made on prod, so no prod `quiz_session` or funnel rows were written by this brief.
+
 
