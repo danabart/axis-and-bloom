@@ -144,3 +144,36 @@ Setup: local backend on `axisandbloom_test` (`DATABASE_URL=$TEST_DATABASE_URL np
 - `tsc --noEmit`: only the 7 known errors.
 - `vite build` clean.
 - `lint:catalog`, `lint:retention`, `lint:customer`, `lint:roastery-portal`, `lint:cupping` and `lint:lineage` all exit 0.
+
+## Deploy and production — 2026-11-06
+
+- **Commit and deploy.** `c3b534e` was pushed. Deploy run 42285277230 is green (backend and frontend), and Cloud Run is on revision `axis-bloom-backend-00834-fxp`.
+- **Startup log.** 0 ERROR lines. Only the known findings, the same set as the 7B deploy: `[data-catalog]` report only (1 of 6 checks, dead-table candidates), `[sommelier-integrity]` #3, `[evidence-integrity]` #2 and #6, `[quiz-integrity]` #10. No schema change, so `CATALOG.md` was not regenerated.
+- **Where the smoke could run.**
+  - Headless: `axis-and-bloom-prod.web.app` now redirects to www, and www shows Cloudflare's bot check to headless browsers. I didn't try to get past it.
+  - A local Vite proxied to the prod API also gets 403 from Cloudflare.
+  - So production was checked in Dana's Chrome, signed in as admin. Her window is 2195 CSS px, and resizing it doesn't change the page width. The site refuses to be framed, so a 390 or 1280 iframe isn't possible either. Her width uses the same desktop layout as 1280 (one breakpoint, at 900 px). **The 390 and 1280 shots are the local test-DB run above.**
+- **`/sign-in?mode=signin&redirect=/checkout`:**
+  - Sign in is selected; "Welcome back."; "Forgot your password?" is there.
+  - "Continue with Google" and "Continue with Apple" are there.
+  - The side panel reads "Six questions about moments, reactions and familiar foods…" and the Bloom link shows (Dana's preview session).
+  - The old photo panel is gone, and there is no horizontal scroll.
+- **`/cart`, empty:** "Nothing yet.", the empty paragraph, "Turn the dial" and "Continue shopping".
+- **`/cart` with lines.** I took "Continue shopping", added "Quieta Non Movere" and "Add the collection" on `/shop`, then clicked the header's `Cart (2)`.
+  - The drawer is closed.
+  - "Two things, so far."
+  - Line 1: "CHOCOLATE & NUTTY · 12 OZ WHOLE BEAN | Quieta Non Movere | $29.00".
+  - Line 2: "THE COLLECTION · 3 COFFEES | The Chocolate & Nutty Collection | ~~$90.00~~ $81.00".
+  - Subtotal $110.00, "Free shipping $0.00", "Estimated total $110.00", the subscribe choice, and Checkout (signed in).
+  - No roasting, delivery or "calculated at checkout" text.
+  - Stepper: + gives "Three things, so far." and $139.00; − goes back to "Two things"; the header reads `Cart (2)`.
+- **`/cart` → `/checkout`.** I removed the Collection, which gave "One thing, so far.", "Shipping · free with 2 bags $5.95" and "Estimated total $34.95". Checkout then opened `/checkout` with:
+  - the total "Estimated total $34.95";
+  - Ships to: both saved addresses on the new styles;
+  - the Stripe embed showing **TEST MODE**, "Quieta Non Movere $34.95".
+- **Screenshots** (Dana's Chrome): `C:\Users\DanaB\AppData\Local\Temp\claude-chrome-screenshots-fkvu95\screenshot-1793996054984-1.jpg` (`/cart`) and `…\screenshot-1793996075644-2.jpg` (`/checkout`). Local 390/1280 shots are in the session scratchpad `shots8\local-*.png`.
+- **Payment.** Completing the payment means typing a card into Stripe's form on the live site. That is outside what Claude may enter, even Stripe's published test card, because the exception covers local hosts only. So the run stopped at the Stripe form and handed the payment to Dana; see "Checkout completion" below.
+
+## Checkout completion
+
+Pending: Dana pays in test mode in the open `/checkout` tab, then the return page is checked.
