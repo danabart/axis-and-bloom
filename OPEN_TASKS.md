@@ -428,7 +428,7 @@ One cart can resolve to SKUs from several roasteries (dial slots fall back acros
 
 ### OT-77 / OT-78: Shop all follow-ups (Website 4, 2026-11-05)
 
-- **OT-77 Per-coffee photos.** Shop cards show their family photo (`shopAssets.family.*`) until a coffee has its own. Camila supplies one per coffee: upload it under `raw/shop/coffee/<name>.jpg`, then enter `shop/coffee/<name>` as the coffee's photo key (admin Coffees → Edit → Customer card).
+- **OT-77 Per-coffee photos.** Shop cards show their family photo (`shopAssets.family.*`) until a coffee has its own. Camila supplies one per coffee: upload it under `raw/shop/coffee/<name>.jpg`, then enter `shop/coffee/<name>` as the coffee's photo key (admin Coffees → Edit → Customer card). Since 2026-11-06 the upload is scripted: add a row to `backend/src/features/website_handoff/MEDIA_MAP.json` and run `npx tsx scripts/upload-handoff-media.ts` (dry run, then `--write`, then `--verify`); the same goes for the quiz photos once 7A adds their rows.
 - **OT-78 `/flavor-intelligence` chrome.** The "Full profile ↗" target has only the new tokens and chrome; the page itself waits for a design (D1).
 
 ### OT-74 / OT-75 / OT-76: homepage follow-ups (Website 3, 2026-11-05)

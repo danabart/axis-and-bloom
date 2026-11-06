@@ -187,6 +187,9 @@ No scale, dimension name, formula or weight appears.
 **Not checked:** a signed-in pass in a browser (Firebase Auth is shared with production; no test user was created). The page has no signed-in-only behaviour. For The Bloom, a saved position winning over the opening stop is covered by `bloom.test.tsx`.
 
 
+
+**Correction (2026-11-06, media upload brief):** the smoke above did not run "without Cloudflare". `VITE_CANONICAL_HOST=www.axisandbloomcoffee.com` (Checkout UX 1, #247) redirects every page of `axis-and-bloom-prod.web.app` to www in the browser, so the headless run was served by www after Cloudflare's check let it through. The results stand (same build, same pages); only the description of the origin was wrong. On 2026-11-06 Cloudflare challenged the headless browser instead, so headless smokes of www are not reliable.
+
 ## Open tasks
 
 - **OT-84:** archetype descriptions rewrite before 7B.

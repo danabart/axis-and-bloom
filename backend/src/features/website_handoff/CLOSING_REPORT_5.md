@@ -198,6 +198,9 @@ Same results at both widths:
 - "Save to flavor memory" also shows signed out. The site gives every visitor an anonymous Firebase identity, and the old dial's rule was `user && real slot`; kept as is.
 
 
+
+**Correction (2026-11-06, media upload brief):** the smoke above did not run "without Cloudflare". `VITE_CANONICAL_HOST=www.axisandbloomcoffee.com` (Checkout UX 1, #247) redirects every page of `axis-and-bloom-prod.web.app` to www in the browser, so the headless run was served by www after Cloudflare's check let it through. The results stand (same build, same pages); only the description of the origin was wrong. On 2026-11-06 Cloudflare challenged the headless browser instead, so headless smokes of www are not reliable.
+
 ## What the next brief needs
 
 - **7B (quiz result) and a later Profile brief** move their surfaces to `layout="field"` or a compact variant of it. After that, OT-79 removes `BloomDial.tsx` and the `dial` layout.

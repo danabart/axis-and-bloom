@@ -1,0 +1,26 @@
+{
+  "_comment": "Handoff media → bucket paths. Source paths are relative to misc/design_documents/website/axis-and-bloom-handoff/source/. Each page brief appends its rows; upload with backend/scripts/upload-handoff-media.ts. Never edit a row's target once uploaded; add a new one.",
+  "bucket": "axis-bloom-assets",
+  "rows": [
+    { "source": "homepage-data/media/photo-floral.jpg",        "target": "raw/home/family-floral.jpg",          "brief": 3 },
+    { "source": "homepage-data/media/photo-fruity.jpg",        "target": "raw/home/family-fruity.jpg",          "brief": 3 },
+    { "source": "homepage-data/media/photo-balanced.jpg",      "target": "raw/home/family-balanced-sweet.jpg",  "brief": 3 },
+    { "source": "homepage-data/media/photo-chocolatenutty.jpg","target": "raw/home/family-chocolate-nutty.jpg", "brief": 3 },
+    { "source": "homepage-data/media/photo-earthy.jpg",        "target": "raw/home/family-spicy-earthy.jpg",    "brief": 3 },
+    { "source": "homepage-data/media/axis-quiz.jpg",           "target": "raw/home/axis-quiz.jpg",              "brief": 3 },
+    { "source": "homepage-data/media/axis-cupping.jpg",        "target": "raw/home/axis-cupping.jpg",           "brief": 3 },
+    { "source": "homepage-data/media/pour.jpg",                "target": "raw/home/pour.jpg",                   "brief": 3 },
+    { "source": "homepage-data/media/window.jpg",              "target": "raw/home/window.jpg",                 "brief": 3 },
+    { "source": "homepage-data/media/hero-poster.jpg",         "target": "raw/home/hero-poster.jpg",            "brief": 3 },
+    { "source": "homepage-data/media/hero-loop.mp4",           "target": "raw/video/home-loop.mp4",             "brief": 3 },
+    { "source": "shop/media/shop-DSC_3886.jpg",                "target": "raw/shop/family-floral.jpg",          "brief": 4 },
+    { "source": "shop/media/shop-DSC_3942.jpg",                "target": "raw/shop/family-fruity.jpg",          "brief": 4 },
+    { "source": "shop/media/shop-IMG_0589.jpg",                "target": "raw/shop/family-balanced-sweet.jpg",  "brief": 4 },
+    { "source": "shop/media/shop-DSC_3988.jpg",                "target": "raw/shop/family-chocolate-nutty.jpg", "brief": 4 },
+    { "source": "shop/media/shop-IMG_0489.jpg",                "target": "raw/shop/family-spicy-earthy.jpg",    "brief": 4 },
+    { "source": "shop/media/shop-IMG_0726.jpg",                "target": "raw/shop/other.jpg",                  "brief": 4 },
+    { "source": "axis/media/axis-story.jpg",                   "target": "raw/axis/axis-story.jpg",             "brief": 6 },
+    { "source": "axis/media/axis-bowl.jpg",                    "target": "raw/axis/axis-bowl.jpg",              "brief": 6 },
+    { "source": "axis/media/axis-start.jpg",                   "target": "raw/axis/axis-start.jpg",             "brief": 6 }
+  ]
+}

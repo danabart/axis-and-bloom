@@ -6463,6 +6463,29 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_6_THE_AXI
 
 ---
 
+### 257. Website media upload: the handoff photos and film into the asset bucket (2026-11-06)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_MEDIA_UPLOAD.md`; full record (Task 0, dry-run and verify tables, live check) `backend/src/features/website_handoff/CLOSING_REPORT_MEDIA_UPLOAD.md`.
+
+**Files:**
+- New `backend/scripts/upload-handoff-media.ts` (`npx tsx`).
+  - `--dry-run` (default) prints source, size, md5, target, bucket state (`missing` / `same` / `different`) and action.
+  - `--write` uploads `missing` rows with the registry's content type and `cache-control: public, max-age=300`, skips `same`, and refuses `different` unless `--replace`.
+  - `--verify` waits up to 3 minutes for the optimizer's `optimized/<p>.webp` + `-mobile.webp` (written after the raw object), checks the raw-served objects, and fetches every public URL.
+  - Credentials: the gitignored `serviceAccountKey.json` (Firebase Admin SDK account) through `firebase-admin/storage`. The file is saved with a byte-order mark, which the storage library's own `keyFilename` reader rejects, so the script reads it into memory. It prints only the account email.
+- `backend/src/features/website_handoff/MEDIA_MAP.json` committed (20 rows from briefs 3, 4 and 6).
+
+**What it did:** on 2026-11-06, after Dana's go on the dry-run table, the script uploaded 20 objects to `gs://axis-bloom-assets`:
+- Home: 10 photos, plus the film `raw/video/home-loop.mp4`.
+- Shop: 6 photos.
+- The Axis: 3 photos.
+
+Nothing was renamed, replaced or deleted. `--verify` found 58/58 objects at HTTP 200 (20 raw objects and 19 WebP pairs; the MP4 is served raw).
+
+**Verified:** see the closing report. Live in Dana's browser: The Axis's three photos and all 20 Shop cards load from the new objects. Home could not be scripted through the browser extension (the "different extension" error); its 11 objects are verified in the bucket, and the page reads exactly those keys.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
