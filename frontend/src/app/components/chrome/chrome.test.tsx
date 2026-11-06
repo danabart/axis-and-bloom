@@ -66,14 +66,25 @@ describe('Navigation', () => {
     expect(inHeader('Admin')?.getAttribute('href')).toBe('/admin');
   });
 
-  it('shows Cart (3) for a cart of 3 and opens the drawer', () => {
+  // Website 8: CART_PAGE_ROUTE_EXISTS is true — "Cart (n)" links /cart, the icon beside it opens the drawer (D3).
+  it('shows Cart (3) for a cart of 3, links /cart, and the icon opens the drawer', () => {
     cart.cart = [{ qty: 2 }, { qty: 1 }];
     renderAt(<Navigation />);
     const c = inHeader(/^Cart/)!;
     expect(c.textContent).toBe('Cart (3)');
     expect(c.getAttribute('aria-label')).toBe('Cart, 3 items');
-    fireEvent.click(c);
+    expect(c.getAttribute('href')).toBe('/cart');
+    expect(cart.toggleCartOpen).not.toHaveBeenCalled();
+    fireEvent.click(header().querySelector('[aria-label="Open cart drawer"]')!);
     expect(cart.toggleCartOpen).toHaveBeenCalledTimes(1);
+    const menuCart = Array.from(document.querySelectorAll('#siteMenu a')).find(a => /^Cart/.test(a.textContent ?? ''));
+    expect(menuCart?.getAttribute('href')).toBe('/cart');
+  });
+
+  it('links the footer Cart to /cart', () => {
+    renderAt(<Footer />);
+    const f = Array.from(document.querySelectorAll('footer a')).find(a => a.textContent === 'Cart');
+    expect(f?.getAttribute('href')).toBe('/cart');
   });
 
   it('renders nothing cart-related, no admin and only the gated menu set while gated', () => {

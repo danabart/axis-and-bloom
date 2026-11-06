@@ -16,9 +16,9 @@ import './chrome/chrome.css';
  * back on the Menu button, close on route change.
  */
 
-/** Flipped to true by Website 8 when the /cart route lands. Until then
- * "Cart (n)" opens the drawer (D3: the drawer stays either way). */
-export const CART_PAGE_ROUTE_EXISTS = false;
+/** Flipped to true by Website 8 (2026-11-06): the /cart route has landed. Before that
+ * "Cart (n)" opened the drawer; now it links /cart and the icon beside it opens the drawer (D3). */
+export const CART_PAGE_ROUTE_EXISTS = true;
 const CART_PAGE_ROUTE = '/cart';
 
 /** The four numbered menu items (D2). */

@@ -5,6 +5,8 @@ import { getCheckoutSessionStatus, type CheckoutSessionStatus } from '../../lib/
 import { reportError } from '../../lib/errorReporter';
 import { formatPrice } from '../bloom/types';
 import { formatCalendarDate } from '../../lib/calendarDate';
+import { Wrap, Titled, Caps } from '../chrome';
+import '../bloom/cartPage.css';
 
 // Commerce 1, C3 (2026-10-31) — /checkout/return, where Stripe sends the
 // customer after paying. The page reads our own tables only
@@ -55,27 +57,28 @@ export default function CheckoutReturnPage() {
   const s = order?.shipsTo;
 
   return (
-    <div className="w-full min-h-screen bg-[#f2f1ea] px-4 md:px-10 py-16 md:py-24">
-      <div className="max-w-xl mx-auto flex flex-col gap-8">
+    // Website 8 Part C: the site tokens and chrome primitives; the polling and the clear are unchanged.
+    <div className="cp-page w-full min-h-screen">
+      <Wrap className="flex flex-col gap-8" style={{ maxWidth: 640, paddingBlock: 'clamp(48px, 7vw, 96px)' }}>
         {complete && order ? (
           <>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60">Order confirmed</p>
-            <h1 className="text-2xl md:text-3xl leading-snug text-[#9a2918]">{status?.orderPlacedLine || FALLBACK_LINE}</h1>
-            <div className="flex flex-col gap-2 bg-white/60 border border-[#a33726]/15 p-5">
+            <Titled style={{ alignSelf: 'flex-start' }}>Order confirmed</Titled>
+            <h1 className="cp-ah" style={{ maxWidth: 'none', fontSize: 'clamp(28px, 3.2vw, 44px)', lineHeight: 1.1 }}>{status?.orderPlacedLine || FALLBACK_LINE}</h1>
+            <div className="cp-panel" style={{ gap: 8 }}>
               {order.lines.map((l, i) => (
-                <p key={i} className="text-sm" style={{ color: '#4a4035' }}>
+                <p key={i} className="text-sm">
                   {l.quantity} × {l.displayName ?? 'Coffee'}{l.weightOz ? ` · ${l.weightOz} oz` : ''}
                 </p>
               ))}
-              <div className="border-t border-[#e0dcd4] mt-2 pt-3 text-sm flex justify-between" style={{ color: '#4a4035' }}>
+              <div className="mt-2 pt-3 text-sm flex justify-between" style={{ borderTop: '1px solid var(--ab-ink-hairline)' }}>
                 <span>Total paid</span><span>{formatPrice(order.totalCents)}</span>
               </div>
             </div>
             {status?.subscription && (
-              <div className="flex flex-col gap-1 p-5" style={{ backgroundColor: '#f7efe9', border: '1px solid #e6c9bf' }} data-testid="return-subscription">
-                <p className="text-sm" style={{ color: '#4a4035' }}>Your first bag is on its way to being roasted.</p>
+              <div className="flex flex-col gap-1 p-5" style={{ backgroundColor: 'var(--ab-paper)' }} data-testid="return-subscription">
+                <p className="text-sm">Your first bag is on its way to being roasted.</p>
                 {status.subscription.nextDeliveryDate && (
-                  <p className="text-sm" style={{ color: '#4a4035' }}>
+                  <p className="text-sm">
                     Next delivery {formatCalendarDate(status.subscription.nextDeliveryDate)}, every {status.subscription.frequencyWeeks} weeks.
                   </p>
                 )}
@@ -83,24 +86,24 @@ export default function CheckoutReturnPage() {
             )}
             {s && (
               <div>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 mb-2">Ships to</p>
-                <p className="text-sm text-[#a33726]">{s.street}</p>
-                <p className="text-sm text-[#a33726]/70">{s.city}, {s.state} {s.postalCode}</p>
+                <Caps as="p" weight={400} style={{ marginBottom: 8 }}>Ships to</Caps>
+                <p className="text-sm">{s.street}</p>
+                <p className="text-sm" style={{ opacity: 0.8 }}>{s.city}, {s.state} {s.postalCode}</p>
               </div>
             )}
-            <p className="text-sm text-[#a33726]/80">We'll email you when it ships.</p>
-            <Link to="/profile?tab=orders" className="text-[10px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 w-fit hover:border-[#a33726]">
+            <p className="text-sm">We'll email you when it ships.</p>
+            <Link to="/profile?tab=orders" className="ab-caps cp-ulink" style={{ fontWeight: 600, alignSelf: 'flex-start' }}>
               See your orders
             </Link>
           </>
         ) : timedOut ? (
-          <p className="text-lg text-[#a33726]/80 leading-relaxed">
+          <p className="cp-ap" style={{ maxWidth: '48ch' }}>
             Almost there, we're confirming your payment. You'll get an email the moment it's done.
           </p>
         ) : (
-          <p className="text-sm uppercase tracking-widest text-[#a33726]/60">Confirming your payment…</p>
+          <Caps as="p" weight={400} role="status">Confirming your payment…</Caps>
         )}
-      </div>
+      </Wrap>
     </div>
   );
 }

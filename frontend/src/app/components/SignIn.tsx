@@ -1,15 +1,52 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router';
-import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { reportError } from '../lib/errorReporter';
+import { getHomeContent } from '../lib/api';
+import { usePrelaunchGated } from '../lib/prelaunch';
+import { Wrap, Caps, Titled, Btn } from './chrome';
+import { numberWord } from './bloom/useDialSlot';
+import './bloom/cartPage.css';
+
+// Website 8 (2026-11-06) — the handoff's sign-in page (source/account/build.py,
+// D8), with everything this page already did kept inside it: the Create
+// profile / Sign in tabs (`?mode=signin`), first and last name on create,
+// Google and Apple, the reset flow and its sent state, `?redirect=` on every
+// path, the `?quiz_id` back link, the error line. The side panel's question
+// count is GET /api/home/content `facts.questions` (D15).
+// backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_8_SIGN_IN_AND_CART.md
+
+type Tab = 'create' | 'signin';
+
+const TABS: { id: Tab; label: string; title: string; lead: string; submit: string }[] = [
+  {
+    id: 'create', label: 'Create profile', title: 'Begin your profile.', submit: 'Save my taste profile',
+    lead: 'Save your family of taste and your place on the dial, and every bag you add finds its way back to you.',
+  },
+  {
+    id: 'signin', label: 'Sign in', title: 'Welcome back.', submit: 'Sign in',
+    lead: 'Your family of taste, your place on the dial and every bag you’ve told us about are waiting.',
+  },
+];
+
+/** Firebase error codes in the page's own words. */
+export function friendlyError(msg: string): string {
+  if (msg.includes('wrong-password') || msg.includes('invalid-credential'))
+    return 'Wrong password. Try "Forgot your password?" below, or sign in with Google if you created your account that way.';
+  if (msg.includes('user-not-found'))
+    return 'No account found with that email. Use "Create profile" to sign up.';
+  if (msg.includes('email-already-in-use'))
+    return 'An account with this email already exists. Switch to "Sign in".';
+  if (msg.includes('weak-password'))
+    return 'Password must be at least 6 characters.';
+  return msg;
+}
 
 export default function SignIn() {
   const [searchParams] = useSearchParams();
   // bag_qr (2026-10-05) — `?mode=signin` preselects the Sign In tab (the QR
   // two-door page's "I have a profile" door). Default stays 'create'.
-  const [activeTab, setActiveTab] = useState<'create' | 'signin'>(
+  const [activeTab, setActiveTab] = useState<Tab>(
     searchParams.get('mode') === 'signin' ? 'signin' : 'create'
   );
   const [email, setEmail] = useState('');
@@ -19,11 +56,18 @@ export default function SignIn() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [resetSent, setResetSent] = useState(false);
+  const [questions, setQuestions] = useState<number | null>(null);
   const navigate = useNavigate();
   const { signIn, signUp, signInWithGoogle, signInWithApple } = useAuth();
   const fromQuiz = searchParams.get('quiz_id');
+  // /sign-in is open while gated; The Bloom is not, so its link waits for launch (no door we won't open).
+  const gated = usePrelaunchGated();
 
   const redirectTo = searchParams.get('redirect') ?? '/profile';
+
+  useEffect(() => {
+    getHomeContent().then(c => setQuestions(c.facts.questions)).catch(err => reportError('[SignIn/facts]', err));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,19 +105,6 @@ export default function SignIn() {
     }
   };
 
-  // Map Firebase error codes to friendlier messages
-  function friendlyError(msg: string): string {
-    if (msg.includes('wrong-password') || msg.includes('invalid-credential'))
-      return 'Wrong password. Try "Forgot password?" below, or sign in with Google if you created your account that way.';
-    if (msg.includes('user-not-found'))
-      return 'No account found with that email. Use "Create Profile" to sign up.';
-    if (msg.includes('email-already-in-use'))
-      return 'An account with this email already exists. Switch to "Sign In".';
-    if (msg.includes('weak-password'))
-      return 'Password must be at least 6 characters.';
-    return msg;
-  }
-
   const handleGoogle = async () => {
     try {
       await signInWithGoogle();
@@ -94,135 +125,96 @@ export default function SignIn() {
     }
   };
 
+  const tab = TABS.find(t => t.id === activeTab)!;
+  const disabled = isLoading || !email || !password;
+
   return (
-    <div className="w-full h-screen bg-[#f2f1ea] flex overflow-hidden">
-      <div className="hidden lg:flex w-1/2 bg-[#1a1a1a] relative flex-col justify-center items-center overflow-hidden">
-        <div className="absolute inset-0 bg-[url('https://i.imgur.com/NQRCzNU.jpeg')] bg-cover bg-center" />
-      </div>
-
-      <div className="w-full lg:w-1/2 flex flex-col justify-center items-center p-8 md:p-16 lg:p-24 relative z-10 overflow-y-auto">
-        {fromQuiz && (
-          <div className="absolute top-12 left-12">
-            <Link to="/find-my-flavor" className="flex items-center gap-3 text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 hover:text-[#ee5974] transition-colors">
-              <ArrowLeft size={14} /> Back to results
+    <div className="cp-page" data-testid="sign-in-page">
+      <Wrap className="cp-acct">
+        <div className="cp-col">
+          {fromQuiz && (
+            <Link to="/find-my-flavor" className="ab-caps cp-ulink" style={{ fontWeight: 400, alignSelf: 'flex-start' }} data-testid="back-to-results">
+              ← Back to results
             </Link>
-          </div>
-        )}
+          )}
 
-        <div className="w-full max-w-[400px] flex flex-col items-start mt-12 lg:mt-0">
-          <div className="mb-12">
-            <h2 className="text-[3rem] lg:text-[3.5rem] text-[#ee5974] leading-[1.05] mb-4 font-normal tracking-tight">Trust your taste.</h2>
-            <p className="text-lg text-[#a33726]/80 tracking-wide font-light">Sign in to save your flavor memory, re-order your favorites, and explore exact matches.</p>
-          </div>
-
-          <div className="flex w-full mb-12 border-b border-[#a33726]/20 relative">
-            {(['create', 'signin'] as const).map((tab) => (
+          <div className="cp-tabs" role="tablist" aria-label="Sign in or create a profile">
+            {TABS.map(t => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 pb-4 text-[11px] uppercase tracking-[0.2em] font-normal transition-colors ${activeTab === tab ? 'text-[#a33726]' : 'text-[#a33726]/40 hover:text-[#a33726]/70'}`}
+                key={t.id}
+                type="button"
+                role="tab"
+                id={`tab-${t.id}`}
+                aria-selected={activeTab === t.id}
+                aria-controls="sign-in-panel"
+                className="ab-caps cp-tab"
+                onClick={() => setActiveTab(t.id)}
               >
-                {tab === 'create' ? 'Create Profile' : 'Sign In'}
+                {t.label}
               </button>
             ))}
-            <motion.div
-              className="absolute bottom-0 h-[1px] bg-[#a33726]"
-              initial={false}
-              animate={{ left: activeTab === 'create' ? '0%' : '50%', width: '50%' }}
-              transition={{ duration: 0.3, ease: 'easeInOut' }}
-            />
           </div>
 
-          {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
-          {resetSent && <p className="text-sm text-green-700 mb-4">Password reset email sent — check your inbox (and spam folder).</p>}
+          <h1 className="cp-ah">{tab.title}</h1>
+          <p className="cp-ap">{tab.lead}</p>
 
-          <AnimatePresence mode="wait">
-            <motion.form
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.4, ease: 'easeOut' }}
-              onSubmit={handleSubmit}
-              className="w-full flex flex-col gap-8"
-            >
-              {activeTab === 'create' && (
-                <div className="flex gap-4">
-                  <input
-                    type="text"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="First name"
-                    className="w-full text-left text-[1.25rem] tracking-wide transition-all duration-500 py-3 rounded-none border-b-[1px] border-[#a33726]/30 bg-transparent focus:outline-none focus:border-[#ee5974] text-[#a33726] placeholder-[#a33726]/40"
-                  />
-                  <input
-                    type="text"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Last name"
-                    className="w-full text-left text-[1.25rem] tracking-wide transition-all duration-500 py-3 rounded-none border-b-[1px] border-[#a33726]/30 bg-transparent focus:outline-none focus:border-[#ee5974] text-[#a33726] placeholder-[#a33726]/40"
-                  />
+          <form className="cp-form" id="sign-in-panel" role="tabpanel" aria-labelledby={`tab-${activeTab}`} onSubmit={handleSubmit}>
+            {activeTab === 'create' && (
+              <div className="cp-names">
+                <div className="cp-fld">
+                  <label htmlFor="si-first" className="ab-caps" style={{ fontWeight: 600 }}>First name</label>
+                  <input id="si-first" type="text" value={firstName} onChange={e => setFirstName(e.target.value)} autoComplete="given-name" />
                 </div>
+                <div className="cp-fld">
+                  <label htmlFor="si-last" className="ab-caps" style={{ fontWeight: 600 }}>Last name</label>
+                  <input id="si-last" type="text" value={lastName} onChange={e => setLastName(e.target.value)} autoComplete="family-name" />
+                </div>
+              </div>
+            )}
+            <div className="cp-fld">
+              <label htmlFor="si-email" className="ab-caps" style={{ fontWeight: 600 }}>Email</label>
+              <input id="si-email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" autoComplete="email" required />
+            </div>
+            <div className="cp-fld">
+              <label htmlFor="si-password" className="ab-caps" style={{ fontWeight: 600 }}>Password</label>
+              <input
+                id="si-password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
+                autoComplete={activeTab === 'create' ? 'new-password' : 'current-password'} required
+              />
+            </div>
+
+            {error && <Caps as="p" weight={400} role="alert" className="cp-note" data-testid="sign-in-error">{error}</Caps>}
+            {resetSent && <Caps as="p" weight={400} role="status" className="cp-note" data-testid="reset-sent">Password reset email sent. Check your inbox (and spam folder).</Caps>}
+
+            <div className="cp-frow">
+              <Btn type="submit" disabled={disabled} data-testid="sign-in-submit">
+                {isLoading ? 'One moment…' : tab.submit}
+              </Btn>
+              {activeTab === 'signin' && (
+                <button type="button" className="ab-caps cp-ulink" style={{ fontWeight: 400 }} onClick={handleForgotPassword}>
+                  Forgot your password?
+                </button>
               )}
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email address"
-                className="w-full text-left text-[1.25rem] tracking-wide transition-all duration-500 py-3 rounded-none border-b-[1px] border-[#a33726]/30 bg-transparent focus:outline-none focus:border-[#ee5974] text-[#a33726] placeholder-[#a33726]/40"
-                required
-              />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                className="w-full text-left text-[1.25rem] tracking-wide transition-all duration-500 py-3 rounded-none border-b-[1px] border-[#a33726]/30 bg-transparent focus:outline-none focus:border-[#ee5974] text-[#a33726] placeholder-[#a33726]/40"
-                required
-              />
+            </div>
+          </form>
 
-              <div className="flex flex-row items-center justify-between w-full mt-4">
-                <button
-                  type="submit"
-                  disabled={isLoading || !email || !password}
-                  className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all duration-500 pb-1 border-b ${(isLoading || !email || !password) ? 'text-[#a33726] opacity-30 border-transparent cursor-not-allowed' : 'text-[#a33726] border-[#a33726]/40 hover:border-[#ee5974] hover:text-[#ee5974]'}`}
-                >
-                  {isLoading ? 'Processing...' : (activeTab === 'create' ? 'Save my taste profile' : 'Sign In')}
-                </button>
-                {activeTab === 'signin' && (
-                  <button
-                    type="button"
-                    onClick={handleForgotPassword}
-                    className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors"
-                  >
-                    Forgot password?
-                  </button>
-                )}
-              </div>
-
-              <div className="mt-12 flex flex-col gap-4">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="h-[1px] flex-1 bg-[#a33726]/10" />
-                  <span className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 font-normal">Or continue with</span>
-                  <div className="h-[1px] flex-1 bg-[#a33726]/10" />
-                </div>
-                <button type="button" onClick={handleGoogle} className="w-full flex items-center justify-center gap-3 py-4 border border-[#a33726]/20 bg-white/50 hover:bg-white/80 transition-colors text-[11px] uppercase tracking-[0.1em] text-[#a33726] font-normal">
-                  <svg viewBox="0 0 24 24" width="16" height="16" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                  </svg>
-                  Google
-                </button>
-                <button type="button" onClick={handleApple} className="w-full flex items-center justify-center gap-3 py-4 border border-[#a33726]/20 bg-white/50 hover:bg-white/80 transition-colors text-[11px] uppercase tracking-[0.1em] text-[#a33726] font-normal">
-                  Apple
-                </button>
-              </div>
-            </motion.form>
-          </AnimatePresence>
+          <div className="cp-providers">
+            <Btn onClick={handleGoogle} icon={false}>Continue with Google</Btn>
+            <Btn onClick={handleApple} icon={false}>Continue with Apple</Btn>
+          </div>
         </div>
-      </div>
+
+        <aside className="cp-side" aria-label="New here?">
+          <Titled style={{ alignSelf: 'flex-start' }}>New here?</Titled>
+          <span className="cp-big" data-testid="sign-in-side-line">
+            {questions != null ? `${numberWord(questions)} questions` : 'A few questions'} about moments, reactions and familiar foods. About three minutes, and your coffee has a place.
+          </span>
+          <div className="cp-frow" style={{ marginTop: 6 }}>
+            <Btn to="/find-my-flavor">Begin my profile</Btn>
+            {!gated && <Link to="/bloom" className="ab-caps cp-ulink" style={{ fontWeight: 600 }}>Or turn the dial first ↗</Link>}
+          </div>
+        </aside>
+      </Wrap>
     </div>
   );
 }

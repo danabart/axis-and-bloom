@@ -3,9 +3,14 @@ import type { CartItem } from './types';
 import { formatPrice, formatWeight } from './types';
 import { getCheckoutRules, quoteCheckout, type CartQuote, type CheckoutRules, type SubscriptionChoice } from '../../lib/api';
 import { useCart, toCheckoutItems } from '../../context/CartContext';
+import { Caps } from '../chrome';
+import { Photo } from '../home/Photo';
+import { familyLookOf } from '../shop/ShopCoffeeCard';
+import './cartPage.css';
 
 // Commerce 1, C1/C2 (2026-10-31) — the cart's line list, extracted from
 // FloatingCart so /checkout shows the same lines without a second copy.
+// Website 8 (2026-11-06) — /cart uses the same pieces (variant="page").
 
 /** Bags in the cart: one per unit of every line, a collection counts each member (same rule as the server's cartResolver). */
 export function cartBagCount(items: CartItem[]): number {
@@ -15,6 +20,10 @@ export function cartBagCount(items: CartItem[]): number {
 export function cartSubtotalCents(items: CartItem[]): number {
   return items.reduce((sum, i) => sum + i.retailPriceCents * i.qty, 0);
 }
+
+// Website 8 (D1): the site tokens, not typed hex colours. Shared by the drawer, /cart and /checkout.
+const INK = { color: 'var(--ab-ink)' } as const;
+const MUTED = { color: 'var(--ab-ink)', opacity: 0.72 } as const;
 
 let rulesPromise: Promise<CheckoutRules> | null = null;
 /** GET /api/checkout/rules, fetched once per page load: the shipping numbers come from commerce_parameter, never from here. */
@@ -34,15 +43,15 @@ export function shippingCentsFor(items: CartItem[], rules: CheckoutRules | null)
 }
 
 /** "Shipping $5.95 · free with 2 bags" / "Free shipping", from data. */
-export function ShippingLine({ items, rules }: { items: CartItem[]; rules: CheckoutRules | null }) {
+export function ShippingLine({ items, rules, className = 'text-sm' }: { items: CartItem[]; rules: CheckoutRules | null; className?: string }) {
   const shipping = shippingCentsFor(items, rules);
   if (shipping === null || !rules) return null;
   return (
-    <div className="flex items-center justify-between text-sm">
-      <span style={{ color: '#8a8070' }}>
+    <div className={`flex items-center justify-between gap-4 ${className}`} data-testid="shipping-line">
+      <span style={MUTED}>
         {shipping === 0 ? 'Free shipping' : `Shipping · free with ${rules.freeShippingMinBags} bags`}
       </span>
-      <span style={{ color: '#4a4035' }}>{shipping === 0 ? formatPrice(0) : formatPrice(shipping)}</span>
+      <span style={INK}>{shipping === 0 ? formatPrice(0) : formatPrice(shipping)}</span>
     </div>
   );
 }
@@ -79,12 +88,13 @@ export function SubscribeChoice({ items, rules, quote }: { items: CartItem[]; ru
   const pct = quote?.subscription?.discountPct
     ?? (cartBagCount(items) >= 2 ? rules!.subscriptionDiscountPct2PlusBags : rules!.subscriptionDiscountPct1Bag);
   return (
-    <div className="flex flex-col gap-2 p-3 rounded-lg" style={{ backgroundColor: on ? '#f7efe9' : '#faf8f4', border: `1px solid ${on ? '#e6c9bf' : '#ece6dc'}` }}>
-      <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: '#4a4035' }}>
+    <div className="flex flex-col gap-2 p-3" data-testid="subscribe-choice"
+      style={{ backgroundColor: on ? 'var(--ab-paper)' : 'transparent', border: '1px solid var(--ab-ink-hairline)' }}>
+      <label className="flex items-center gap-2 text-sm cursor-pointer" style={INK}>
         <input
           type="checkbox" checked={on} data-testid="subscribe-toggle"
           onChange={e => setSubscription(e.target.checked ? { frequencyWeeks: subscription?.frequencyWeeks ?? options[Math.min(1, options.length - 1)] } : null)}
-          style={{ accentColor: '#9a2918' }}
+          style={{ accentColor: 'var(--ab-ink)' }}
         />
         Make it a subscription · {pct}% off every delivery
       </label>
@@ -93,10 +103,10 @@ export function SubscribeChoice({ items, rules, quote }: { items: CartItem[]; ru
           {options.map(w => (
             <button
               key={w} type="button" onClick={() => setSubscription({ frequencyWeeks: w })} data-testid={`subscribe-every-${w}`}
-              className="text-xs px-3 py-1 rounded-full"
+              className="text-xs px-3 py-1"
               style={w === subscription!.frequencyWeeks
-                ? { backgroundColor: '#9a2918', color: '#f2f1ea', border: '1px solid #9a2918' }
-                : { backgroundColor: 'transparent', color: '#9a2918', border: '1px solid #e6c9bf' }}
+                ? { backgroundColor: 'var(--ab-ink)', color: 'var(--ab-paper)', border: '1px solid var(--ab-ink)' }
+                : { backgroundColor: 'transparent', color: 'var(--ab-ink)', border: '1px solid var(--ab-ink-hairline)' }}
             >
               Every {w} weeks
             </button>
@@ -104,7 +114,7 @@ export function SubscribeChoice({ items, rules, quote }: { items: CartItem[]; ru
         </div>
       )}
       {on && (
-        <p className="text-xs pl-6" style={{ color: '#8a8070' }}>
+        <p className="text-xs pl-6" style={MUTED}>
           Every {subscription!.frequencyWeeks} weeks · {pct}% off.{items.some(i => i.kind !== 'direct') && ' Your coffee follows your Bloom Dial.'}
         </p>
       )}
@@ -113,15 +123,15 @@ export function SubscribeChoice({ items, rules, quote }: { items: CartItem[]; ru
 }
 
 /** Subtotal row: the subscribed price (with the one-time price struck through) when subscribing, else the one-time subtotal. */
-export function SubtotalLine({ items, quote, subscribed }: { items: CartItem[]; quote: CartQuote | null; subscribed: boolean }) {
+export function SubtotalLine({ items, quote, subscribed, className = 'text-sm' }: { items: CartItem[]; quote: CartQuote | null; subscribed: boolean; className?: string }) {
   const oneTime = cartSubtotalCents(items);
   const sub = subscribed ? quote?.subscription : null;
   return (
-    <div className="flex items-center justify-between text-sm">
-      <span style={{ color: '#8a8070' }}>Subtotal</span>
-      <span style={{ color: '#4a4035' }}>
+    <div className={`flex items-center justify-between gap-4 ${className}`} data-testid="subtotal-line">
+      <span style={MUTED}>Subtotal</span>
+      <span style={INK}>
         {sub && sub.subtotalCents < oneTime && (
-          <span className="line-through mr-1.5" style={{ color: '#c8b8a8', fontSize: '0.85em' }}>{formatPrice(oneTime)}</span>
+          <span className="line-through mr-1.5" style={{ ...MUTED, fontSize: '0.85em' }}>{formatPrice(oneTime)}</span>
         )}
         {subscribed && !sub ? '…' : formatPrice(sub ? sub.subtotalCents : oneTime)}
       </span>
@@ -129,7 +139,81 @@ export function SubtotalLine({ items, quote, subscribed }: { items: CartItem[]; 
   );
 }
 
-export function CartLines({ items, onRemove }: { items: CartItem[]; onRemove?: (index: number) => void }) {
+/** Website 8 — the estimated total /checkout and /cart both show: the (subscribed) subtotal + shipping from the rules; null while either loads. */
+export function estimatedTotalCents(items: CartItem[], subscription: SubscriptionChoice | null, quote: CartQuote | null, rules: CheckoutRules | null): number | null {
+  const subtotal = subscription ? quote?.subscription?.subtotalCents ?? null : cartSubtotalCents(items);
+  const shipping = shippingCentsFor(items, rules);
+  return shipping === null || subtotal === null ? null : subtotal + shipping;
+}
+
+/** The line's family photo (Shop all's family photo; "Other" for a category coffee). */
+function linePhoto(item: CartItem) {
+  return familyLookOf(item.kind === 'direct'
+    ? { archetype: '', archetypeLabel: item.categoryLabel }
+    : { archetype: item.archetype, archetypeLabel: item.archetypeLabel }).photo;
+}
+
+function LinePrice({ item }: { item: CartItem }) {
+  return (
+    <>
+      {item.kind === 'collection' && item.undiscountedPriceCents > item.retailPriceCents && (
+        <span className="line-through mr-1.5" style={{ ...MUTED, fontSize: '0.85em' }} data-testid="line-undiscounted">
+          {formatPrice(item.undiscountedPriceCents * item.qty)}
+        </span>
+      )}
+      <span>{formatPrice(item.retailPriceCents * item.qty)}</span>
+    </>
+  );
+}
+
+/**
+ * The cart's lines. `variant="list"` (default) is the drawer's and /checkout's
+ * compact list; `variant="page"` is /cart's handoff `.line` (Website 8): the
+ * family photo, the meta line, the name, the −/+ stepper (`onQuantity`, i.e.
+ * CartContext.setQuantity: 0 removes) and Remove.
+ */
+export function CartLines({ items, onRemove, onQuantity, variant = 'list' }: {
+  items: CartItem[];
+  onRemove?: (index: number) => void;
+  onQuantity?: (index: number, qty: number) => void;
+  variant?: 'list' | 'page';
+}) {
+  if (variant === 'page') {
+    return (
+      <div className="cp-lines" data-testid="cart-lines">
+        {items.map((item, i) => {
+          const photo = linePhoto(item);
+          const name = item.kind === 'collection' ? `The ${item.archetypeLabel} Collection` : item.platformName;
+          // The meta line from what the item carries (Task 0: no position label or award flag on cart items).
+          const meta = item.kind === 'collection'
+            ? `The collection · ${item.memberCount} coffees`
+            : `${item.kind === 'dial' ? item.archetypeLabel : item.categoryLabel} · ${item.weightOz} oz whole bean`;
+          return (
+            <div key={i} className="cp-line" data-testid="cart-line">
+              <Photo asset={photo.asset} fallback={photo.fallback} alt="" sizes="96px" className="cp-line-img" />
+              <div className="cp-lm">
+                <Caps weight={400}>{meta}</Caps>
+                <span className="cp-ln">{name}</span>
+              </div>
+              <div className="cp-right">
+                {onQuantity && (
+                  <span className="cp-qty">
+                    <button type="button" aria-label={`One less: ${name}`} onClick={() => onQuantity(i, item.qty - 1)} data-testid="qty-less">−</button>
+                    <span aria-live="polite" data-testid="qty-n">{item.qty}</span>
+                    <button type="button" aria-label={`One more: ${name}`} onClick={() => onQuantity(i, item.qty + 1)} data-testid="qty-more">+</button>
+                  </span>
+                )}
+                <Caps weight={400}><b style={{ fontWeight: 700 }}><LinePrice item={item} /></b></Caps>
+                {onRemove && (
+                  <button type="button" className="ab-caps cp-ulink" style={{ fontWeight: 400 }} onClick={() => onRemove(i)} aria-label={`Remove ${name}`}>Remove</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
   return (
     <>
       {items.map((item, i) => (
@@ -140,32 +224,23 @@ export function CartLines({ items, onRemove }: { items: CartItem[]; onRemove?: (
                 {/* Part 19 §C, naming updated by Part 20 — "The {Archetype} Collection ·
                     {N} coffees", one line, removed/re-added as a whole (never splits
                     into its members). */}
-                <p className="text-sm font-normal truncate" style={{ color: '#4a4035' }}>
+                <p className="text-sm font-normal truncate" style={INK}>
                   The {item.archetypeLabel} Collection · {item.memberCount} coffees
                 </p>
-                <p className="text-xs" style={{ color: '#a09880' }}>qty {item.qty}</p>
+                <p className="text-xs" style={MUTED}>qty {item.qty}</p>
               </>
             ) : (
               <>
-                <p className="text-sm font-normal truncate" style={{ color: '#4a4035' }}>{item.platformName}</p>
-                <p className="text-xs" style={{ color: '#a09880' }}>
+                <p className="text-sm font-normal truncate" style={INK}>{item.platformName}</p>
+                <p className="text-xs" style={MUTED}>
                   {item.kind === 'dial' ? item.archetypeLabel : item.categoryLabel} · {formatWeight(item.weightOz)} · qty {item.qty}
                 </p>
               </>
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-sm" style={{ color: '#4a4035' }}>
-              {item.kind === 'collection' && item.undiscountedPriceCents > item.retailPriceCents && (
-                <span className="line-through mr-1.5" style={{ color: '#c8b8a8', fontSize: '0.85em' }}>
-                  {formatPrice(item.undiscountedPriceCents * item.qty)}
-                </span>
-              )}
-              <span style={item.kind === 'collection' ? { color: '#9a2918' } : undefined}>
-                {formatPrice(item.retailPriceCents * item.qty)}
-              </span>
-            </span>
-            {onRemove && <button onClick={() => onRemove(i)} className="text-xs" style={{ color: '#c8887c' }}>Remove</button>}
+            <span className="text-sm" style={INK}><LinePrice item={item} /></span>
+            {onRemove && <button onClick={() => onRemove(i)} className="text-xs" style={MUTED}>Remove</button>}
           </div>
         </div>
       ))}

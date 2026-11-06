@@ -6536,6 +6536,26 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_7B_FIND_M
 
 **Verified:** see `CLOSING_REPORT_7B.md`.
 
+### 260. Website 8: Sign in in the handoff layout, the `/cart` page, checkout on the tokens (2026-11-06)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_8_SIGN_IN_AND_CART.md`; full record (Task 0 findings, deviations, evidence) `backend/src/features/website_handoff/CLOSING_REPORT_8.md`.
+
+**Files (frontend only, no schema):**
+- `components/SignIn.tsx`: same export, same route, same logic, handoff layout. The Create profile / Sign in tabs (caps; `?mode=signin`; default Create), "Begin your profile." / "Welcome back.", underline fields with caps labels, first and last name on create, the primary `Btn`, "Forgot your password?" (reset + sent state), the error line in `Caps`, "Continue with Google / Apple" as outlined `Btn`s, "← Back to results" with `?quiz_id`, and `?redirect=` on every path. The paper side panel "New here?" counts the questions from `getHomeContent()` `facts.questions` (D15); its Bloom link is hidden while gated. `friendlyError` is exported. The left photo panel is retired.
+- `components/cart/CartPage.tsx` (new): `/cart`, behind `PrelaunchGate`, no `RequireAuth`. The headline comes from the count ("Nothing yet." / "One thing, so far." / "{Two…} things, so far.", using the shared `numberWord`). It shows the lines, the empty state (with "Turn the dial" → `/bloom` and "Continue shopping" → `/shop`) and the summary (`SubscribeChoice`, `SubtotalLine`, `ShippingLine`, the estimated total). Checkout calls `checkout()` when signed in; otherwise "Sign in to check out" → `/sign-in?mode=signin&redirect=/checkout`. Opening the page closes the drawer. There is no promise line (D14).
+- `context/CartContext.tsx`: `setQuantity(index, qty)` (the one quantity writer; 0 removes; the line keeps its `isSameLine` identity) and `closeCart()`.
+- `bloom/CartLines.tsx`:
+  - `CartLines variant="page"`: the family photo from `familyLookOf()`, "{family} · {n} oz whole bean" or "The collection · N coffees", the −/+ stepper, Remove, and the collection strike-through.
+  - `estimatedTotalCents()`: one total for `/cart` and `/checkout`.
+  - `ShippingLine` / `SubtotalLine` take a `className`.
+  - All colours are on the `--ab-*` tokens, so the drawer picks them up too.
+- `bloom/cartPage.css` (new): the handoff's account CSS (`.acct`, `.ah`, `.ap`, `.fld`, `.side`, `.line`, `.qty`, `.sum`), prefixed `cp-`.
+- `checkout/CheckoutPage.tsx`, `CheckoutReturnPage.tsx`: tokens, `Wrap`, `Titled`, `Caps` and underline links. The Stripe embed, address selection, error handling, polling and the empty redirect are unchanged.
+- `Navigation.tsx`: `CART_PAGE_ROUTE_EXISTS = true`. `Cart (n)` in the header, the menu and the footer links `/cart`; the icon beside it opens the drawer. `App.tsx` gains the `/cart` route.
+- Tests: `components/signin.test.tsx` (10), `components/cart/cart.test.tsx` (9), `components/cart/cartContext.test.tsx` (2); `chrome.test.tsx` was updated for the flip and gains a footer test.
+
+**Verified:** see `CLOSING_REPORT_8.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

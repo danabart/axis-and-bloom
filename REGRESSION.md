@@ -225,3 +225,19 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_7B.md`. Tests:
 - [ ] **One score per run:** a key press while scoring or during the wrap ceremony does not score, save or log again; the screen's family equals the saved `quiz_session` and `quiz_final`.
 - [ ] **No quiz link on the result:** the field's "Take the quiz" line is hidden here (`hideQuizLink`), still shown on /bloom.
 
+## Sign in and the cart page (Website 8, 2026-11-06)
+
+Full record: `backend/src/features/website_handoff/CLOSING_REPORT_8.md`. Tests: `frontend/src/app/components/signin.test.tsx`, `cart/cart.test.tsx`, `cart/cartContext.test.tsx`, `chrome/chrome.test.tsx`.
+
+- [ ] **Sign-in tabs:** `/sign-in` opens on Create profile; `?mode=signin` opens on Sign in; first and last name only on create; "Forgot your password?" only on Sign in.
+- [ ] **Providers:** "Continue with Google" and "Continue with Apple" both sign in and land on the redirect.
+- [ ] **Redirect params:** `?redirect=` is honoured after email, Google and Apple (default `/profile`); `?quiz_id` shows "← Back to results" → `/find-my-flavor`.
+- [ ] **Reset and errors:** reset needs the email first, then shows the sent line; Firebase errors read in the page's words (wrong password, no account, already in use, weak password).
+- [ ] **QR doors:** `/b` "I have a profile" lands on `/sign-in?mode=signin&redirect=<the /b address>` with Sign in selected.
+- [ ] **Side panel:** the question count comes from `facts.questions` (never typed); its Bloom link is hidden while gated.
+- [ ] **Drawer + page:** add-to-cart opens the drawer everywhere; "Cart (n)" (header, menu, footer) links `/cart`; the icon beside it opens the drawer; arriving on `/cart` closes the drawer.
+- [ ] **Stepper:** −/+ change the quantity through `CartContext.setQuantity`; − at 1 removes the line; adding the same thing again merges into its line.
+- [ ] **Cart summary:** subtotal, shipping (from the checkout rules), the subscribe choice and the estimated total match `/checkout`; no roasting, delivery or "calculated at checkout" text.
+- [ ] **Signed-out checkout:** a signed-out visitor or guest sees "Sign in to check out" → `/sign-in?mode=signin&redirect=/checkout`; signed in → `/checkout`.
+- [ ] **Gated cart:** `/cart` is behind `PrelaunchGate` (redirects to the curtain while gated, unless `?preview=true`).
+- [ ] **Checkout from `/cart`:** `/cart` → `/checkout` → `/checkout/return` completes in Stripe test mode; the return page clears the cart.

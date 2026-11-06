@@ -7,8 +7,12 @@ interface CartContextType {
   cart: CartItem[];
   cartOpen: boolean;
   toggleCartOpen: () => void;
+  /** Website 8: closes the drawer (the /cart page is the cart). */
+  closeCart: () => void;
   addToCart: (item: CartItem) => void;
   removeFromCart: (index: number) => void;
+  /** Website 8: the /cart stepper. Sets line `index` to `qty`; 0 or less removes it. */
+  setQuantity: (index: number, qty: number) => void;
   /** Commerce 1: opens /checkout (no API call; payment happens there). */
   checkout: () => void;
   /** Empties the cart (the return page, once the order is confirmed). */
@@ -37,6 +41,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   function toggleCartOpen() {
     setCartOpen(v => !v);
+  }
+
+  function closeCart() {
+    setCartOpen(false);
   }
 
   // Same cart line? A dial item matches on (archetype, dialSortOrder, weightOz);
@@ -74,6 +82,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCart(prev => prev.filter((_, i) => i !== index));
   }
 
+  // Website 8 — the one quantity writer (the /cart stepper). A line keeps its
+  // isSameLine identity, so a later addToCart of the same thing still merges into it.
+  function setQuantity(index: number, qty: number) {
+    if (qty <= 0) { removeFromCart(index); return; }
+    setCart(prev => prev.map((item, i) => (i === index ? { ...item, qty } : item)));
+  }
+
   function checkout() {
     setCartOpen(false);
     navigate('/checkout');
@@ -85,7 +100,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <CartContext.Provider value={{ cart, cartOpen, toggleCartOpen, addToCart, removeFromCart, checkout, clear, subscription, setSubscription }}>
+    <CartContext.Provider value={{ cart, cartOpen, toggleCartOpen, closeCart, addToCart, removeFromCart, setQuantity, checkout, clear, subscription, setSubscription }}>
       {children}
     </CartContext.Provider>
   );

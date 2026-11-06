@@ -34,6 +34,7 @@ import AdminOrders from './components/admin/AdminOrders';
 import AdminSubscriptions from './components/admin/AdminSubscriptions';
 import CheckoutPage from './components/checkout/CheckoutPage';
 import CheckoutReturnPage from './components/checkout/CheckoutReturnPage';
+import CartPage from './components/cart/CartPage';
 import FlavorIntelligencePage from './components/FlavorIntelligencePage';
 import CoffeesRedirect from './components/CoffeesRedirect';
 import BloomPage from './components/BloomPage';
@@ -201,6 +202,8 @@ export default function App() {
                   </PrelaunchGate>
                 }
               />
+              {/* Website 8 (2026-11-06): the cart page. Gated like /checkout; no RequireAuth (a signed-out visitor sees their cart and the sign-in link). */}
+              <Route path="/cart" element={<PrelaunchGate><CartPage /></PrelaunchGate>} />
               {/* Commerce 1 (2026-10-31): Stripe one-time checkout. Signed in, like /profile.
                   /checkout stays behind the pre-launch gate until launch; /checkout/return never is,
                   a paid customer always sees the confirmation (Checkout UX 1). */}

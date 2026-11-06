@@ -4,8 +4,10 @@ import { useCart, toCheckoutItems } from '../../context/CartContext';
 import { getUserProfile, createCheckoutSession, CheckoutApiError, type ShipsTo } from '../../lib/api';
 import { reportError } from '../../lib/errorReporter';
 import {
-  CartLines, ShippingLine, SubscribeChoice, SubtotalLine, cartSubtotalCents, shippingCentsFor, useCartQuote, useCheckoutRules,
+  CartLines, ShippingLine, SubscribeChoice, SubtotalLine, estimatedTotalCents, useCartQuote, useCheckoutRules,
 } from '../bloom/CartLines';
+import { Wrap, Titled } from '../chrome';
+import '../bloom/cartPage.css';
 import { formatPrice } from '../bloom/types';
 import AddressForm, { type SavedAddress } from '../profile/AddressForm';
 import StripeEmbeddedCheckout, { stripeConfigured } from './StripeEmbeddedCheckout';
@@ -83,68 +85,68 @@ export default function CheckoutPage() {
 
   if (!cart.length) return <Navigate to="/bloom" replace />;
 
-  const subtotal = subscription ? quote?.subscription?.subtotalCents ?? null : cartSubtotalCents(cart);
-  const shipping = shippingCentsFor(cart, rules);
+  // Website 8: the same estimate /cart shows (one function, CartLines.estimatedTotalCents).
+  const total = estimatedTotalCents(cart, subscription, quote, rules);
   const selected = addresses?.find(a => a.id === selectedId) ?? null;
 
   return (
-    <div className="w-full min-h-screen bg-[#f2f1ea] px-4 md:px-10 py-12 md:py-20">
-      <div className="max-w-6xl mx-auto grid gap-10 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+    // Website 8 Part C: the site tokens and chrome primitives; the logic above is unchanged.
+    <div className="cp-page w-full min-h-screen">
+      <Wrap className="cp-acct">
 
         {/* ── Order ── */}
         <section className="flex flex-col gap-6">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60">Your order</p>
-          <div className="flex flex-col gap-4 bg-white/60 border border-[#a33726]/15 p-5">
+          <Titled style={{ alignSelf: 'flex-start' }}>Your order</Titled>
+          <div className="cp-panel">
             <CartLines items={cart} />
             <SubscribeChoice items={cart} rules={rules} quote={quote} />
-            <div className="border-t border-[#e0dcd4] pt-4 flex flex-col gap-2">
+            <div className="pt-4 flex flex-col gap-2" style={{ borderTop: '1px solid var(--ab-ink-hairline)' }}>
               <SubtotalLine items={cart} quote={quote} subscribed={subscription !== null} />
               <ShippingLine items={cart} rules={rules} />
-              <div className="flex items-center justify-between text-sm pt-2">
-                <span style={{ color: '#4a4035' }}>{subscription ? 'First delivery' : 'Estimated total'}</span>
-                <span style={{ color: '#4a4035' }}>{shipping === null || subtotal === null ? '…' : formatPrice(subtotal + shipping)}</span>
+              <div className="cp-sum-t" data-testid="checkout-total">
+                <span>{subscription ? 'First delivery' : 'Estimated total'}</span>
+                <span>{total === null ? '…' : formatPrice(total)}</span>
               </div>
-              <p className="text-xs" style={{ color: '#a09880' }}>Any sales tax is added at payment.</p>
+              <p className="text-xs" style={{ opacity: 0.72 }}>Any sales tax is added at payment.</p>
             </div>
           </div>
-          <Link to="/bloom" className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 hover:text-[#a33726] border-b border-[#a33726]/20 pb-1 w-fit">
+          <Link to="/bloom" className="ab-caps cp-ulink" style={{ fontWeight: 400, alignSelf: 'flex-start' }}>
             Keep exploring
           </Link>
         </section>
 
         {/* ── Ships to + payment ── */}
         <section className="flex flex-col gap-6">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60">Ships to</p>
+          <Titled style={{ alignSelf: 'flex-start' }}>Ships to</Titled>
           {addresses === null ? (
-            <p className="text-sm text-[#a33726]/60">Loading…</p>
+            <p className="ab-caps" style={{ fontWeight: 400 }}>Loading…</p>
           ) : (
             <>
               {addresses.length > 0 && !addingAddress && (
                 <div className="flex flex-col gap-3">
                   {addresses.map(a => (
                     <button key={a.id} type="button" onClick={() => setSelectedId(a.id)}
-                      className="text-left p-4 bg-white/40"
-                      style={{ border: `1px solid ${a.id === selectedId ? '#a33726' : 'rgba(163,55,38,0.15)'}` }}>
-                      <p className="text-sm text-[#a33726]">{a.street}</p>
-                      <p className="text-sm text-[#a33726]/70">{a.city}, {a.state} {a.postal_code}</p>
-                      <p className="text-sm text-[#a33726]/50">{a.country}</p>
+                      className="cp-choice" aria-pressed={a.id === selectedId}>
+                      <p className="text-sm">{a.street}</p>
+                      <p className="text-sm" style={{ opacity: 0.8 }}>{a.city}, {a.state} {a.postal_code}</p>
+                      <p className="text-sm" style={{ opacity: 0.65 }}>{a.country}</p>
                     </button>
                   ))}
                   <button type="button" onClick={() => setAddingAddress(true)}
-                    className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] border-b border-[#a33726]/20 pb-1 w-fit">
+                    className="ab-caps cp-ulink" style={{ fontWeight: 400, alignSelf: 'flex-start' }}>
                     + Ship somewhere else
                   </button>
                 </div>
               )}
               {profileFailed && !selectedId && !addingAddress && sessionShipsTo && (
                 <div className="flex flex-col gap-3">
-                  <div className="p-4 bg-white/40" style={{ border: '1px solid #a33726' }}>
-                    <p className="text-sm text-[#a33726]">{sessionShipsTo.street}</p>
-                    <p className="text-sm text-[#a33726]/70">{sessionShipsTo.city}, {sessionShipsTo.state} {sessionShipsTo.postalCode}</p>
-                    <p className="text-sm text-[#a33726]/50">{sessionShipsTo.country}</p>
+                  <div className="cp-choice" style={{ borderColor: 'var(--ab-ink)', cursor: 'default' }}>
+                    <p className="text-sm">{sessionShipsTo.street}</p>
+                    <p className="text-sm" style={{ opacity: 0.8 }}>{sessionShipsTo.city}, {sessionShipsTo.state} {sessionShipsTo.postalCode}</p>
+                    <p className="text-sm" style={{ opacity: 0.65 }}>{sessionShipsTo.country}</p>
                   </div>
                   <button type="button" onClick={() => setAddingAddress(true)}
-                    className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] border-b border-[#a33726]/20 pb-1 w-fit">
+                    className="ab-caps cp-ulink" style={{ fontWeight: 400, alignSelf: 'flex-start' }}>
                     + Ship somewhere else
                   </button>
                 </div>
@@ -165,20 +167,20 @@ export default function CheckoutPage() {
           )}
 
           {error && (
-            <p className="text-sm" style={{ color: error.status === 503 ? '#8a8070' : '#c8887c' }}>
+            <p className="text-sm" role="alert" style={{ color: 'var(--ab-ink)', opacity: error.status === 503 ? 0.72 : 1 }}>
               {error.message}
               {error.status === 409 && <> <Link to="/bloom" className="underline">Back to The Bloom</Link></>}
             </p>
           )}
 
           {(selected || profileFailed) && !addingAddress && (
-            <div className="bg-white rounded-lg overflow-hidden min-h-[200px]">
-              {creating && !clientSecret && <p className="text-sm text-[#a33726]/60 p-6">Preparing secure payment…</p>}
+            <div className="bg-white overflow-hidden min-h-[200px]" style={{ border: '1px solid var(--ab-ink-hairline)' }}>
+              {creating && !clientSecret && <p className="ab-caps p-6" style={{ fontWeight: 400 }}>Preparing secure payment…</p>}
               {clientSecret && <StripeEmbeddedCheckout clientSecret={clientSecret} />}
             </div>
           )}
         </section>
-      </div>
+      </Wrap>
     </div>
   );
 }
