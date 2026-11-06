@@ -118,3 +118,7 @@ Closing Reports 5 and 6 said their smokes ran on the Firebase origin "without Cl
 
 - **Quiz photos:** after Website 7A adds its rows to `MEDIA_MAP.json`, re-run dry run → go → `--write` → `--verify`.
 - **Per-coffee photos (OT-77):** new rows under `raw/shop/coffee/`, same script.
+
+## Addendum — quiz photos (2026-11-06)
+
+Re-run for the nine rows Website 7A added to `MEDIA_MAP.json` (rows 21–29: `raw/quiz/scene-entry`, `scene-q1`…`q6`, `scene-branch`, `scene-result`, all `.jpg` from `source/flavor-b/media/`). Task 0 again: every source exists, and every target is a key the page reads — `quizSceneAssets.entry` / `.result` in `assets.ts`, and the seeded `quiz_question.image_asset_key` values `quiz/scene-q<n>` and `quiz/scene-branch`. The dry run showed the first 20 rows `same` (skip) and these nine `missing` (upload); after Dana's go in the session, `--write` uploaded 9/9 as `image/jpeg`, `public, max-age=300`, skipped the 20, and replaced, renamed or deleted nothing. `--verify` exited 0 with 85/85 ok (the earlier 58 plus 27 quiz objects: each raw JPEG and its `optimized/quiz/<name>.webp` and `-mobile.webp`, all HTTP 200). As with rows 6/18, five quiz scenes are byte-identical to photos already in the bucket, as 7A mapped them: `scene-entry` = `axis/axis-bowl`, `scene-q1` / `q2` / `q5` = `shop/family-fruity` / `-chocolate-nutty` / `-floral`, `scene-branch` = `home/axis-cupping`; a different photo for any of them is a later `--replace`. Not checked live in the browser this run; nothing was committed (the map and script are unchanged since #258).
