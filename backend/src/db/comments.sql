@@ -314,6 +314,7 @@ COMMENT ON COLUMN quiz_question.id IS $c$Surrogate UUID primary key; one per que
 COMMENT ON COLUMN quiz_question.quiz_id IS $c$FK to quiz(id), ON DELETE CASCADE; the quiz (main or branch) this question belongs to.$c$;
 COMMENT ON COLUMN quiz_question.q_number IS $c$Position of the question within its quiz; with quiz_id it is the business key (one current row per quiz_id and q_number).$c$;
 COMMENT ON COLUMN quiz_question.q_text IS $c$Question wording shown to the customer.$c$;
+COMMENT ON COLUMN quiz_question.image_asset_key IS $c$Asset-registry path of the photo behind this question's scene on Find my flavor (e.g. quiz/scene-q1; the original is raw/<key>.jpg in the asset bucket, the page resolves it with optimizedAsset); NULL shows the entry photo. Presentation, not answered content: additive on the SCD2 table (no new version), filled once while NULL by the seed and never edited in place (quiz_content_guard). Since 2026-11-06 (Website 7A).$c$;
 COMMENT ON COLUMN quiz_question.weight IS $c$Question-level multiplier applied to all its answers when scoring (q_weight x answer weight x answer score); default 1, 0 means no scoring.$c$;
 COMMENT ON COLUMN quiz_question.valid_from IS $c$UTC timestamp when this question version became current (SCD2); defaults to now.$c$;
 COMMENT ON COLUMN quiz_question.valid_to IS $c$UTC timestamp when this version was retired; NULL while current.$c$;

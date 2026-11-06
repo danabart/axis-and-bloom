@@ -124,6 +124,16 @@ export const quizAssets = {
   coffeeLarge: optimized('quiz/coffee-large'),
 };
 
+// Website 7A (2026-11-06): Find my flavor's scene photos (handoff option B,
+// source/flavor-b/media). The question scenes' keys are data
+// (quiz_question.image_asset_key: quiz/scene-q1…q6, quiz/scene-branch) resolved
+// with optimizedAsset(); these two are the scenes with no question row.
+// Upload paths: raw/quiz/scene-entry.jpg, raw/quiz/scene-result.jpg (MEDIA_MAP.json).
+export const quizSceneAssets = {
+  entry: optimized('quiz/scene-entry'),
+  result: optimized('quiz/scene-result'),
+};
+
 // Per-archetype night-scan photographs — used as the quiz result hero.
 // Mapping: Floral→Scan21, Fruity→Scan59, Balanced&Sweet→Scan50, Chocolate&Nutty→Scan44, Spicy&Earthy→Scan34, Experimental→Scan76
 // Upload paths: raw/quiz/result-scan-{slug}.jpeg (uploaded 2026-07-23).

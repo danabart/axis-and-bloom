@@ -190,3 +190,23 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_6.md`. Tests: 
 - [ ] **Reduced motion:** dots and wheel segments shown without animation.
 - [ ] **Prelaunch:** `/the-axis` stays behind the gate.
 - [ ] **The Bloom opening stop (B2):** with no saved position or deep link a family opens on its classic when sellable, else the nearest sellable stop (lower on a tie).
+
+## Find my flavor: entry and questions (Website 7A, 2026-11-06)
+
+Full record: `backend/src/features/website_handoff/CLOSING_REPORT_7A.md`. Tests: `frontend/src/app/components/quiz/quiz.test.tsx`, `backend/src/db/quizSceneImage.test.ts`.
+
+- [ ] **Funnel names and payloads:**
+  - `QuizStart` + `quiz_start` once, on the first answer of question 1;
+  - `QuizComplete` + `quiz_complete` with the pre-branch score;
+  - `quiz_final` with the on-screen archetype (no branch / branch / tie);
+  - `EmailSubmitted` + `email_submitted` from the gate;
+  - each carries `{campaign, vid}` when a campaign is active; one session key per run, renewed on retake or exit.
+- [ ] **Campaign fast-start:** `?campaign=instagram|facebook` skips the entry scene (a recognized returning user still sees Welcome back).
+- [ ] **Retake:** `?retake=1` from Profile resets and lands on question 1; "Retake the quiz" on the returning-user scene does the same.
+- [ ] **Returning user:** signed in with a match → Welcome back + the saved archetype + retake on the entry photo; the folded dial, Worth exploring and the link row below.
+- [ ] **Sealed ending (prelaunch):** a finished quiz shows only the email card / "It's on its way to {email}"; the returning user sees "Your match is waiting".
+- [ ] **Back / keyboard:** "← Back" from question 2 keeps the earlier answer; letter keys A… pick; ↑/↓ move between rows; Enter/Space pick; a keyboard-only run completes.
+- [ ] **Counts are data:** "{N} questions" on the entry and "0n / 0N" plus N progress segments come from `GET /api/quiz/questions`; the branch reads "One more".
+- [ ] **Exit ×:** with answers it asks in the design's dialog (Keep going / Leave); without answers it returns straight to the entry scene. Never `window.confirm`.
+- [ ] **Photos:** each question's photo is `quiz_question.image_asset_key`; until uploaded, the current quiz photo shows.
+- [ ] **Reduced motion:** the scene photo does not drift.

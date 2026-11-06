@@ -20,6 +20,10 @@ import { useAdjacentArchetype } from './bloom/useAdjacentArchetype';
 import { resolveLandingSortOrder } from './bloom/doorConfig';
 import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
 import WorthExploring from './profile/WorthExploring';
+import Navigation from './Navigation';
+import { Btn, Caps } from './chrome';
+import { Scene, StatusScene, ProgressBar, QuestionScene, ExitConfirm, EntryBody, type SceneImage } from './quiz/QuizScenes';
+import { numberWord } from './bloom/useDialSlot';
 import type { BloomDialHandle } from './BloomDialWidget';
 import type { ArchetypeData, DoorTarget, Slot } from './bloom/types';
 
@@ -32,7 +36,7 @@ const signedInNameScreenLine = (email: string | null) =>
 
 // ─── Archetype asset imports ──────────────────────────────────────────────────
 
-import { archetypeAssets, patternAssets, cardAssets, quizAssets, quizResultAssets } from '../../design/assets';
+import { archetypeAssets, patternAssets, cardAssets, quizAssets, quizResultAssets, quizSceneAssets, optimizedAsset } from '../../design/assets';
 import type { ArchetypeSlug } from '../../design/assets';
 
 const wallpaperFloral       = archetypeAssets.floral.wallpaper.src;
@@ -49,15 +53,18 @@ const bagChocolate       = archetypeAssets['chocolate-nutty'].bag.src;
 const bagEarthy          = archetypeAssets['spicy-earthy'].bag.src;
 const bagExperimental    = archetypeAssets.experimental.bag.src;
 
-const coffeePic10    = quizAssets.coffeeLarge.src;
 const patternTissue  = patternAssets.experimental.src;
 const patternSpicy   = patternAssets['spicy-earthy'].src;
-const q1Photo = quizAssets.pic1.src;
-const q2Photo = quizAssets.pic2.src;
-const q3Photo = quizAssets.pic3.src;
-const q4Photo = quizAssets.pic4.src;
-const q5Photo = quizAssets.pic5.src;
-const q6Photo = quizAssets.pic6.src;
+
+// Website 7A (2026-11-06): option B's scene photos. The entry photo is a registry
+// key (falls back to the current quiz photo until raw/quiz/scene-entry.jpg is
+// uploaded); a question's photo is data (quiz_question.image_asset_key), and a
+// question with none, or whose upload is not in yet, shows the entry photo's fallback.
+const ENTRY_IMAGE: SceneImage = { asset: quizSceneAssets.entry, fallback: quizAssets.coffeeLarge };
+const sceneImageOf = (key: string | null | undefined): SceneImage =>
+  key ? { asset: optimizedAsset(key), fallback: quizAssets.coffeeLarge } : ENTRY_IMAGE;
+// The handoff's auto-advance after a pick (build.py: 420 ms).
+const AUTO_ADVANCE_MS = 420;
 
 // ─── API types ────────────────────────────────────────────────────────────────
 
@@ -72,6 +79,8 @@ interface ApiQuestion {
   question_id: string;
   q_number: number;
   q_text: string;
+  /** Website 7A: the scene photo's registry path (null → the entry photo) */
+  image_asset_key?: string | null;
   answers: ApiAnswer[];
 }
 
@@ -105,6 +114,7 @@ interface BranchAnswer {
 interface BranchQuestion {
   questionId: string;
   questionText: string;
+  imageAssetKey?: string | null;
   answers: BranchAnswer[];
 }
 
@@ -167,27 +177,6 @@ function GateStatusNote({ showSignedInConsentNote, guestMaskedEmail }: {
   );
 }
 
-
-// ─── Ruler-tick progress ──────────────────────────────────────────────────────
-
-function ProgressTicks({ current, total }: { current: number; total: number }) {
-  return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 44 }}>
-      {Array.from({ length: total }, (_, i) => {
-        const isCurrent = i === current - 1;
-        const isDone    = i < current - 1;
-        return (
-          <div key={i} style={{
-            width: 1,
-            height: isCurrent ? 18 : 9,
-            backgroundColor: isCurrent ? '#9a2918' : isDone ? '#a94936' : '#c5c7c8',
-            transition: 'all 0.3s ease',
-          }} />
-        );
-      })}
-    </div>
-  );
-}
 
 // ─── Wrap overlay (fixed, covers living page — never a replacement) ───────────
 // Papers rise/drop OVER the question/branch/tie screen. While covered, isComplete
@@ -306,7 +295,7 @@ function WrapOverlay({
         pointerEvents: 'none',
       }}>
         <p style={{
-          color: '#f2f1ea',
+          color: 'var(--ab-paper)', // Website 7A: token
           fontSize: 'clamp(26px,3vw,40px)',
           letterSpacing: '.06em',
           fontFamily: 'inherit',
@@ -322,33 +311,6 @@ function WrapOverlay({
         </p>
       </div>
     </div>
-  );
-}
-
-// ─── Pink keyword per question (one word gets the highlight device) ───────────
-
-const Q_HIGHLIGHTS: Record<number, string> = {
-  1: 'relationship',
-  2: 'good',
-  3: 'reaction',
-  4: 'bother',
-  5: 'honest',
-  6: 'grab',
-};
-
-const BRANCH_HIGHLIGHT = 'best';
-
-function highlightQuestion(text: string, keyword: string): React.ReactNode {
-  const idx = text.toLowerCase().indexOf(keyword.toLowerCase());
-  if (idx === -1) return text;
-  return (
-    <>
-      {text.slice(0, idx)}
-      <span style={{ background: '#ee5974', color: '#f2f1ea', padding: '1px 8px' }}>
-        {text.slice(idx, idx + keyword.length)}
-      </span>
-      {text.slice(idx + keyword.length)}
-    </>
   );
 }
 
@@ -372,17 +334,6 @@ const QUIZ_KEY_TO_SLUG: Record<ArchetypeKey, ArchetypeSlug> = {
   chocolate:    'chocolate-nutty',
   earthy:       'spicy-earthy',
   experimental: 'experimental',
-};
-
-// ─── Static question images (keyed by q_number) ───────────────────────────────
-
-const QUESTION_IMAGES: Record<number, string> = {
-  1: q1Photo,
-  2: q2Photo,
-  3: q3Photo,
-  4: q4Photo,
-  5: q5Photo,
-  6: q6Photo,
 };
 
 // ─── Archetype key + name→key mapping ────────────────────────────────────────
@@ -1143,7 +1094,11 @@ export default function FlavorQuiz() {
     answerIdsRef.current = [];
   };
 
-  // ── Auto-advance: always hold the latest handleNext in a ref so the 750ms
+  // ── Website 7A: "Exit ×" returns to the entry scene; with answers given it asks
+  //    first, in the design's own dialog (never window.confirm).
+  const [exitAsk, setExitAsk] = useState(false);
+
+  // ── Auto-advance: always hold the latest handleNext in a ref so the AUTO_ADVANCE_MS (420 ms)
   //    timer fires against fresh state rather than a stale closure capture.
   const autoAdvanceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleNextRef   = useRef(handleNext);
@@ -1159,8 +1114,19 @@ export default function FlavorQuiz() {
     setAnswers(prev => ({ ...prev, [currentStep]: answerIdx }));
     setSelectedIds(prev => ({ ...prev, [currentStep]: answerId }));
     if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
-    autoAdvanceRef.current = setTimeout(() => handleNextRef.current(), 750);
+    autoAdvanceRef.current = setTimeout(() => handleNextRef.current(), AUTO_ADVANCE_MS);
   };
+
+  function exitToEntry() {
+    if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+    setExitAsk(false);
+    handleRetake();
+    setHasStarted(false);
+  }
+  function requestExit() {
+    const answered = Object.keys(selectedIds).length > 0 || !!selectedBranchAnswerId || showTieInterstitial;
+    if (answered) setExitAsk(true); else exitToEntry();
+  }
 
   const handleBranchAnswerSelect = (answerId: string) => {
     setSelectedBranchAnswerId(answerId);
@@ -1204,7 +1170,7 @@ export default function FlavorQuiz() {
       }
       setShowBranch(false);
       setIsWrapping(true);
-    }, 750);
+    }, AUTO_ADVANCE_MS);
   };
 
   // Profile Part 1 — `/find-my-flavor?retake=1`: a Profile link to plain
@@ -1232,45 +1198,24 @@ export default function FlavorQuiz() {
   }, [searchParams, user, profileFetchDone, userProfile]);
 
   // ── Loading ──────────────────────────────────────────────────────────────────
+  // Website 7A: both on the entry photo, the site header floating over it.
   if (loading && !isPreview) {
-    return (
-      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
-        <QuizHeader />
-        <p className="text-[#a33726]/50 text-sm uppercase tracking-[0.2em]">Loading…</p>
-      </div>
-    );
+    return <StatusScene image={ENTRY_IMAGE} header={<Navigation tone="paper" floating />} title="Loading…" />;
   }
 
   // ── Error ────────────────────────────────────────────────────────────────────
   if ((loadError || !questions.length) && !isPreview) {
     return (
-      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
-        <QuizHeader />
-        <div className="text-center px-6">
-          <p className="text-[#a33726] text-base mb-6">
-            We couldn&apos;t load the quiz. Tap to try again.
-          </p>
-          <button
-            type="button"
-            onClick={loadQuestions}
-            className="px-8 py-3 bg-[#a33726] text-[#f2f1ea] text-sm uppercase tracking-[0.2em]"
-          >
-            Try again
-          </button>
-        </div>
-      </div>
+      <StatusScene image={ENTRY_IMAGE} header={<Navigation tone="paper" floating />} title="We couldn’t load the quiz.">
+        <div className="qz-efoot"><Btn tone="paper" onClick={loadQuestions}>Try again</Btn></div>
+      </StatusScene>
     );
   }
 
   // ── Returning user ───────────────────────────────────────────────────────────
   if (!isPreview && user && !hasStarted && (profileLoading || userProfile?.archetype)) {
     if (profileLoading) {
-      return (
-        <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
-          <QuizHeader />
-          <p className="text-[#a33726]/50 text-sm uppercase tracking-[0.2em]">Loading…</p>
-        </div>
-      );
+      return <StatusScene image={ENTRY_IMAGE} header={<Navigation tone="paper" floating />} title="Loading…" />;
     }
 
     const existingArchetype = userProfile?.archetype;
@@ -1281,33 +1226,23 @@ export default function FlavorQuiz() {
     // the full folded dial block, breaking the inbox-only seal for anyone
     // who already finished. Confirmation-style state instead; retake stays
     // (same handler the full screen's own "Retake the quiz" item uses below).
+    // Website 7A: drawn on the entry photo; logic unchanged.
     if (prelaunchGated) {
       return (
-        <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
-          <QuizHeader />
-          <div className="max-w-[480px] mx-auto text-center px-6">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/30 mb-5">
-              Welcome back, {firstName}
-            </p>
-            <h2 className="text-[28px] md:text-[34px] font-normal leading-tight" style={{ color: '#a33726' }}>
-              Your match is waiting.
-            </h2>
-            <p className="text-[15px] mt-4" style={{ color: '#1a1a1a', opacity: 0.65 }}>
-              Check the inbox you signed up with, or find it any time on your profile.
-            </p>
-            <div className="flex flex-col items-center gap-3 mt-9">
-              <button
-                onClick={() => { handleRetake(); setUserName(firstName); setHasStarted(true); }}
-                className="text-[10px] uppercase tracking-[0.2em] text-[#a33726] opacity-85 hover:opacity-100 transition-opacity"
-              >
-                Retake the quiz
-              </button>
-              <Link to="/profile" className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-opacity">
-                Your flavor profile →
-              </Link>
+        <Scene image={ENTRY_IMAGE} label="Welcome back" testId="quiz-returning-sealed">
+          <Navigation tone="paper" floating />
+          <div className="ab-wrap qz-in">
+            <div className="qz-entry">
+              <Caps weight={400}>Welcome back, {firstName}</Caps>
+              <h1 className="qz-eh">Your match is waiting.</h1>
+              <p className="qz-ep">Check the inbox you signed up with, or find it any time on your profile.</p>
+              <div className="qz-efoot">
+                <Btn tone="paper" onClick={() => { handleRetake(); setUserName(firstName); setHasStarted(true); }}>Retake the quiz</Btn>
+                <Link to="/profile" className="ab-caps qz-ulink" style={{ fontWeight: 400 }}>Your flavor profile →</Link>
+              </div>
             </div>
           </div>
-        </div>
+        </Scene>
       );
     }
 
@@ -1334,50 +1269,27 @@ export default function FlavorQuiz() {
     ];
 
     return (
-      <div className="relative w-full min-h-screen bg-[#f2f1ea]">
-        <QuizHeader />
-        {/* Part 22 — one ~760px centered column (PROMPT_one_column_pages.md
-            §4), replacing the old two-column header + three stranded
-            columns below it. Same outer-padding/no-inner-padding split as
-            Profile.tsx's column (see that file's own note on why — the
-            breakout unfold needs the column itself un-padded). */}
-        <div className="px-6 md:px-10 pt-28 pb-20">
-          <div className="max-w-[760px] mx-auto">
-
-            {/* 1 — compact header: micro welcome line, then "Your primary
-                profile is {name}" (left) / "Last quiz · {date}" (right,
-                quiet) on one baseline row. existingArchetype.description is
-                no longer shown here — this header is now a compact welcome,
-                not a mini archetype write-up; the match card just below
-                (its teaser line) is where that kind of copy lives now. */}
-            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mb-9">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/30 mb-5">
-                Welcome back, {firstName}
-              </p>
-              <div className="flex items-end justify-between gap-6 flex-wrap">
-                <div>
-                  <p className="text-[13px] font-light tracking-wide text-[#a33726]/50 mb-1">Your primary profile is</p>
-                  <h1 className="text-[2.4rem] lg:text-[2.8rem] leading-[1.05] font-normal tracking-tight" style={{ color: archetypeColor }}>
-                    {existingArchetype?.name ?? '—'}
-                  </h1>
-                </div>
-                {lastQuizDate && (
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/30 whitespace-nowrap pb-1">
-                    Last quiz · {lastQuizDate}
-                  </p>
-                )}
+      <div className="relative w-full min-h-screen qz-below" data-testid="quiz-returning">
+        {/* Website 7A — the welcome on the entry photo (Welcome back, the saved
+            archetype, retake); what followed it stays below, unchanged. */}
+        <Scene image={ENTRY_IMAGE} label="Welcome back">
+          <Navigation tone="paper" floating />
+          <div className="ab-wrap qz-in">
+            <div className="qz-entry">
+              <Caps weight={400}>Welcome back, {firstName}</Caps>
+              <p className="qz-ep" style={{ margin: 0 }}>Your primary profile is</p>
+              <h1 className="qz-eh" data-testid="quiz-returning-archetype">{existingArchetype?.name ?? '—'}</h1>
+              {existingArchetype?.description && <p className="qz-ep">{existingArchetype.description}</p>}
+              <div className="qz-efoot">
+                <Btn tone="paper" onClick={() => { handleRetake(); setUserName(firstName); setHasStarted(true); }}>Retake the quiz</Btn>
+                {lastQuizDate && <Caps weight={400}>Last quiz · {lastQuizDate}</Caps>}
               </div>
-              {/* Part 22 §5 "no content removed" — the archetype description
-                  previously anchored the old two-column header; the compact
-                  header above is deliberately just the baseline row the
-                  prompt asks for, but the copy itself stays, as a quiet line
-                  underneath rather than gone. */}
-              {existingArchetype?.description && (
-                <p className="mt-4 text-[13px] font-light leading-relaxed text-[#a33726]/50 max-w-[560px]">
-                  {existingArchetype.description}
-                </p>
-              )}
-            </motion.div>
+            </div>
+          </div>
+        </Scene>
+        {/* Part 22 — one ~760px centered column, as before. */}
+        <div className="px-6 md:px-10 pt-16 pb-20">
+          <div className="max-w-[760px] mx-auto">
 
             {/* 2 — the folded block, breaking out past the column on unfold. */}
             {matchedData && (
@@ -1497,130 +1409,21 @@ export default function FlavorQuiz() {
   }
 
   // ── Name screen (door) ───────────────────────────────────────────────────────
+  // Website 7A: option B's entry scene. The name is optional (Begin is always
+  // enabled); the question count comes from the payload (D15).
   if (!hasStarted) {
     return (
-      <div style={{ position: 'relative', width: '100%', minHeight: '100vh', overflow: 'hidden', background: '#f2f1ea' }}>
-        <QuizHeader />
-        {/* Background photo — CoffeePic10, wide chaff, full-bleed */}
-        <img
-          src={coffeePic10}
-          alt=""
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }}
+      <Scene image={ENTRY_IMAGE} label="Find my flavor" testId="quiz-entry-scene">
+        <Navigation tone="paper" floating />
+        <EntryBody
+          leadCount={numberWord(questions.length)}
+          name={userName}
+          onName={setUserName}
+          onBegin={() => setHasStarted(true)}
+          signedInLine={user && !user.isAnonymous ? signedInNameScreenLine(user.email) : null}
+          showSignIn={!user || user.isAnonymous}
         />
-        {/* Left wash */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          background: 'linear-gradient(90deg, rgba(242,241,234,.82) 0%, rgba(242,241,234,.45) 36%, rgba(242,241,234,0) 62%)',
-        }} />
-        {/* Top wash — keeps chrome legible */}
-        <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, height: 70,
-          background: 'linear-gradient(180deg, rgba(242,241,234,.85), rgba(242,241,234,0))',
-        }} />
-        {/* Content anchored at ~39% viewport height */}
-        <div style={{
-          position: 'absolute',
-          top: '39%',
-          transform: 'translateY(-50%)',
-          left: 'clamp(48px, 7vw, 112px)',
-          maxWidth: 560,
-          zIndex: 2,
-        }}>
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7 }}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}
-          >
-            {user && !user.isAnonymous && (
-              <p style={{
-                fontSize: '0.68rem',
-                letterSpacing: '0.14em',
-                textTransform: 'uppercase',
-                color: '#7b7f80',
-                margin: '0 0 16px',
-              }}>
-                {signedInNameScreenLine(user.email)}
-              </p>
-            )}
-            <h1 style={{
-              fontSize: 'clamp(2.8rem, 4.2vw, 4.2rem)',
-              color: '#ee5974',
-              lineHeight: 1.08,
-              fontWeight: 400,
-              margin: '0 0 clamp(28px, 4vh, 36px)',
-              letterSpacing: '-0.01em',
-            }}>
-              Whose palate are we<br />profiling today?
-            </h1>
-
-            <input
-              type="text"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              placeholder="Enter your name"
-              style={{
-                width: '100%',
-                maxWidth: 340,
-                fontSize: '1.05rem',
-                padding: '9px 0',
-                background: 'transparent',
-                border: 'none',
-                borderBottom: '1px solid rgba(154,41,24,0.5)',
-                borderRadius: 0,
-                outline: 'none',
-                color: '#45474a',
-                fontFamily: 'inherit',
-                letterSpacing: '0.02em',
-              }}
-              className="placeholder-[#7b7f80] focus:border-[#ee5974]"
-              onKeyDown={(e) => { if (e.key === 'Enter' && userName.trim()) setHasStarted(true); }}
-            />
-
-            <button
-              onClick={() => setHasStarted(true)}
-              disabled={!userName.trim()}
-              style={{
-                background: 'none',
-                border: 'none',
-                borderBottom: userName.trim() ? '1px solid rgba(154,41,24,0.5)' : '1px solid transparent',
-                padding: '0 0 3px',
-                cursor: userName.trim() ? 'pointer' : 'not-allowed',
-                fontFamily: 'inherit',
-                fontSize: '0.72rem',
-                letterSpacing: '0.28em',
-                textTransform: 'uppercase',
-                color: '#9a2918',
-                opacity: userName.trim() ? 1 : 0.3,
-                transition: 'opacity 0.2s',
-                marginTop: 30,
-                marginBottom: 22,
-              }}
-            >
-              Begin Profile
-            </button>
-
-            {(!user || user.isAnonymous) && (
-              <a
-                href="/sign-in"
-                style={{
-                  fontFamily: 'inherit',
-                  fontSize: '0.68rem',
-                  letterSpacing: '0.14em',
-                  textTransform: 'uppercase',
-                  color: '#7b7f80',
-                  textDecoration: 'none',
-                  transition: 'color 0.2s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.color = '#9a2918')}
-                onMouseLeave={e => (e.currentTarget.style.color = '#7b7f80')}
-              >
-                Already have a profile? Sign in →
-              </a>
-            )}
-          </motion.div>
-        </div>
-      </div>
+      </Scene>
     );
   }
 
@@ -1638,8 +1441,25 @@ export default function FlavorQuiz() {
   const isOnTie      = showTieInterstitial && !!scoreData;
 
   const currentQ     = isOnQuestion && currentStep < questions.length ? questions[currentStep] : null;
-  const currentImage = currentQ ? (QUESTION_IMAGES[currentQ.q_number] ?? QUESTION_IMAGES[1]) : null;
-  const currentKw    = currentQ ? Q_HIGHLIGHTS[currentQ.q_number] : undefined;
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  // Website 7A: the progress bar that replaces the header while questions run.
+  const progressBar = (done: number, extra: string | null = null) => (
+    <ProgressBar name={userName.trim()} total={questions.length} done={done} extra={extra} showSave={!user} onExit={requestExit} />
+  );
+  // The tie's "See my primary result", unchanged (moved out of the JSX only).
+  const seeTiePrimary = () => {
+    setShowTieInterstitial(false);
+    // Quiz Resync Fix Part A4 — archetypeKey was already set to the primary
+    // score in handleNext, before the tie interstitial showed; this is that
+    // same no-branch final result, just reached via the tie path.
+    const activeCampaignFinalTie = getActiveCampaign();
+    logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_final', scoreData!.archetype, activeCampaignFinalTie ? { campaign: activeCampaignFinalTie.slug, vid: activeCampaignFinalTie.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
+    if (user) {
+      saveQuizResult(buildQuizResultPayload(scoreData!, scoreData!.archetype))
+        .then(refreshUserProfile).catch(err => reportError('[FlavorQuiz/save-quiz-result]', err));
+    }
+    setIsWrapping(true);
+  };
 
   const archetypeNameMapTie: Record<string, string> = {
     floral: 'Floral', fruity: 'Fruity', balanced: 'Balanced',
@@ -1657,209 +1477,74 @@ export default function FlavorQuiz() {
 
   return (
     <>
-      {/* ── Question phase ──────────────────────────────────────────────────── */}
+      {/* ── Question phase (Website 7A: option B's question scene) ───────────── */}
       {isOnQuestion && currentQ && (
-        <div className="w-full min-h-screen flex flex-col lg:flex-row" style={{ background: '#f2f1ea' }}>
-          <QuizHeader />
-
-          {/* Photo panel — 46%, framed print */}
-          <div
-            className="w-full lg:w-[46%] lg:h-screen flex-shrink-0 hidden lg:flex items-center justify-center"
-            style={{ background: '#f2f1ea', padding: '72px 30px 22px' }}
-          >
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={currentStep}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.45 }}
-                style={{ border: '1px solid #c5c7c8', padding: 14, background: '#f2f1ea', display: 'inline-block' }}
-              >
-                <img
-                  src={currentImage!}
-                  alt=""
-                  style={{ display: 'block', maxWidth: '100%', maxHeight: 'calc(100vh - 126px)', width: 'auto', height: 'auto' }}
-                />
-              </motion.div>
-            </AnimatePresence>
-          </div>
-
-          {/* Question panel — 54% */}
-          <div
-            className="w-full lg:flex-1 min-h-[60vh] lg:h-screen bg-[#f2f1ea] flex flex-col justify-center overflow-y-auto"
-            style={{ paddingTop: 72, paddingBottom: 48, paddingLeft: 'clamp(36px,5vw,80px)', paddingRight: 'clamp(36px,5vw,80px)' }}
-          >
-            <div style={{ maxWidth: 480 }}>
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={currentStep}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.5 }}
-                >
-                  <ProgressTicks current={currentStep + 1} total={7} />
-                  <h1 style={{
-                    fontSize: 'clamp(1.7rem, 2.4vw, 2.4rem)', color: '#9a2918',
-                    lineHeight: 1.2, fontWeight: 400,
-                    margin: '0 0 clamp(28px, 3.5vh, 44px)', letterSpacing: '-0.01em',
-                  }}>
-                    {currentKw ? highlightQuestion(currentQ.q_text, currentKw) : currentQ.q_text}
-                  </h1>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    {currentQ.answers.map((answer, idx) => {
-                      const isSelected = answers[currentStep] === idx;
-                      return (
-                        <button
-                          key={answer.id}
-                          onClick={() => handleAnswerSelect(answer.id, idx)}
-                          style={{
-                            width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-                            borderBottom: '1px solid rgba(69,71,74,0.12)',
-                            padding: '13px 0', textAlign: 'left',
-                            display: 'flex', alignItems: 'flex-start', gap: 10,
-                            fontFamily: 'inherit',
-                          }}
-                        >
-                          <span style={{
-                            display: 'block', width: 2, height: 16, marginTop: 4, flexShrink: 0,
-                            backgroundColor: isSelected ? '#9a2918' : 'rgba(69,71,74,0.18)',
-                            transition: 'background-color 0.2s',
-                          }} />
-                          <span style={{
-                            fontSize: 'clamp(0.88rem, 1.0vw, 1.0rem)', lineHeight: 1.55,
-                            color: isSelected ? '#9a2918' : '#45474a',
-                            transition: 'color 0.2s',
-                          }}>
-                            {answer.text}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              </AnimatePresence>
-              <div style={{ marginTop: 'clamp(28px, 3.5vh, 44px)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {currentStep > 0 && (
-                  <button
-                    onClick={() => { if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current); setCurrentStep(p => p - 1); }}
-                    style={{
-                      background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-                      fontFamily: 'inherit', fontSize: '0.55rem', letterSpacing: '0.24em',
-                      textTransform: 'uppercase', color: '#9a2918', opacity: 0.38, textAlign: 'left',
-                    }}
-                  >
-                    ← BACK
-                  </button>
-                )}
-                {isScoring && (
-                  <p style={{ fontSize: '0.55rem', letterSpacing: '0.20em', textTransform: 'uppercase', color: '#9a2918', opacity: 0.4 }}>
-                    Finding your profile…
-                  </p>
-                )}
-                {scoreError && (
-                  <p style={{ fontSize: '0.75rem', color: '#ee5974' }}>Something went wrong. Please try again.</p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <QuestionScene
+          key={`q-${currentStep}`}
+          image={sceneImageOf(currentQ.image_asset_key)}
+          bar={progressBar(currentStep + 1)}
+          counter={<>{pad2(currentStep + 1)} <span style={{ opacity: 0.6 }}>/ {pad2(questions.length)}</span></>}
+          question={currentQ.q_text}
+          answers={currentQ.answers.map(a => ({ id: a.id, text: a.text }))}
+          selectedId={selectedIds[currentStep] ?? null}
+          onSelect={handleAnswerSelect}
+          onBack={currentStep > 0 ? () => { if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current); setCurrentStep(p => p - 1); } : null}
+          status={isScoring
+            ? <Caps weight={400}>Finding your profile…</Caps>
+            : scoreError
+              ? <span style={{ display: 'inline-flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Caps weight={400}>Something went wrong.</Caps>
+                  <button type="button" className="ab-caps qz-ulink" onClick={() => handleNextRef.current()}>Try again</button>
+                </span>
+              : null}
+          testId="quiz-question"
+        />
       )}
 
-      {/* ── Branch / silence screen ──────────────────────────────────────────── */}
+      {/* ── Branch: scene N+1, "One more" without renumbering ─────────────────── */}
       {isOnBranch && (
-        <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center" style={{ paddingTop: 72 }}>
-          <QuizHeader />
-          <div style={{ width: '100%', maxWidth: 560, padding: '48px clamp(32px,5vw,72px)' }}>
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-              <div style={{ fontSize: '0.50rem', letterSpacing: '0.30em', textTransform: 'uppercase', color: '#9a2918', opacity: 0.40, marginBottom: 24 }}>
-                One last thing
-              </div>
-              <h1 style={{ fontSize: 'clamp(1.7rem, 2.4vw, 2.4rem)', color: '#9a2918', lineHeight: 1.2, fontWeight: 400, margin: '0 0 clamp(28px, 3.5vh, 44px)', letterSpacing: '-0.01em' }}>
-                {highlightQuestion(branchQuestion!.questionText, BRANCH_HIGHLIGHT)}
-              </h1>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {branchQuestion!.answers.map((answer) => {
-                  const isSel = selectedBranchAnswerId === answer.id;
-                  return (
-                    <button
-                      key={answer.id}
-                      onClick={() => handleBranchAnswerSelect(answer.id)}
-                      style={{
-                        width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-                        borderBottom: '1px solid rgba(69,71,74,0.12)',
-                        padding: '13px 0', textAlign: 'left',
-                        display: 'flex', alignItems: 'flex-start', gap: 10,
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      <span style={{ display: 'block', width: 2, height: 16, marginTop: 4, flexShrink: 0, backgroundColor: isSel ? '#9a2918' : 'rgba(69,71,74,0.18)', transition: 'background-color 0.2s' }} />
-                      <span style={{ fontSize: 'clamp(0.88rem, 1.0vw, 1.0rem)', lineHeight: 1.55, color: isSel ? '#9a2918' : '#45474a', transition: 'color 0.2s' }}>
-                        {answer.text}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </motion.div>
-          </div>
-        </div>
+        <QuestionScene
+          key="branch"
+          image={sceneImageOf(branchQuestion!.imageAssetKey)}
+          bar={progressBar(questions.length, 'One more')}
+          counter="One more"
+          question={branchQuestion!.questionText}
+          answers={branchQuestion!.answers.map(a => ({ id: a.id, text: a.text }))}
+          selectedId={selectedBranchAnswerId}
+          onSelect={id => handleBranchAnswerSelect(id)}
+          onBack={null}
+          testId="quiz-branch"
+        />
       )}
 
-      {/* ── Tie interstitial ─────────────────────────────────────────────────── */}
+      {/* ── Tie ───────────────────────────────────────────────────────────────── */}
       {isOnTie && (
-        <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center px-6">
-          <QuizHeader />
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="max-w-md w-full text-center space-y-8">
-            <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-[#a33726] mb-3">A perfect tie</p>
-              <h2 className="text-3xl font-thin text-stone-800 leading-snug">
-                {tiedNames.length === 2
-                  ? <>{tiedNames[0]} <span className="text-stone-400">&</span> {tiedNames[1]}</>
-                  : tiedNames.join(' · ')}
+        <Scene image={ENTRY_IMAGE} label="A perfect tie" testId="quiz-tie">
+          {progressBar(questions.length)}
+          <div className="ab-wrap qz-in">
+            <div className="qz-entry">
+              <Caps weight={400}>A perfect tie</Caps>
+              <h2 className="qz-eh" style={{ maxWidth: '14ch' }}>
+                {tiedNames.length === 2 ? <>{tiedNames[0]} &amp; {tiedNames[1]}</> : tiedNames.join(' · ')}
               </h2>
-              <p className="text-stone-500 mt-4 text-sm leading-relaxed">
+              <p className="qz-ep">
                 {prelaunchGated
                   ? 'Your palate sits at the edge of two worlds.'
                   : 'Your palate sits at the edge of two worlds. Liam, our coffee sommelier, can help you find exactly where you land.'}
               </p>
+              <div className="qz-efoot">
+                {/* /sommelier is a hidden route while gated — omitted, same rule as every other Liam entry point. */}
+                {!prelaunchGated && hasLiamAccess && (
+                  <Btn tone="paper" onClick={() => { window.location.href = `/sommelier?entry=quiz_tie&tied=${encodeURIComponent(tiedParam)}`; }}>Talk to Liam</Btn>
+                )}
+                <button type="button" className="ab-caps qz-ulink" onClick={seeTiePrimary}>See my primary result</button>
+              </div>
             </div>
-            <div className="flex flex-col gap-3">
-              {/* /sommelier is a hidden route while gated — omitted, same rule
-                  as every other Liam entry point. */}
-              {!prelaunchGated && hasLiamAccess && (
-                <button
-                  onClick={() => { window.location.href = `/sommelier?entry=quiz_tie&tied=${encodeURIComponent(tiedParam)}`; }}
-                  className="w-full py-3 rounded-lg text-white text-sm tracking-wide"
-                  style={{ backgroundColor: RUST }}
-                >
-                  Talk to Liam →
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  setShowTieInterstitial(false);
-                  // Quiz Resync Fix Part A4 — archetypeKey was already set to
-                  // the primary score in handleNext, before the tie
-                  // interstitial showed; this is that same no-branch final
-                  // result, just reached via the tie path.
-                  const activeCampaignFinalTie = getActiveCampaign();
-                  logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_final', scoreData!.archetype, activeCampaignFinalTie ? { campaign: activeCampaignFinalTie.slug, vid: activeCampaignFinalTie.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
-                  if (user) {
-                    saveQuizResult(buildQuizResultPayload(scoreData!, scoreData!.archetype))
-                      .then(refreshUserProfile).catch(err => reportError('[FlavorQuiz/save-quiz-result]', err));
-                  }
-                  setIsWrapping(true);
-                }}
-                className="w-full py-3 rounded-lg text-sm text-stone-600 border border-stone-200 hover:bg-stone-100"
-              >
-                See my primary result
-              </button>
-            </div>
-          </motion.div>
-        </div>
+          </div>
+        </Scene>
       )}
+
+      {exitAsk && <ExitConfirm onLeave={exitToEntry} onStay={() => setExitAsk(false)} />}
 
       {/* ── Result screen ────────────────────────────────────────────────────── */}
       {isComplete && (
@@ -1872,10 +1557,10 @@ export default function FlavorQuiz() {
                card (or, once unlocked, a confirmation) IS the entire screen.
                Reused verbatim once the flag flips off / under ?preview=true —
                see the unchanged branch below. */
-            <section style={{ background: '#f2f1ea', minHeight: 'calc(100dvh - 52px)', display: 'flex', alignItems: 'center', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>
+            <section style={{ background: 'var(--ab-paper)', minHeight: 'calc(100dvh - 52px)', display: 'flex', alignItems: 'center', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>
               {emailGateUnlocked ? (
                 <div style={{ maxWidth: 480, margin: '0 auto', textAlign: 'left' }}>
-                  <h2 style={{ fontSize: 'clamp(28px,3vw,42px)', fontWeight: 400, color: RUST, lineHeight: 1.25, margin: '0 0 14px', letterSpacing: '-0.01em' }}>
+                  <h2 style={{ fontSize: 'clamp(28px,3vw,42px)', fontWeight: 400, color: 'var(--ab-ink)', lineHeight: 1.25, margin: '0 0 14px', letterSpacing: '-0.01em' }}>
                     It's on its way to {sealedEmail}. Open it to meet your match.
                   </h2>
                   <p style={{ fontSize: 13, color: 'rgba(26,26,26,0.45)', letterSpacing: '.06em', margin: 0 }}>

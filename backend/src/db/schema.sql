@@ -3603,6 +3603,12 @@ BEGIN
     IF o->>'answer_code' IS NULL THEN o := o - 'answer_code'; n := n - 'answer_code'; END IF;
     IF o->>'sort_order'  IS NULL THEN o := o - 'sort_order';  n := n - 'sort_order';  END IF;
   END IF;
+  -- Website 7A (2026-11-06): the scene photo is presentation, not content anyone
+  -- answered against. Like answer_code above it may be filled while NULL, and
+  -- never edited after (a different photo is a bucket swap at the same key).
+  IF TG_TABLE_NAME = 'quiz_question' AND o->>'image_asset_key' IS NULL THEN
+    o := o - 'image_asset_key'; n := n - 'image_asset_key';
+  END IF;
   IF o IS DISTINCT FROM n THEN
     RAISE EXCEPTION '% % cannot be edited in place: quiz content is SCD Type 2, close the row and insert a new version', TG_TABLE_NAME, OLD.id;
   END IF;
@@ -3999,6 +4005,27 @@ BEGIN
   -- for them; integrity checks 4 and 7 report one if it ever appears.
 
 END $v7$;
+
+-- Website 7A (2026-11-06): the photo behind each question scene of Find my
+-- flavor, as an asset-registry path (frontend/src/design/assets.ts
+-- optimizedAsset(); the original lives at raw/<key>.jpg, MEDIA_MAP.json).
+-- Additive on the SCD2 table: no new version is opened. The guard above lets a
+-- current row's NULL key be filled once; a later question version starts NULL
+-- and this fill gives it the photo of its position at the next boot. The main
+-- quiz's questions take the scene of their q_number, every branch question the
+-- branch scene (the quiz's "one more" step).
+-- backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_7A_FIND_MY_FLAVOR_ENTRY_AND_QUESTIONS.md
+ALTER TABLE quiz_question ADD COLUMN IF NOT EXISTS image_asset_key TEXT;
+UPDATE quiz_question q
+   SET image_asset_key = 'quiz/scene-q' || q.q_number
+  FROM quiz z
+ WHERE z.id = q.quiz_id AND z.version = 'v7' AND z.parent_quiz_id IS NULL
+   AND q.is_current AND q.image_asset_key IS NULL;
+UPDATE quiz_question q
+   SET image_asset_key = 'quiz/scene-branch'
+  FROM quiz b JOIN quiz z ON z.id = b.parent_quiz_id
+ WHERE b.id = q.quiz_id AND z.version = 'v7'
+   AND q.is_current AND q.image_asset_key IS NULL;
 
 -- Full quiz scoring matrix — one row per (question, answer, archetype)
 -- Shows all three scoring levels: question weight, answer weight, archetype-specific score.

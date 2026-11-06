@@ -6486,6 +6486,38 @@ Nothing was renamed, replaced or deleted. `--verify` found 58/58 objects at HTTP
 
 ---
 
+### 258. Website 7A: Find my flavor's entry and question scenes (option B) on the real quiz pipeline (2026-11-06)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_7A_FIND_MY_FLAVOR_ENTRY_AND_QUESTIONS.md`; full record (Task 0 behaviour inventory with line numbers, findings F1–F4, copy rewrites, `raw/` paths, evidence) `backend/src/features/website_handoff/CLOSING_REPORT_7A.md`.
+
+**Files:**
+- **Backend:**
+  - `quiz_question.image_asset_key TEXT` (`schema.sql`, after the V7 seed). It is additive on the SCD2 table and opens no new version. The seed fills the current main-quiz questions with `quiz/scene-q<n>` and every branch question with `quiz/scene-branch`, `WHERE image_asset_key IS NULL`.
+  - `quiz_content_guard()` gains one exemption, the same shape as its `answer_code` / `sort_order` one: a current `quiz_question` row's NULL key may be filled once. Any other change is still refused.
+  - `GET /api/quiz/questions` returns `image_asset_key`; `/branch` returns `imageAssetKey`. `comments.sql` has the column comment.
+  - Test: `src/db/quizSceneImage.test.ts` (3).
+- **Frontend:**
+  - New `components/quiz/QuizScenes.tsx`: `Scene`, `StatusScene`, `ProgressBar`, `QuestionScene` (`role=radiogroup`, letter keys, arrows, `aria-live` counter), `ExitConfirm`, `EntryBody`. New `quiz.css` (`qz-` prefix, the handoff CSS).
+  - `FlavorQuiz.tsx`: only the render of loading, error, returning user, entry, question, branch and tie is replaced; the state machine, scoring, branch, saves and funnel are untouched. `QUESTION_IMAGES`, `Q_HIGHLIGHTS`, `highlightQuestion` and `ProgressTicks` (with its typed `total={7}`) are retired.
+  - Auto-advance is 420 ms (the handoff's). The wrap ceremony and the sealed ending take the colour tokens only.
+  - `design/assets.ts`: `quizSceneAssets.entry` / `.result`.
+  - Test: `components/quiz/quiz.test.tsx` (11).
+- **`MEDIA_MAP.json`:** 9 quiz rows (entry, q1–q6, branch, result), brief "7A". The upload runs through the media brief's script.
+
+**How it works:**
+- **Entry:** the photo under a dark wash with the site header floating on it. The lead takes the question count from the payload ("Six questions…", D15). The name is optional, labelled "First name (yours or whoever you're profiling)". "Begin my profile" is always enabled. "Already have a profile? Sign in" goes to `/sign-in?mode=signin&redirect=/find-my-flavor`; a signed-in customer sees "Signed in as … · profiling yourself or someone in your household" instead.
+- **Questions:**
+  - The photo comes from `image_asset_key`, falling back to the current quiz photo until the upload lands.
+  - The counter reads "01 / 06"; answers are rows lettered A… (the data decides how many); the selection is remembered on Back; it moves on 420 ms after a pick.
+  - The progress bar replaces the header: "{Name}'s profile", one segment per question, "Save progress" (guests, as before) and "Exit ×", which returns to the entry scene and asks first in the design's own dialog when answers exist.
+- **Branch:** the same scene, with "One more" in place of renumbering. The tie, loading and error get scenes of their own.
+- **Returning user:** the welcome sits on the entry photo; the folded dial blocks and the link row follow, unchanged.
+- **Funnel:** event names and payloads are unchanged.
+
+**Verified:** see `CLOSING_REPORT_7A.md`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

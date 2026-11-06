@@ -21,6 +21,15 @@
     { "source": "shop/media/shop-IMG_0726.jpg",                "target": "raw/shop/other.jpg",                  "brief": 4 },
     { "source": "axis/media/axis-story.jpg",                   "target": "raw/axis/axis-story.jpg",             "brief": 6 },
     { "source": "axis/media/axis-bowl.jpg",                    "target": "raw/axis/axis-bowl.jpg",              "brief": 6 },
-    { "source": "axis/media/axis-start.jpg",                   "target": "raw/axis/axis-start.jpg",             "brief": 6 }
+    { "source": "axis/media/axis-start.jpg",                   "target": "raw/axis/axis-start.jpg",             "brief": 6 },
+    { "source": "flavor-b/media/axis-bowl.jpg",          "target": "raw/quiz/scene-entry.jpg",   "brief": "7A" },
+    { "source": "flavor-b/media/shop-DSC_3942.jpg",      "target": "raw/quiz/scene-q1.jpg",      "brief": "7A" },
+    { "source": "flavor-b/media/shop-DSC_3988.jpg",      "target": "raw/quiz/scene-q2.jpg",      "brief": "7A" },
+    { "source": "flavor-b/media/shop-DSC_3902.jpg",      "target": "raw/quiz/scene-q3.jpg",      "brief": "7A" },
+    { "source": "flavor-b/media/shop-IMG_0479.jpg",      "target": "raw/quiz/scene-q4.jpg",      "brief": "7A" },
+    { "source": "flavor-b/media/shop-DSC_3886.jpg",      "target": "raw/quiz/scene-q5.jpg",      "brief": "7A" },
+    { "source": "flavor-b/media/shop-IMG_0435.jpg",      "target": "raw/quiz/scene-q6.jpg",      "brief": "7A" },
+    { "source": "flavor-b/media/axis-cupping.jpg",       "target": "raw/quiz/scene-branch.jpg",  "brief": "7A" },
+    { "source": "flavor-b/media/scan-chocolatenutty.jpg", "target": "raw/quiz/scene-result.jpg",  "brief": "7A" }
   ]
 }

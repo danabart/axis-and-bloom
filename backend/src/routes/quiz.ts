@@ -34,6 +34,7 @@ router.get('/questions', async (_req, res) => {
          q.id          AS question_id,
          q.q_number,
          q.q_text,
+         q.image_asset_key,
          json_agg(
            json_build_object(
              'id',             a.id,
@@ -47,7 +48,7 @@ router.get('/questions', async (_req, res) => {
        JOIN quiz_answer a ON a.question_id = q.id AND a.is_current
        LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
        WHERE q.quiz_id = $1 AND q.is_current
-       GROUP BY q.id, q.q_number, q.q_text
+       GROUP BY q.id, q.q_number, q.q_text, q.image_asset_key
        ORDER BY q.q_number`,
       [quizId]
     );
@@ -249,6 +250,7 @@ router.get('/branch', async (req, res) => {
       `SELECT
          q.id       AS question_id,
          q.q_text   AS question_text,
+         q.image_asset_key,
          json_agg(
            json_build_object(
              'id',          a.id,
@@ -264,7 +266,7 @@ router.get('/branch', async (req, res) => {
        LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
        WHERE bq.parent_quiz_id = $1
          AND bq.trigger_archetype_id = $2
-       GROUP BY q.id, q.q_text`,
+       GROUP BY q.id, q.q_text, q.image_asset_key`,
       [mainQuizResult.rows[0].id, archetypeId]
     );
 
@@ -278,6 +280,8 @@ router.get('/branch', async (req, res) => {
       branchQuestion: {
         questionId:   row.question_id,
         questionText: row.question_text,
+        // Website 7A: the scene photo's registry path (null → the entry photo)
+        imageAssetKey: row.image_asset_key ?? null,
         answers:      row.answers,
       },
     });
