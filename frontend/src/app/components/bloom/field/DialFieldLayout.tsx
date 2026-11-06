@@ -31,7 +31,7 @@ const pad2 = (n: number) => String(n).padStart(2, '0');
 export function DialFieldLayout(props: DialArchetypeSectionProps) {
   const {
     data, cards, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onCompare,
-    userArchetype, source = 'bloom', hideProfileLink = false, prelaunch = false, onDoorClick, between, hideHints = false,
+    userArchetype, source = 'bloom', hideProfileLink = false, prelaunch = false, onDoorClick, between, hideHints = false, hideQuizLink = false,
   } = props;
   const look = fieldLook(data.archetype);
   const reduced = usePrefersReducedMotion();
@@ -302,9 +302,11 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
             </div>
           )}
 
-          <div className="bf-quiz">
-            <Link to="/find-my-flavor" className="ab-caps bf-ulink">Not sure which family is yours? Take the quiz ↗</Link>
-          </div>
+          {!hideQuizLink && (
+            <div className="bf-quiz">
+              <Link to="/find-my-flavor" className="ab-caps bf-ulink">Not sure which family is yours? Take the quiz ↗</Link>
+            </div>
+          )}
         </Wrap>
       </section>
     </>

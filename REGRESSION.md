@@ -210,3 +210,18 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_7A.md`. Tests:
 - [ ] **Exit ×:** with answers it asks in the design's dialog (Keep going / Leave); without answers it returns straight to the entry scene. Never `window.confirm`.
 - [ ] **Photos:** each question's photo is `quiz_question.image_asset_key`; until uploaded, the current quiz photo shows.
 - [ ] **Reduced motion:** the scene photo does not drift.
+
+## Find my flavor: the result scene (Website 7B, 2026-11-06)
+
+Full record: `backend/src/features/website_handoff/CLOSING_REPORT_7B.md`. Tests: `frontend/src/app/components/quiz/result.test.tsx`, `quiz.test.tsx`.
+
+- [ ] **Hero from data:** "{Name}'s family of taste" (or "Your family of taste"), "{Family}.", the three customer words, "Your place on the dial: stop N — {label}" and "— next to {coffee}" only when that stop has a coffee. No percentage, description or why line anywhere on the result.
+- [ ] **Turn the dial:** the button's href is `/bloom?archetype=<family>&slot=<stop>`; a click scrolls to the field (or the gate, before it unlocks) and the field opens on the hero's stop.
+- [ ] **Ask Liam why:** hidden while gated; signed out → `/sign-in?redirect=/sommelier`; signed in with access → `/sommelier`; without access hidden.
+- [ ] **Gate:** a first-time guest sees the email card under the share row and no dial; a recognized guest sees the masked-email note; a signed-in non-subscriber sees the consent note once; subscribe payloads carry the family name as before ("Balanced", "Chocolate & Nutty"…).
+- [ ] **Share row:** shown for the five families, hidden for Experimental.
+- [ ] **Action row:** signed in → "Your flavor profile →" and "Back to home →"; guests → "Back to home →" only. Privacy · Terms below.
+- [ ] **Preview param:** `/find-my-flavor?result=floral|fruity|balanced|chocolate|earthy|experimental` (with `?preview=true` while gated) opens each result.
+- [ ] **One score per run:** a key press while scoring or during the wrap ceremony does not score, save or log again; the screen's family equals the saved `quiz_session` and `quiz_final`.
+- [ ] **No quiz link on the result:** the field's "Take the quiz" line is hidden here (`hideQuizLink`), still shown on /bloom.
+

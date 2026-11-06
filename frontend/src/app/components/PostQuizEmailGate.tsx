@@ -3,10 +3,12 @@ import { subscribeNewsletter } from '../lib/api';
 import { reportError } from '../lib/errorReporter';
 import { getActiveCampaign } from '../lib/campaign';
 
-const BRAND = '#a33726';
+// Website 7B (2026-11-06): the chrome tokens (theme.css) in place of the old hexes;
+// the field underline keeps the family colour the caller passes (archetypeColor).
+const BRAND = 'var(--ab-ink)';
 const ACCENT = '#ee5974';
-const INK   = '#1a1a1a';
-const GRAY  = 'rgba(26,26,26,0.45)';
+const INK   = 'var(--ab-ink)';
+const GRAY  = 'color-mix(in srgb, var(--ab-ink) 55%, transparent)';
 
 interface Props {
   archetypeName: string;
@@ -136,7 +138,7 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
             type="submit"
             disabled={submitting}
             style={{
-              background: BRAND, color: '#f2f1ea',
+              background: BRAND, color: 'var(--ab-paper)',
               border: 'none', padding: '15px 32px',
               fontSize: '0.70rem', letterSpacing: '.22em', textTransform: 'uppercase',
               cursor: submitting ? 'default' : 'pointer',

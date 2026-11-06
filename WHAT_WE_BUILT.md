@@ -6516,6 +6516,26 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_7A_FIND_M
 
 **Verified:** see `CLOSING_REPORT_7A.md`.
 
+### 259. Website 7B: Find my flavor's result scene; the `ARCHETYPES` copy leaves the code (2026-11-06)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_7B_FIND_MY_FLAVOR_RESULT.md`; full record (Task 0 render tree and field map, OT-84 check, deviations, evidence) `backend/src/features/website_handoff/CLOSING_REPORT_7B.md`.
+
+**Files (frontend only, no schema):**
+- `components/quiz/QuizScenes.tsx`: `ResultScene` (the hero as drawn in build.py `#result`) and `composeResultLine()`; `Scene` takes `className` / `style`. `quiz.css`: the family wash (`qz-res`), the paper page after it (`qz-after`, `qz-col`, `qz-mhead`, `qz-endrow`, `qz-legal`).
+- `FlavorQuiz.tsx`: the result render replaced; `ARCHETYPES` (names, colours, wallpapers, bags, descriptions, why lines, coffee names with percentages), the dead `ARCHETYPE_CARDS` and the typed tie-name map removed. Names come from `/api/coffees/archetypes` / `/experimental` (or the server's scored name before they load), colours from `ARCHETYPE_VISUALS` via `fieldLook()`. The primary dial section is now `DialArchetypeSection layout="field"` (brief 5) with `/api/coffees/cards`.
+- `bloom/DialArchetypeSection.tsx` + `bloom/field/DialFieldLayout.tsx`: `hideQuizLink` prop (no "Take the quiz" link on the quiz's own result).
+- `chrome/primitives.tsx`: `Btn` passes the click event to `onClick` and accepts `data-testid`.
+- `PostQuizEmailGate.tsx`, `ShareMatchRow.tsx`, `GateStatusNote`: colours on the `--ab-*` tokens.
+- Tests: `components/quiz/result.test.tsx` (9), `quiz.test.tsx` +1.
+
+**How it works:**
+- **Hero:** the family's result photo under the family wash (`--fam` at .9 / .7 / .25), the family's ink; "{Name}'s family of taste", "{Family}.", then one line from data: the three customer words, then "Your place on the dial: stop N — {stop label} — next to {coffee}." The stop is the saved position for that family, else the opening stop (Website 6 B2); the coffee clause only when that stop has a coffee. No description (OT-84 still open), no why line (no server source), no percentages.
+- **Actions:** "Turn the {Family} dial" is a link to `/bloom?archetype=&slot=` that scrolls to the field below (or to the gate, before it unlocks); "Ask Liam why ↗" follows Home's rule (hidden while gated, sign-in redirect when signed out, `/sommelier` with access, hidden without).
+- **After the hero, same logic:** share row (hidden for Experimental), the gate or the status note, the "Your match" header, the field pre-set to the hero's stop (its comfort zone reads against the family just scored), Worth exploring + the adjacent section (still the dial layout), `CompareOverlay`, the end row, Privacy · Terms. The sealed (prelaunch) ending is unchanged.
+- **Fix found in acceptance:** the last question stays mounted under the scoring status and the wrap ceremony, and 7A's letter keys reached it there: a key press re-scored and re-saved, and the screen could show another family than the one saved. Picks are now ignored while scoring or wrapping.
+
+**Verified:** see `CLOSING_REPORT_7B.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

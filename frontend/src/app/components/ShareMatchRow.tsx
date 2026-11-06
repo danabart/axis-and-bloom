@@ -46,21 +46,14 @@ export function ShareMatchRow({ archetypeName, shareSlug }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 24px 0' }}>
+    // Website 7B (2026-11-06): restyled to the chrome tokens (caps, underline link).
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '28px 24px 0' }}>
       <button
+        type="button"
         onClick={handleShare}
-        style={{
-          background: 'none',
-          border: '1px solid rgba(154, 41, 24, 0.35)',
-          borderRadius: 999,
-          padding: '9px 22px',
-          fontFamily: "'Lato', Arial, sans-serif",
-          fontSize: '0.68rem',
-          letterSpacing: '0.16em',
-          textTransform: 'uppercase',
-          color: '#9a2918',
-          cursor: 'pointer',
-        }}
+        className="ab-caps qz-ulink"
+        style={{ color: 'var(--ab-ink)', fontWeight: 400 }}
+        data-testid="share-match"
       >
         {copied ? 'Link copied' : 'Share your match'}
       </button>

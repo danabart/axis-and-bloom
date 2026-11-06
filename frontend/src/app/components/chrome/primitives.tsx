@@ -1,4 +1,4 @@
-import type { CSSProperties, ElementType, ReactNode, ComponentPropsWithoutRef } from 'react';
+import type { CSSProperties, ElementType, ReactNode, ComponentPropsWithoutRef, MouseEvent } from 'react';
 import { Link } from 'react-router';
 import './chrome.css';
 
@@ -51,7 +51,8 @@ type BtnProps = {
   to?: string;
   /** External/anchor link. */
   href?: string;
-  onClick?: () => void;
+  /** Website 7B: receives the click (the result's "Turn the dial" keeps its href and scrolls instead). */
+  onClick?: (e: MouseEvent<HTMLElement>) => void;
   type?: 'button' | 'submit';
   disabled?: boolean;
   /** Arrow icon slot: true (default) = ArrowIcon, false = none, or any node. */
@@ -59,6 +60,7 @@ type BtnProps = {
   className?: string;
   style?: CSSProperties;
   'aria-label'?: string;
+  'data-testid'?: string;
 };
 
 /** .btn — 56px, square, 1px border, arrow slot; hover fills with the tone. */

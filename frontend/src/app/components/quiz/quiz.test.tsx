@@ -35,6 +35,7 @@ vi.mock('../../lib/api', () => ({
   subscribeNewsletter: vi.fn(async () => ({ ok: true })),
   getCheckoutRules: vi.fn(async () => ({ shippingFeeCents: 595, freeShippingMinBags: 2, subscriptionFrequencyWeeks: [2, 4], subscriptionDiscountPct1Bag: 10, subscriptionDiscountPct2PlusBags: 15 })),
   quoteCheckout: vi.fn(async () => null),
+  getCoffeeCards: vi.fn(async () => ({ families: [], other: { cards: [] } })),
 }));
 vi.mock('../PostQuizEmailGate', () => ({ PostQuizEmailGate: () => <div data-testid="email-gate">email gate</div> }));
 vi.mock('../ShareMatchRow', () => ({ ShareMatchRow: () => null }));
@@ -161,6 +162,22 @@ describe('Find my flavor — entry and questions (Website 7A)', () => {
     fireEvent.click(within(screen.getByRole('radiogroup')).getAllByRole('radio')[1]);
     await waitFor(() => expect(logQuizFunnelEvent.mock.calls.map(c => c[1])).toEqual(['quiz_start', 'quiz_complete', 'quiz_final']));
     expect(logQuizFunnelEvent.mock.calls[2]).toEqual([key, 'quiz_final', 'Floral', { campaign: 'instagram', vid: 'v-1' }]);
+  });
+
+  it('Website 7B: a letter key during scoring or the wrap ceremony does not score again', async () => {
+    renderQuiz();
+    await begin();
+    await pick(0);
+    await waitFor(() => expect(screen.getByTestId('quiz-counter').textContent).toBe('02 / 03'));
+    await pick(0);
+    await waitFor(() => expect(screen.getByTestId('quiz-counter').textContent).toBe('03 / 03'));
+    await pick(0);
+    await waitFor(() => expect(logQuizFunnelEvent.mock.calls.map(c => c[1])).toContain('quiz_final'));
+    for (const k of ['a', 'b', 'c']) fireEvent.keyDown(document, { key: k });
+    await new Promise(r => setTimeout(r, 600));
+    const scoreCalls = (fetch as unknown as { mock: { calls: [string][] } }).mock.calls.filter(c => c[0] === '/api/quiz/score');
+    expect(scoreCalls).toHaveLength(1);
+    expect(logQuizFunnelEvent.mock.calls.filter(c => c[1] === 'quiz_complete')).toHaveLength(1);
   });
 
   it('?campaign= skips the entry scene straight to question 1', async () => {

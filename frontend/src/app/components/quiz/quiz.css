@@ -63,6 +63,29 @@
   .qz-prog .ab-caps { display: none; } /* the counter says "One more" on phones */
 }
 
+/* Website 7B: the result scene (build.py #result). The wash is the family colour
+   at the handoff's .9 / .7 / .25 (--fam), the text the family's ink (--fink:
+   paper, or Balanced's red on its yellow), both set inline from fieldLook(). */
+.qz-res { color: var(--fink); }
+.qz-res .qz-wash { background: linear-gradient(90deg, color-mix(in srgb, var(--fam) 90%, transparent) 0%, color-mix(in srgb, var(--fam) 70%, transparent) 45%, color-mix(in srgb, var(--fam) 25%, transparent) 100%); }
+.qz-res .ab-btn { color: var(--fink); }
+.qz-res .ab-btn:hover { background: var(--fink); color: var(--fam); }
+.qz-res-in { max-width: 720px; }
+.qz-rh { margin: 0; font-size: clamp(48px, 6.4vw, 104px); font-weight: 300; letter-spacing: -.035em; line-height: .94; outline: none; }
+.qz-res .qz-ep { max-width: 46ch; }
+
+/* what follows the result scene: the paper page (gate, header, field, worth exploring, actions) */
+.qz-after { background: var(--ab-paper); color: var(--ab-ink); }
+.qz-col { max-width: 760px; margin: 0 auto; padding: 0 clamp(20px, 5vw, 40px); }
+.qz-mhead { text-align: center; padding: clamp(48px, 6vw, 80px) 0 clamp(28px, 3vw, 40px); display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.qz-mhead-name { margin: 0; font-size: clamp(40px, 5.6vw, 72px); font-weight: 300; letter-spacing: -.03em; line-height: .96; }
+.qz-mhead-line { margin: 0; font-size: clamp(15px, 1.2vw, 17px); font-weight: 300; line-height: 1.55; opacity: .8; }
+.qz-endrow { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 36px; padding: clamp(40px, 5vw, 64px) 0; }
+.qz-legal { display: flex; justify-content: center; gap: 20px; padding: 0 20px clamp(24px, 3vw, 36px); background: var(--ab-paper); }
+.qz-legal a { color: var(--ab-ink); opacity: .5; text-decoration: none; }
+.qz-legal a:hover { opacity: .8; }
+.qz-gatewrap { padding: clamp(72px, 10vh, 120px) clamp(20px, 5vw, 40px) 90px; }
+
 @media (prefers-reduced-motion: reduce) {
   .qz-bg { animation: none; transform: none; }
   .qz-ans, .qz-ans svg { transition: none; }

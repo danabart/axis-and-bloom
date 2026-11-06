@@ -64,6 +64,8 @@ export interface DialArchetypeSectionProps {
   between?: ReactNode;
   /** layout="field" only: hide the wheel's hint line (after the visitor's first turn, hasTurnedDial). */
   hideHints?: boolean;
+  /** layout="field" only: hide the closing "Take the quiz" link (Website 7B: the quiz result page itself). */
+  hideQuizLink?: boolean;
 }
 
 function DialLayout({

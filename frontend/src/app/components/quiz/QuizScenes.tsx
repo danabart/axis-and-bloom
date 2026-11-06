@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import { Wrap, Caps, Titled, Btn, ArrowIcon } from '../chrome';
 import { Photo, type RegistryImage } from '../home/Photo';
 import './quiz.css';
@@ -12,15 +12,18 @@ import './quiz.css';
 export interface SceneImage { asset: RegistryImage; fallback: RegistryImage }
 
 /** The photographic scene: full-bleed photo, the wash, content on top. */
-export function Scene({ image, position, label, children, testId }: {
+export function Scene({ image, position, label, children, testId, className, style }: {
   image: SceneImage;
   position?: string;
   label: string;
   children: ReactNode;
   testId?: string;
+  /** Website 7B: the result scene adds `qz-res` (the family wash) and its colour variables. */
+  className?: string;
+  style?: CSSProperties;
 }) {
   return (
-    <section className="qz-scene" aria-label={label} data-testid={testId}>
+    <section className={className ? `qz-scene ${className}` : 'qz-scene'} aria-label={label} data-testid={testId} style={style}>
       <Photo asset={image.asset} fallback={image.fallback} alt="" sizes="100vw" className="qz-bg" loading="eager"
         style={position ? { objectPosition: position } : undefined} />
       <div className="qz-wash" aria-hidden="true" />
@@ -154,6 +157,85 @@ export function QuestionScene({ image, bar, counter, question, answers, selected
             })}
           </div>
           <div className="qz-status" aria-live="polite">{status}</div>
+        </div>
+      </Wrap>
+    </Scene>
+  );
+}
+
+// ─── Website 7B: the result scene ─────────────────────────────────────────────
+
+/**
+ * The hero paragraph, composed from data only (brief 7B decisions): the family's
+ * customer words, the stop the dial opens on for this match (its number and
+ * label), and the coffee at that stop when one is there. No description (OT-84
+ * open), no "why" sentence (no server source), no percentage, no dimension words.
+ * Any part the payload lacks is left out, never filled with typed copy.
+ */
+export function composeResultLine({ words, stopNumber, stopLabel, coffeeName }: {
+  words: string[] | null | undefined;
+  stopNumber: number | null;
+  stopLabel: string | null | undefined;
+  coffeeName: string | null | undefined;
+}): string {
+  const parts: string[] = [];
+  if (words && words.length) parts.push(`${words.join(' · ')}.`);
+  if (stopNumber != null && stopLabel) {
+    parts.push(coffeeName
+      ? `Your place on the dial: stop ${stopNumber} — ${stopLabel} — next to ${coffeeName}.`
+      : `Your place on the dial: stop ${stopNumber} — ${stopLabel}.`);
+  }
+  return parts.join(' ');
+}
+
+/**
+ * The result hero as drawn (build.py #result): the family's photo under the
+ * family wash, "{Name}'s family of taste", the family name, the paragraph, and
+ * the two actions. `shown` drives the naming stagger as the wrap papers part.
+ */
+export function ResultScene({ image, header, color, ink, name, familyLabel, line, dialHref, onTurnDial, liamHref, shown, headingRef }: {
+  image: SceneImage;
+  /** the site header, floating over the photo (as on the other scenes) */
+  header?: ReactNode;
+  /** the family colour (ARCHETYPE_VISUALS via fieldLook) and the ink drawn on it */
+  color: string;
+  ink: string;
+  name: string;
+  familyLabel: string;
+  line: string;
+  /** /bloom?archetype=&slot= — the button's own link (new tab, no script) */
+  dialHref: string;
+  /** scroll to the dial section below, pre-set to the match */
+  onTurnDial: () => void;
+  /** null hides "Ask Liam why" (gated, or signed in without access) */
+  liamHref: string | null;
+  shown: boolean;
+  headingRef?: Ref<HTMLHeadingElement>;
+}) {
+  const stagger = (delay: number): CSSProperties => ({
+    opacity: shown ? 1 : 0,
+    transform: shown ? 'none' : 'translateY(12px)',
+    transition: `opacity .7s ease ${delay}s, transform .7s ease ${delay}s`,
+  });
+  return (
+    <Scene image={image} position="60% 40%" label={`${familyLabel}, your family of taste`} testId="quiz-result-hero"
+      className="qz-res" style={{ ['--fam' as string]: color, ['--fink' as string]: ink } as CSSProperties}>
+      {header}
+      <Wrap className="qz-in">
+        <div className="qz-entry qz-res-in">
+          <Titled style={{ alignSelf: 'flex-start', ...stagger(0.2) }} data-testid="quiz-result-owner">
+            {name ? `${name}’s family of taste` : 'Your family of taste'}
+          </Titled>
+          <h1 className="qz-rh" ref={headingRef} tabIndex={-1} style={stagger(0.4)} data-testid="quiz-result-family">{familyLabel}.</h1>
+          {line && <p className="qz-ep" style={stagger(0.55)} data-testid="quiz-result-line">{line}</p>}
+          <div className="qz-efoot" style={stagger(0.7)}>
+            <Btn tone="paper" href={dialHref} onClick={e => { e.preventDefault(); onTurnDial(); }} data-testid="quiz-turn-dial">
+              Turn the {familyLabel} dial
+            </Btn>
+            {liamHref && (
+              <a href={liamHref} className="ab-caps qz-ulink" style={{ fontWeight: 600 }} data-testid="quiz-ask-liam">Ask Liam why ↗</a>
+            )}
+          </div>
         </div>
       </Wrap>
     </Scene>

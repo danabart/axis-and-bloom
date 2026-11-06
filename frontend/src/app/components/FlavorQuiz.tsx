@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
-import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter } from '../lib/api';
+import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter, getCoffeeCards, type CoffeeCards } from '../lib/api';
 import { getActiveCampaign, CAMPAIGNS } from '../lib/campaign';
 import { trackEvent, trackLead } from '../lib/analytics';
 import { reportError } from '../lib/errorReporter';
@@ -21,9 +21,10 @@ import { resolveLandingSortOrder } from './bloom/doorConfig';
 import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
 import WorthExploring from './profile/WorthExploring';
 import Navigation from './Navigation';
-import { Btn, Caps } from './chrome';
-import { Scene, StatusScene, ProgressBar, QuestionScene, ExitConfirm, EntryBody, type SceneImage } from './quiz/QuizScenes';
-import { numberWord } from './bloom/useDialSlot';
+import { Btn, Caps, type Tone } from './chrome';
+import { Scene, StatusScene, ProgressBar, QuestionScene, ExitConfirm, EntryBody, ResultScene, composeResultLine, type SceneImage } from './quiz/QuizScenes';
+import { numberWord, openingSortOrder } from './bloom/useDialSlot';
+import { fieldLook } from './bloom/dial/archetypeConfig';
 import type { BloomDialHandle } from './BloomDialWidget';
 import type { ArchetypeData, DoorTarget, Slot } from './bloom/types';
 
@@ -36,22 +37,8 @@ const signedInNameScreenLine = (email: string | null) =>
 
 // ─── Archetype asset imports ──────────────────────────────────────────────────
 
-import { archetypeAssets, patternAssets, cardAssets, quizAssets, quizResultAssets, quizSceneAssets, optimizedAsset } from '../../design/assets';
+import { patternAssets, quizAssets, quizResultAssets, quizSceneAssets, optimizedAsset } from '../../design/assets';
 import type { ArchetypeSlug } from '../../design/assets';
-
-const wallpaperFloral       = archetypeAssets.floral.wallpaper.src;
-const wallpaperFruity       = archetypeAssets.fruity.wallpaper.src;
-const wallpaperBalanced     = archetypeAssets['balanced-sweet'].wallpaper.src;
-const wallpaperChocolate    = archetypeAssets['chocolate-nutty'].wallpaper.src;
-const wallpaperEarthy       = archetypeAssets['spicy-earthy'].wallpaper.src;
-const wallpaperExperimental = archetypeAssets.experimental.wallpaper.src;
-
-const bagFloral          = archetypeAssets.floral.bag.src;
-const bagFruity          = archetypeAssets.fruity.bag.src;
-const bagBalanced        = archetypeAssets['balanced-sweet'].bag.src;
-const bagChocolate       = archetypeAssets['chocolate-nutty'].bag.src;
-const bagEarthy          = archetypeAssets['spicy-earthy'].bag.src;
-const bagExperimental    = archetypeAssets.experimental.bag.src;
 
 const patternTissue  = patternAssets.experimental.src;
 const patternSpicy   = patternAssets['spicy-earthy'].src;
@@ -162,13 +149,9 @@ function GateStatusNote({ showSignedInConsentNote, guestMaskedEmail }: {
 }) {
   if (!showSignedInConsentNote && !guestMaskedEmail) return null;
   return (
-    <div style={{ maxWidth: 480, margin: '0 auto', padding: '20px 24px 0', textAlign: 'center' }}>
-      <p style={{
-        fontFamily: "'Lato', Arial, sans-serif",
-        fontSize: '0.78rem',
-        color: '#838686',
-        margin: 0,
-      }}>
+    // Website 7B: restyled to the chrome tokens.
+    <div style={{ maxWidth: 480, margin: '0 auto', padding: '24px 0 0', textAlign: 'center' }} data-testid="gate-status-note">
+      <p style={{ fontSize: 14, fontWeight: 300, lineHeight: 1.55, color: 'var(--ab-ink)', opacity: 0.7, margin: 0 }}>
         {guestMaskedEmail
           ? `Your match is on its way to ${guestMaskedEmail}.`
           : "You're on the list — we'll follow up with more on your match. Unsubscribe anytime."}
@@ -314,17 +297,6 @@ function WrapOverlay({
   );
 }
 
-// ─── Archetype card images for the wrap reveal (WEB* set from bucket) ────────
-
-const ARCHETYPE_CARDS: Record<string, string> = {
-  floral:       cardAssets.floral.src,
-  fruity:       cardAssets.fruity.src,
-  balanced:     cardAssets['balanced-sweet'].src,
-  chocolate:    cardAssets['chocolate-nutty'].src,
-  earthy:       cardAssets['spicy-earthy'].src,
-  experimental: cardAssets.experimental.src,
-};
-
 // ─── Quiz ArchetypeKey → ArchetypeSlug (for result-scan lookup) ──────────────
 
 const QUIZ_KEY_TO_SLUG: Record<ArchetypeKey, ArchetypeSlug> = {
@@ -375,114 +347,13 @@ const ARCHETYPE_KEY_TO_ENUM: Record<ArchetypeKey, string> = {
   experimental: 'experimental',
 };
 
-// ─── Archetypes data ──────────────────────────────────────────────────────────
-
-const ARCHETYPES: Record<ArchetypeKey, {
-  name: string;
-  color: string;
-  wallpaper: string;
-  bag: string;
-  shortDescription: string;
-  whyMatches: string[];
-  coffees: { name: string; flavor: string; match: string }[];
-}> = {
-  floral: {
-    name: 'Floral',
-    color: '#a34b78',
-    wallpaper: wallpaperFloral,
-    bag: bagFloral,
-    shortDescription: 'Light, elegant, and aromatic. Floral coffees feel lifted, delicate, and quietly expressive, with notes that can suggest jasmine, citrus, tea, and soft sweetness.',
-    whyMatches: [
-      'You are drawn to coffees that feel bright, graceful, and aromatic.',
-      'You may enjoy delicate cups with a tea-like clarity.',
-      'You appreciate subtlety, fragrance, and a lighter sensory experience.',
-    ],
-    coffees: [
-      { name: 'Ethiopia Yirgacheffe', flavor: 'Jasmine, Bergamot, Lemon Zest', match: '98%' },
-      { name: 'Ethiopia Guji Washed', flavor: 'Rose, Peach, White Tea',         match: '92%' },
-    ],
-  },
-  fruity: {
-    name: 'Fruity',
-    color: '#ca445f',
-    wallpaper: wallpaperFruity,
-    bag: bagFruity,
-    shortDescription: 'Juicy, lively, and expressive. Fruity coffees bring brightness and movement to the cup, often with notes of berries, ripe fruit, citrus, or tropical sweetness.',
-    whyMatches: [
-      'You are drawn to coffees that feel vibrant, juicy, and full of energy.',
-      'You may enjoy fruit-forward flavors and a brighter cup.',
-      'You like coffees that feel expressive, playful, and alive.',
-    ],
-    coffees: [
-      { name: 'Kenya Guji',              flavor: 'Blueberry, Peach, Rose',           match: '96%' },
-      { name: 'Costa Rica Pink Bourbon', flavor: 'Strawberry, Watermelon, Hibiscus', match: '89%' },
-    ],
-  },
-  balanced: {
-    name: 'Balanced',
-    color: '#d1ac11',
-    wallpaper: wallpaperBalanced,
-    bag: bagBalanced,
-    shortDescription: 'Smooth, round, and comforting. Balanced coffees are soft and approachable, often bringing caramel, honey, gentle fruit, and an easy sweetness.',
-    whyMatches: [
-      'You are drawn to coffees that feel smooth, sweet, and easy to love.',
-      'You may prefer a cup with balance rather than extremes.',
-      'You appreciate comfort, softness, and a clean finish.',
-    ],
-    coffees: [
-      { name: 'Brazil Los Santos',       flavor: 'Milk Chocolate, Caramel, Peanut', match: '99%' },
-      { name: 'Guatemala Honey Process', flavor: 'Brown Sugar, Red Apple, Pecan',   match: '94%' },
-    ],
-  },
-  chocolate: {
-    name: 'Chocolate & Nutty',
-    color: '#a54c2d',
-    wallpaper: wallpaperChocolate,
-    bag: bagChocolate,
-    shortDescription: 'Rich, familiar, and grounding. Chocolate & Nutty coffees feel classic and satisfying, with notes of cocoa, roasted nuts, and a deeper comforting presence.',
-    whyMatches: [
-      'You are drawn to coffees that feel warm, bold, and comforting.',
-      'You may enjoy cocoa, roasted nut, and classic coffee flavors.',
-      'You appreciate a cup that feels grounding, full, and satisfying.',
-    ],
-    coffees: [
-      { name: 'Sumatra Mandheling', flavor: 'Dark Chocolate, Cedar, Walnut',      match: '97%' },
-      { name: 'Mexico Cerrado',     flavor: 'Cocoa Nibs, Hazelnut, Molasses',     match: '91%' },
-    ],
-  },
-  earthy: {
-    name: 'Earthy',
-    color: '#912f2f',
-    wallpaper: wallpaperEarthy,
-    bag: bagEarthy,
-    shortDescription: 'Warm, deep, and complex. Earthy coffees bring a more grounded sensory world, with notes that may suggest spice, wood, herbs, smoke, or lingering depth.',
-    whyMatches: [
-      'You are drawn to coffees with depth, warmth, and character.',
-      'You may enjoy earthy, spicy, rustic, or more unusual flavor notes.',
-      'You appreciate coffees that feel bold, layered, and memorable.',
-    ],
-    coffees: [
-      { name: 'Sumatra Wet-Hulled', flavor: 'Dark Earth, Cedar, Tobacco',          match: '96%' },
-      { name: 'Yemen Mocha',        flavor: 'Dark Chocolate, Dried Fig, Cardamom', match: '91%' },
-    ],
-  },
-  experimental: {
-    name: 'Experimental',
-    color: '#056c7a',
-    wallpaper: wallpaperExperimental,
-    bag: bagExperimental,
-    shortDescription: 'Unexpected, wild, and expressive. Experimental coffees are for curious palates, bringing unusual processing, surprising flavor, and a sense of discovery.',
-    whyMatches: [
-      'You are drawn to coffees that feel different, surprising, and adventurous.',
-      'You may enjoy unusual flavor notes and less predictable cups.',
-      'You appreciate discovery, experimentation, and sensory play.',
-    ],
-    coffees: [
-      { name: 'Colombia Anaerobic Natural',   flavor: 'Fermented Mango, Passionfruit, Wine', match: '95%' },
-      { name: 'Ethiopia Carbonic Maceration', flavor: 'Kombucha, Hibiscus, Blueberry',       match: '88%' },
-    ],
-  },
-};
+// Website 7B (2026-11-06): the ARCHETYPES constant (names, colours, wallpapers,
+// bags, descriptions, "why you match" lines, coffee names with percentages) is
+// gone. Names come from the API (GET /api/coffees/archetypes, /experimental, or
+// the server's own scored name), colours from the shared ARCHETYPE_VISUALS
+// (fieldLook), the hero photo from quizResultAssets. The descriptions and why
+// lines have no data home yet (OT-84) and are not shown; no percentages (no data).
+// backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_7B_FIND_MY_FLAVOR_RESULT.md
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -490,7 +361,7 @@ export default function FlavorQuiz() {
   // ── Preview shortcut: /find-my-flavor?result=floral (or any archetype key) ──
   const [searchParams] = useSearchParams();
   const _previewParam  = searchParams.get('result') ?? '';
-  const isPreview      = _previewParam in ARCHETYPES;
+  const isPreview      = _previewParam in QUIZ_KEY_TO_SLUG;
   const previewKey     = isPreview ? (_previewParam as ArchetypeKey) : null;
 
   // Pre-Launch Gate — /find-my-flavor is itself always open, but the results
@@ -521,6 +392,9 @@ export default function FlavorQuiz() {
   // Quiz Resync Fix, 2026-09-25 — no placeholder archetype: null means "no
   // score yet", full stop. Every reader below must handle null explicitly.
   const [archetypeKey, setArchetypeKey] = useState<ArchetypeKey | null>(() => previewKey ?? null);
+  // Website 7B: the server's own name for the on-screen archetype (score or branch
+  // answer), set beside archetypeKey; the label from /api/coffees wins once loaded.
+  const [resultName, setResultName]     = useState<string | null>(null);
   const [scoreError, setScoreError]     = useState(false);
   // True only once a real score (or branch/tie resolution) has landed in
   // *this* mount — resets on retake and never implicitly true on load, so
@@ -566,6 +440,11 @@ export default function FlavorQuiz() {
   // spec's own caution, even though the two screens are unlikely to both be mounted
   // at once today.
   const [resultsSortOrder, setResultsSortOrder] = useState<number | null>(null);
+  // Website 7B: the saved position as read (never moved by a turn), so the hero's
+  // "your place on the dial" stays the match while the field below turns.
+  const [resultsSavedSortOrder, setResultsSavedSortOrder] = useState<number | null>(null);
+  // Website 7B: /api/coffees/cards, the field layout's presentation rows (as on /bloom).
+  const [coffeeCards, setCoffeeCards] = useState<CoffeeCards | null>(null);
   const [resultsRevealedKeys, setResultsRevealedKeys] = useState<Set<string>>(new Set());
   const resultsDialRef = useRef<BloomDialHandle | null>(null);
   const heroHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -685,6 +564,9 @@ export default function FlavorQuiz() {
       .then(r => r.json())
       .then((data: ArchetypeData) => setExperimentalData(data))
       .catch(err => reportError('[FlavorQuiz/experimental]', err));
+
+    // Website 7B: the result's field reads the family's cards, as /bloom does.
+    getCoffeeCards().then(setCoffeeCards).catch(err => reportError('[FlavorQuiz/cards]', err));
   }, []);
 
   const matchedArchetypeId = userProfile?.archetype?.id ?? null;
@@ -707,6 +589,12 @@ export default function FlavorQuiz() {
   // not one of the 5 archetypes with a public /match page) — underscore-to-hyphen
   // matches archetypeAssets' ARCHETYPE_SLUGS convention (chocolate_nutty -> chocolate-nutty).
   const shareSlug = !resultsArchetypeEnum || archetypeKey === 'experimental' ? null : resultsArchetypeEnum.replace('_', '-');
+
+  // Website 7B: the on-screen family name (the API's label; before it loads, the
+  // server's scored name) and its look (colour + ink, the shared ARCHETYPE_VISUALS).
+  // The same name every subscribe / analytics / funnel call sent before 7B.
+  const resultLabel = resultsArchetypeData?.archetypeLabel ?? resultName ?? null;
+  const resultLook = resultsArchetypeEnum ? fieldLook(resultsArchetypeEnum) : null;
 
   // Pre-set the dial to the signed-in user's saved position for this archetype (mirrors BloomPage.tsx Phase D).
   useEffect(() => {
@@ -742,9 +630,13 @@ export default function FlavorQuiz() {
   // Pre-set the results screen's dial to the signed-in user's saved position for the
   // just-scored archetype (mirrors the returning-user screen's own effect above).
   useEffect(() => {
+    // Website 7B: a retake into another family starts from that family's own stop,
+    // never the previous family's number.
+    setResultsSortOrder(null);
+    setResultsSavedSortOrder(null);
     if (!user || !resultsArchetypeData) return;
     getDialPosition(resultsArchetypeData.archetype)
-      .then(r => { if (r?.dialSortOrder != null) setResultsSortOrder(r.dialSortOrder); })
+      .then(r => { if (r?.dialSortOrder != null) { setResultsSortOrder(r.dialSortOrder); setResultsSavedSortOrder(r.dialSortOrder); } })
       .catch(err => reportError('[FlavorQuiz/dial-position-read]', err));
   }, [user, resultsArchetypeData?.archetype]);
 
@@ -815,7 +707,8 @@ export default function FlavorQuiz() {
     // an error; the guest just won't be recognized as returning next time.
     try { localStorage.setItem(POST_QUIZ_EMAIL_KEY, submittedEmail); } catch {}
     setPostQuizEmail(submittedEmail);
-    const name = ARCHETYPES[archetypeKey].name;
+    const name = resultLabel;
+    if (!name) return; // the gate renders only once the name is known (below)
     // Quiz Resync Fix, Part A5 — PostQuizEmailGate already POSTed this exact
     // subscribe call itself (see its handleSubmit) before calling onSuccess.
     // Mark it synced now so the resync effect below, which also depends on
@@ -841,7 +734,7 @@ export default function FlavorQuiz() {
     // but kept as an explicit second guard per the brief.
     if (!scoredThisSession) return;
     if (!archetypeKey || !resultsArchetypeData || (user && !user.isAnonymous) || !postQuizEmail) return;
-    const name = ARCHETYPES[archetypeKey].name;
+    const name = resultsArchetypeData.archetypeLabel;
     if (recognizedGuestSyncedRef.current === name) return;
     recognizedGuestSyncedRef.current = name;
     const activeCampaignResync = getActiveCampaign();
@@ -863,7 +756,7 @@ export default function FlavorQuiz() {
     // Quiz Resync Fix, Part A1/A2 — same guard as the guest effect above.
     if (!scoredThisSession) return;
     if (!user || user.isAnonymous || !archetypeKey || !resultsArchetypeData || !userProfile || !profileFetchDone) return;
-    const name = ARCHETYPES[archetypeKey].name;
+    const name = resultsArchetypeData.archetypeLabel;
     if (signedInSubscribeFiredRef.current === name) return;
     signedInSubscribeFiredRef.current = name;
     const wasAlreadySubscribed = userProfile.isNewsletterSubscriber === true;
@@ -893,8 +786,10 @@ export default function FlavorQuiz() {
   // the time the curtain renders the ~1MB JPG is already cached and there's no pop-in
   // even on a slow connection. Pairs with the opaque backgroundColor fallback on the
   // curtain div itself below, which covers the case this doesn't (a cold cache).
+  // Website 7B: the hero is now the family's result photo (the one the wrap
+  // ceremony already shows), so that is what is preloaded.
   useEffect(() => {
-    const src = archetypeKey ? ARCHETYPES[archetypeKey]?.wallpaper : undefined;
+    const src = archetypeKey ? quizResultAssets[QUIZ_KEY_TO_SLUG[archetypeKey]].src : undefined;
     if (src) new Image().src = src;
   }, [archetypeKey]);
 
@@ -940,11 +835,6 @@ export default function FlavorQuiz() {
     if (resultHeroShown) heroHeadingRef.current?.focus();
   }, [resultHeroShown]);
 
-  // Only dereferenced (archetype!.x) in JSX that renders inside isComplete —
-  // isComplete only ever becomes true after archetypeKey has been set from a
-  // real score (see the WrapOverlay/onShowResult wiring below), so archetype
-  // is never actually undefined where it's read. Null before that.
-  const archetype = archetypeKey ? ARCHETYPES[archetypeKey] : null;
 
   // The scoring result carries the full picture (secondary archetype, food signal,
   // recommendation mode, experimental flag). Every save path must send all of it —
@@ -1021,6 +911,7 @@ export default function FlavorQuiz() {
         return;
       }
       setArchetypeKey(key);
+      setResultName(score.archetype);
       setScoredThisSession(true);
 
       // Tie detected — show interstitial before branch or result
@@ -1088,6 +979,7 @@ export default function FlavorQuiz() {
     // Quiz Resync Fix Part A3 — no placeholder archetype; null until the
     // retaken quiz actually scores. Part A1 — scoredThisSession resets too.
     setArchetypeKey(null);
+    setResultName(null);
     setScoredThisSession(false);
     sessionKeyRef.current = crypto.randomUUID();
     quizStartFiredRef.current = false;
@@ -1105,6 +997,11 @@ export default function FlavorQuiz() {
   handleNextRef.current = handleNext;
 
   const handleAnswerSelect = (answerId: string, answerIdx: number) => {
+    // Website 7B (found in acceptance): the last question stays mounted under the
+    // scoring status and the wrap ceremony, and 7A's letter keys reach it there; a
+    // pick then re-scored and re-saved, and the screen could show a different
+    // family from the one saved. No pick counts once scoring or the wrap has begun.
+    if (isScoring || isWrapping) return;
     if (currentStep === 0 && !quizStartFiredRef.current) {
       quizStartFiredRef.current = true;
       trackEvent('QuizStart');
@@ -1129,6 +1026,7 @@ export default function FlavorQuiz() {
   }
 
   const handleBranchAnswerSelect = (answerId: string) => {
+    if (isWrapping) return; // Website 7B: same guard as handleAnswerSelect
     setSelectedBranchAnswerId(answerId);
     if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
     autoAdvanceRef.current = setTimeout(() => {
@@ -1147,6 +1045,7 @@ export default function FlavorQuiz() {
         return;
       }
       setArchetypeKey(newKey);
+      setResultName(finalArchetypeName);
       setScoredThisSession(true);
 
       // Quiz Resync Fix Part A4 — the post-branch, on-screen result, on its own row.
@@ -1461,19 +1360,45 @@ export default function FlavorQuiz() {
     setIsWrapping(true);
   };
 
-  const archetypeNameMapTie: Record<string, string> = {
-    floral: 'Floral', fruity: 'Fruity', balanced: 'Balanced',
-    chocolate: 'Chocolate & Nutty', spicy: 'Earthy', experimental: 'Experimental',
+  // Website 7B: the tied families' names from the API (the typed name map is gone).
+  const tiedLabel = (k: string) => {
+    const key = ARCHETYPE_NAME_TO_KEY[k] ?? ARCHETYPE_NAME_TO_KEY[k.toLowerCase()];
+    return (key ? findArchetypeData(ARCHETYPE_KEY_TO_ENUM[key])?.archetypeLabel : null) ?? k;
   };
-  const tiedNames = isOnTie ? (scoreData!.tiedArchetypes ?? []).map(k => archetypeNameMapTie[k.toLowerCase()] ?? k) : [];
+  const tiedNames = isOnTie ? (scoreData!.tiedArchetypes ?? []).map(tiedLabel) : [];
   const tiedParam = isOnTie ? (scoreData!.tiedArchetypes ?? []).join(',') : '';
 
-  // CSS helper for the result hero naming stagger
-  const stagger = (delay: string) => ({
-    opacity:    resultHeroShown ? 1 : 0,
-    transform:  resultHeroShown ? 'none' : 'translateY(12px)',
-    transition: `opacity 0.7s ease ${delay}, transform 0.7s ease ${delay}`,
+  // ── Website 7B: the result hero, from data ──
+  // The match's stop: the saved position for this family, else the stop the dial
+  // opens on (Website 6 B2, the same rule as /bloom). The dial below is pre-set to it.
+  const heroSortOrder = resultsArchetypeData ? (resultsSavedSortOrder ?? openingSortOrder(resultsArchetypeData)) : null;
+  const heroSlots = resultsArchetypeData ? [...resultsArchetypeData.slots].sort((a, b) => a.dialSortOrder - b.dialSortOrder) : [];
+  const heroIdx = heroSlots.findIndex(sl => sl.dialSortOrder === heroSortOrder);
+  const heroSlot = heroIdx >= 0 ? heroSlots[heroIdx] : null;
+  const heroLine = composeResultLine({
+    words: resultsArchetypeData?.customerWords,
+    stopNumber: heroIdx >= 0 ? heroIdx + 1 : null,
+    stopLabel: heroSlot?.positionLabel,
+    // the coffee at that stop, only when there is one (the field's own hasCoffee rule)
+    coffeeName: heroSlot && heroSlot.isActive && heroSlot.coffeeId != null ? heroSlot.platformName : null,
   });
+  const heroDialHref = resultsArchetypeEnum
+    ? `/bloom?archetype=${resultsArchetypeEnum}${heroSortOrder != null ? `&slot=${heroSortOrder}` : ''}`
+    : '/bloom';
+  // Same rule as Home's "Talk to Liam": hidden while gated; signed out -> sign in first; members need access.
+  const liamHref = prelaunchGated ? null
+    : (!user || user.isAnonymous) ? '/sign-in?redirect=/sommelier'
+    : hasLiamAccess ? '/sommelier' : null;
+  // The header over the wash: paper on the dark families, ink on Balanced's yellow
+  // (its ARCHETYPE_VISUALS ink is not paper).
+  const heroTone: Tone = resultLook && resultLook.ink.toLowerCase() !== '#f1efe5' ? 'ink' : 'paper';
+  const familyCards = resultsArchetypeEnum ? coffeeCards?.families.find(f => f.archetype === resultsArchetypeEnum)?.cards : undefined;
+  function turnTheDial() {
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const target = (resultsArchetypeEnum && document.getElementById(resultsArchetypeEnum)) || document.getElementById('qz-next');
+    target?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  }
+
 
   return (
     <>
@@ -1549,14 +1474,13 @@ export default function FlavorQuiz() {
       {/* ── Result screen ────────────────────────────────────────────────────── */}
       {isComplete && (
         <div>
-          <QuizHeader />
-
           {prelaunchGated ? (
             /* Pre-Launch Reveal-in-Inbox — sealed ending. No Section 1 reveal
                (no archetype name/wallpaper/color), no Sections 2-3: the email
                card (or, once unlocked, a confirmation) IS the entire screen.
-               Reused verbatim once the flag flips off / under ?preview=true —
-               see the unchanged branch below. */
+               Website 7B leaves it as 7A did (its own QuizHeader). */
+            <>
+            <QuizHeader />
             <section style={{ background: 'var(--ab-paper)', minHeight: 'calc(100dvh - 52px)', display: 'flex', alignItems: 'center', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>
               {emailGateUnlocked ? (
                 <div style={{ maxWidth: 480, margin: '0 auto', textAlign: 'left' }}>
@@ -1567,9 +1491,9 @@ export default function FlavorQuiz() {
                     You're on the first-access list for this fall.
                   </p>
                 </div>
-              ) : (
+              ) : resultLabel ? (
                 <PostQuizEmailGate
-                  archetypeName={archetype!.name}
+                  archetypeName={resultLabel}
                   archetypeColor={RUST}
                   experimental={archetypeKey === 'experimental'}
                   confidence={scoreData?.foodSignalAlignment}
@@ -1578,192 +1502,145 @@ export default function FlavorQuiz() {
                   sealed
                   initialFirstName={userName}
                 />
-              )}
+              ) : null}
             </section>
+            </>
           ) : (
             <>
-              {/* Hero — night-scan photo, naming staggers in as papers part */}
-              <section style={{ position: 'relative', height: '100dvh', background: '#141110' }}>
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  backgroundImage: `url(${nightScanSrc})`,
-                  backgroundSize: 'cover', backgroundPosition: 'center',
-                }} />
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  background: 'linear-gradient(180deg, rgba(16,12,10,.15) 30%, rgba(16,12,10,.72) 100%)',
-                }} />
-                <div style={{ position: 'absolute', left: 0, right: 0, bottom: '11vh', textAlign: 'center', zIndex: 2 }}>
-                  <p style={{ fontSize: 13, letterSpacing: '.26em', textTransform: 'uppercase', color: 'rgba(242,241,234,.92)', marginBottom: 18, ...stagger('.2s') }}>
-                    {userName ? `${userName} —` : 'Your profile —'}
-                  </p>
-                  <p style={{ fontSize: 11, letterSpacing: '.3em', textTransform: 'uppercase', color: 'rgba(242,241,234,.6)', marginBottom: 16, ...stagger('.35s') }}>
-                    Your coffee archetype
-                  </p>
-                  <div
-                    aria-hidden="true"
-                    style={{
-                      width: 56, height: 3, margin: '0 auto 20px',
-                      background: `color-mix(in srgb, ${archetype!.color} 82%, #f2f1ea)`,
-                      opacity: resultHeroShown ? 1 : 0,
-                      transform: resultHeroShown ? 'scaleX(1)' : 'scaleX(.3)',
-                      transition: 'opacity 0.7s ease 0.45s, transform 0.7s cubic-bezier(.22,1,.36,1) 0.45s',
-                    }}
-                  />
-                  <h1
-                    ref={heroHeadingRef}
-                    tabIndex={-1}
-                    style={{
-                      fontSize: 'clamp(36px,7.5vw,104px)', fontWeight: 400, lineHeight: 1.05,
-                      color: '#f2f1ea', margin: '0 0 26px', outline: 'none',
-                      ...stagger('.55s'),
-                    }}
-                  >
-                    {archetype!.name}.
-                  </h1>
-                  <p style={{ maxWidth: 560, margin: '0 auto', fontSize: 15.5, lineHeight: 1.7, color: 'rgba(242,241,234,.88)', padding: '0 clamp(20px,5vw,32px)', ...stagger('.7s') }}>
-                    {archetype!.shortDescription}
-                  </p>
-                </div>
-                {/* Scroll cue */}
-                <div aria-hidden="true" style={{
-                  position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)',
-                  width: 1, height: 26, zIndex: 2,
-                  background: `color-mix(in srgb, ${archetype!.color} 70%, #f2f1ea)`,
-                }} />
-              </section>
+              {/* Website 7B — the hero as drawn (build.py #result): the family's photo
+                  under its wash, the naming staggering in as the papers part. */}
+              <ResultScene
+                image={{ asset: quizResultAssets[QUIZ_KEY_TO_SLUG[archetypeKey!]], fallback: quizSceneAssets.result }}
+                header={<Navigation tone={heroTone} floating />}
+                color={resultLook?.color ?? RUST}
+                ink={resultLook?.ink ?? 'var(--ab-paper)'}
+                name={userName.trim()}
+                familyLabel={resultLabel ?? ''}
+                line={heroLine}
+                dialHref={heroDialHref}
+                onTurnDial={turnTheDial}
+                liamHref={liamHref}
+                shown={resultHeroShown}
+                headingRef={heroHeadingRef}
+              />
 
-              {/* Share row — available before gate unlock, hidden for Experimental (no share page) */}
-              <ShareMatchRow archetypeName={archetype!.name} shareSlug={shareSlug} />
+              <div className="qz-after" id="qz-next" data-testid="quiz-result-after">
+                {/* Share row — available before gate unlock, hidden for Experimental (no share page) */}
+                {resultLabel && <ShareMatchRow archetypeName={resultLabel} shareSlug={shareSlug} />}
 
-              {/* Gate / post-hero. Part 24 — the archetype block(s) below now unfold
-                  in breakout mode, whose 40/60 + centering math assumes a plain,
-                  unpadded ~760px column (Part 22's own column, same pattern as
-                  Find My Flavor returning's px-6/max-w-[760px] split above). This
-                  screen never had that wrapper — its DialArchetypeSection mounts
-                  rendered at the full page width, which the old inline unfold
-                  papered over (fixed 480px card, self-centered via flexbox) but
-                  breakout's width:100% reading column does not: caught live as a
-                  match card stretched edge-to-edge across a wide monitor. */}
-              {emailGateUnlocked ? (
-                <>
-                <div className="px-6 md:px-10 pb-20">
-                <div className="max-w-[760px] mx-auto">
-                  <GateStatusNote
-                    showSignedInConsentNote={showSignedInConsentNote}
-                    guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
-                  />
-                  {resultsArchetypeData && (
-                    <>
-                      {/* Part 21 §3.1 — new result header, above the folded block:
-                          micro "Your match" -> archetype name large -> family
-                          line (matchCopy.ts). Distinct from the cinematic
-                          night-scan hero above (that's the reveal moment); this
-                          is the block's own header, bridging into commerce. */}
-                      <div style={{ textAlign: 'center', margin: '0 auto', padding: '0 20px 34px', maxWidth: 680 }}>
-                        <p style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#7b7f80', marginBottom: 12 }}>
-                          Your match
-                        </p>
-                        <p style={{ fontSize: 'clamp(40px, 7vw, 60px)', fontWeight: 500, color: '#a02c1c', letterSpacing: '-0.01em', lineHeight: 0.95, margin: 0 }}>
-                          {resultsArchetypeData.archetypeLabel.toUpperCase()}
-                        </p>
-                        <p style={{ fontSize: 15.5, fontWeight: 300, color: '#45474a', marginTop: 14 }}>
-                          {FAMILY_LINES[resultsArchetypeEnum!] ?? `That's your family — ${resultsArchetypeData.archetypeLabel.toLowerCase()}, through and through.`}
-                        </p>
-                      </div>
-                      <DialArchetypeSection
-                        data={resultsArchetypeData}
-                        index={0}
-                        selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
-                        revealedKeys={resultsRevealedKeys}
-                        onDialSelect={handleResultsDialSelect}
-                        onToggleReveal={toggleResultsReveal}
-                        onAddToCart={addToCart}
-                        onCompare={openResultsCompare}
-                        userArchetype={matchedArchetypeId}
-                        registerDialRef={registerResultsDialRef}
-                        source="find_my_flavor_results"
-                        embedded
-                        onDoorClick={handleResultsDoorClick}
-                        folded
-                        unfoldMode="breakout"
-                        showBreakoutHeader={false}
-                        ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
-                        prelaunch={prelaunchGated}
-                        onOpenChange={open => setResultsOpenBlock(prev => open ? 'primary' : (prev === 'primary' ? null : prev))}
-                        forceFold={resultsOpenBlock === 'adjacent'}
-                      />
-                    </>
-                  )}
-
-                  {/* Part 17 §F — same Worth Exploring + adjacent-section mechanism as the
-                      returning-user screen above and Profile.tsx. */}
-                  {resultsArchetypeEnum && archetypesList.length > 0 && (
-                    <div className="max-w-2xl mx-auto px-6 mt-2">
-                      <WorthExploring
-                        matchArchetypeId={resultsArchetypeEnum}
-                        adjacency={adjacency}
-                        archetypesList={archetypesList}
-                        activeArchetype={resultsAdjacent.adjacentArchetypeId}
-                        onSelect={resultsAdjacent.handleChipClick}
+                {emailGateUnlocked ? (
+                  <>
+                    <div className="qz-col">
+                      <GateStatusNote
+                        showSignedInConsentNote={showSignedInConsentNote}
+                        guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
                       />
                     </div>
-                  )}
-                  {resultsAdjacent.adjacentData && (
-                    <div ref={resultsAdjacent.sectionRef}>
-                      <DialArchetypeSection
-                        data={resultsAdjacent.adjacentData}
-                        index={1}
-                        selectedSortOrder={resultsAdjacent.adjacentSortOrder ?? computeDefaultSortOrder(resultsAdjacent.adjacentData)}
-                        revealedKeys={resultsAdjacent.adjacentRevealedKeys}
-                        onDialSelect={resultsAdjacent.handleDialSelect}
-                        onToggleReveal={resultsAdjacent.toggleReveal}
-                        onAddToCart={addToCart}
-                        onCompare={openResultsCompare}
-                        userArchetype={matchedArchetypeId}
-                        registerDialRef={resultsAdjacent.registerDialRef}
-                        source="find_my_flavor_results"
-                        embedded
-                        onDoorClick={handleResultsDoorClick}
-                        prelaunch={prelaunchGated}
-                        folded
-                        unfoldMode="breakout"
-                        onOpenChange={open => setResultsOpenBlock(prev => open ? 'adjacent' : (prev === 'adjacent' ? null : prev))}
-                        forceFold={resultsOpenBlock === 'primary'}
-                      />
-                    </div>
-                  )}
-
-                  {/* Way out of the results: where the profile lives, and home. Signed-in
-                      users get both; anonymous users' profile path is the email gate above. */}
-                  <nav aria-label="Next steps" className="flex flex-wrap justify-center gap-x-9 gap-y-3 mt-14">
-                    {user && !user.isAnonymous && (
-                      <Link to="/profile" className={QUIET_LINK_CLASS}>Your flavor profile →</Link>
+                    {resultsArchetypeData && heroSortOrder != null && (
+                      <>
+                        {/* Part 21 §3.1 — the result header above the dial: "Your match",
+                            the family name, the family line (matchCopy.ts). */}
+                        <div className="qz-col qz-mhead" data-testid="quiz-result-header">
+                          <Caps weight={400}>Your match</Caps>
+                          <p className="qz-mhead-name">{resultsArchetypeData.archetypeLabel}</p>
+                          <p className="qz-mhead-line">
+                            {FAMILY_LINES[resultsArchetypeEnum!] ?? `That's your family — ${resultsArchetypeData.archetypeLabel.toLowerCase()}, through and through.`}
+                          </p>
+                        </div>
+                        {/* Website 7B: brief 5's field (wheel, coffee, comfort zone, reveal,
+                            lineup, quick picks), pre-set to the match's stop. */}
+                        <DialArchetypeSection
+                          layout="field"
+                          data={resultsArchetypeData}
+                          cards={familyCards}
+                          index={0}
+                          selectedSortOrder={resultsSortOrder ?? heroSortOrder}
+                          revealedKeys={resultsRevealedKeys}
+                          onDialSelect={handleResultsDialSelect}
+                          onToggleReveal={toggleResultsReveal}
+                          onAddToCart={addToCart}
+                          onCompare={openResultsCompare}
+                          // Website 7B: the field's comfort zone reads against the family just
+                          // scored (guests included), never "Find your flavor" on the result itself.
+                          userArchetype={resultsArchetypeEnum ?? matchedArchetypeId}
+                          registerDialRef={registerResultsDialRef}
+                          source="find_my_flavor_results"
+                          prelaunch={prelaunchGated}
+                          onDoorClick={handleResultsDoorClick}
+                          hideQuizLink
+                        />
+                      </>
                     )}
-                    <Link to="/" className={QUIET_LINK_CLASS}>Back to home →</Link>
-                  </nav>
-                </div>
-                </div>
-                <CompareOverlay
-                  open={resultsCompareState.open}
-                  onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
-                  left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
-                  archetypes={archetypesList}
-                />
-                </>
-              ) : (
-                <section style={{ background: '#f2f1ea', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>
-                  <PostQuizEmailGate
-                    archetypeName={archetype!.name}
-                    archetypeColor={archetype!.color}
-                    experimental={archetypeKey === 'experimental'}
-                    confidence={scoreData?.foodSignalAlignment}
-                    sessionKey={sessionKeyRef.current!}
-                    onSuccess={handleGateSuccess}
-                    initialFirstName={userName}
-                  />
-                </section>
-              )}
+
+                    <div className="qz-col">
+                      {/* Part 17 §F — same Worth Exploring + adjacent-section mechanism as the
+                          returning-user screen above and Profile.tsx. */}
+                      {resultsArchetypeEnum && archetypesList.length > 0 && (
+                        <div className="mt-10">
+                          <WorthExploring
+                            matchArchetypeId={resultsArchetypeEnum}
+                            adjacency={adjacency}
+                            archetypesList={archetypesList}
+                            activeArchetype={resultsAdjacent.adjacentArchetypeId}
+                            onSelect={resultsAdjacent.handleChipClick}
+                          />
+                        </div>
+                      )}
+                      {resultsAdjacent.adjacentData && (
+                        <div ref={resultsAdjacent.sectionRef}>
+                          <DialArchetypeSection
+                            data={resultsAdjacent.adjacentData}
+                            index={1}
+                            selectedSortOrder={resultsAdjacent.adjacentSortOrder ?? computeDefaultSortOrder(resultsAdjacent.adjacentData)}
+                            revealedKeys={resultsAdjacent.adjacentRevealedKeys}
+                            onDialSelect={resultsAdjacent.handleDialSelect}
+                            onToggleReveal={resultsAdjacent.toggleReveal}
+                            onAddToCart={addToCart}
+                            onCompare={openResultsCompare}
+                            userArchetype={matchedArchetypeId}
+                            registerDialRef={resultsAdjacent.registerDialRef}
+                            source="find_my_flavor_results"
+                            embedded
+                            onDoorClick={handleResultsDoorClick}
+                            prelaunch={prelaunchGated}
+                            folded
+                            unfoldMode="breakout"
+                            onOpenChange={open => setResultsOpenBlock(prev => open ? 'adjacent' : (prev === 'adjacent' ? null : prev))}
+                            forceFold={resultsOpenBlock === 'primary'}
+                          />
+                        </div>
+                      )}
+
+                      {/* Way out of the results: where the profile lives, and home. Signed-in
+                          users get both; anonymous users' profile path is the email gate above. */}
+                      <nav aria-label="Next steps" className="qz-endrow" data-testid="quiz-end-row">
+                        {user && !user.isAnonymous && (
+                          <Link to="/profile" className="ab-caps qz-ulink">Your flavor profile →</Link>
+                        )}
+                        <Link to="/" className="ab-caps qz-ulink">Back to home →</Link>
+                      </nav>
+                    </div>
+                    <CompareOverlay
+                      open={resultsCompareState.open}
+                      onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
+                      left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
+                      archetypes={archetypesList}
+                    />
+                  </>
+                ) : resultLabel ? (
+                  <section className="qz-gatewrap">
+                    <PostQuizEmailGate
+                      archetypeName={resultLabel}
+                      archetypeColor={resultLook?.color ?? RUST}
+                      experimental={archetypeKey === 'experimental'}
+                      confidence={scoreData?.foodSignalAlignment}
+                      sessionKey={sessionKeyRef.current!}
+                      onSuccess={handleGateSuccess}
+                      initialFirstName={userName}
+                    />
+                  </section>
+                ) : null}
+              </div>
             </>
           )}
         </div>
@@ -1784,13 +1661,9 @@ export default function FlavorQuiz() {
 
       {/* Quiz layout hides the public nav/footer — a minimal legal link stands in for it. */}
       {isComplete && (
-        <div style={{ padding: 'clamp(20px, 3vw, 32px)', textAlign: 'center' }}>
-          <Link to="/privacy" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: '#7a2018', opacity: 0.45, textDecoration: 'none', marginRight: 20 }}>
-            Privacy
-          </Link>
-          <Link to="/terms" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: '#7a2018', opacity: 0.45, textDecoration: 'none' }}>
-            Terms
-          </Link>
+        <div className="qz-legal ab-caps" style={{ fontWeight: 400 }}>
+          <Link to="/privacy">Privacy</Link>
+          <Link to="/terms">Terms</Link>
         </div>
       )}
 
