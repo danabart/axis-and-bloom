@@ -406,7 +406,20 @@ The run continues through Parts A–D to push, deploy, `catalog:md`, startup log
 
 ## Evidence
 
-BACKEND_RESULT
+**Backend:**
+- `db/archetypeRelationships.test.ts` **10/10**:
+  - `profileDistance`;
+  - hops → adjacent, profile within the significant threshold → adjacent, further → distant, too few cupped coffees → unlabelled, with the order;
+  - profile-adjacent ordering by distance;
+  - guests and unknown codes get no codes;
+  - `getArchetypeOrder` is the projection;
+  - no `archetype_vector` in the service;
+  - the lookup seed run twice gives the three rows with every word;
+  - the route payload, matched and guest;
+  - AU8 `archetypeCustomerWords`.
+- `coffeePresentation3.test.ts` (the hop-order tests, now with no profiles in their fixture) passes. `comments.format` passes.
+- **Full suite:** 1146 / 1161. 7 are the known baseline (6 `quizScoring`, OT-73 `catalog_blueprint`). The other 8 were timeouts on a slow test database (30–120 s: `catalogSizes` ×3, `roasteryPortalPart3` ×2, `coffeePresentation2` ×3; no session was blocked, only slow view queries). Rerun alone, those three files pass, **44/44**.
+- **CI lints, all exit 0:** `lint:catalog`, `lint:retention`, `lint:customer`, `lint:roastery-portal`, `lint:cupping`, `lint:lineage`. Backend `tsc --noEmit` clean.
 
 **Frontend:**
 - vitest **140/140** (11 files). New: `website9.test.tsx` (9):
@@ -442,4 +455,50 @@ BACKEND_RESULT
 
 Screenshots: `scratchpad/a9b/after-field-*.png`, `after-lineup-*.png`, `after-fullprofile-*.png`.
 
-PROD_EVIDENCE
+**Production:**
+- **Commit and deploy:** `1870047`, run 42315736776 green (backend and frontend), revision **`axis-bloom-backend-00836-gvr`**.
+- **Startup log:** no ERROR. `DB schema verified`, `[db-comments] applied 1659 statements`, `[db-roles] schema applied as axisbloom; request pool is ab_app`. The known findings only: `[sommelier-integrity]` #3, `[evidence-integrity]` #2 and #6, `[quiz-integrity]` #10, and `[data-catalog]` 156 tables / 78 views / 1425 columns with #6 (dead tables) and #4 "CATALOG.md stale".
+- **`catalog:md`:** `npm run catalog:md -- --expect-db axisandbloom` wrote `CATALOG.md` (catalog-hash `453228a9…`, the live hash in the boot log, so #4 clears on the next boot), committed with this report.
+- **`GET /api/coffees/archetype-order` on production:**
+
+  | Customer family | Your family | Worth exploring | Outside your comfort zone | No label (OT-95) |
+  |---|---|---|---|---|
+  | Chocolate & Nutty | Chocolate & Nutty | Fruity | Balanced | Floral, Earthy |
+  | Fruity | Fruity | Chocolate & Nutty, Balanced | — | Floral, Earthy |
+  | Balanced | Balanced | Fruity | Chocolate & Nutty | Floral, Earthy |
+  | Floral | Floral | — | — | all four |
+  | Earthy | Earthy | — | — | all four |
+
+  - Every non-own class is profile-based: production has no bridge hops.
+  - Floral and Earthy have too few cupped coffees for a profile (`archetype_profile_min_coffees`).
+  - A guest gets the order, the three words and no `relationships`.
+- **Dana's Chrome, signed in as admin, desktop width 2195 px.** Resizing doesn't change the page width; the 390 and 1280 evidence is the acceptance table above, same build. Nothing that writes was clicked: no dial turn, no card click, no quiz.
+  - **`/bloom`:**
+    - tabs "YOUR FAMILY · Chocolate & Nutty", "WORTH EXPLORING · Fruity", "OUTSIDE YOUR COMFORT ZONE · Balanced", then "Floral", "Earthy" (no kicker);
+    - the wheel column `align-self: start`;
+    - the drag strip is 47 px;
+    - the aside reads "In your comfort zone" from the lookup;
+    - Full profile ↗ → `/flavor-intelligence?archetype=chocolate_nutty&slot=1` at `scrollY` 0, title on screen.
+  - **`/shop`:** "04 — YOUR FAMILY", "02 — WORTH EXPLORING", "03 — OUTSIDE YOUR COMFORT ZONE", "01 — FAMILY OF TASTE", "05 — FAMILY OF TASTE".
+  - **`/`:** section 03 "You're a Chocolate & Nutty — shop your matches." beside `optimized/home/family-chocolate-nutty.webp` (`data-family=chocolate_nutty`).
+  - **`/sign-in`:** while signed in it lands on `/profile`.
+  - **`/profile`:**
+    - "Your archetype" reads Full / Grounded / Comforting (the family's words);
+    - the card tag reads PREMIUM ★ (no award wording);
+    - the card's shipping line reads "Free shipping with 2 bags";
+    - the page is on the tokens.
+  - **`/the-axis`:** the rewritten lines are live and none of the three "not" lines remain.
+  - **The floating buttons:** `rgb(186, 76, 56)` (`--ab-ink`).
+  - **Extension limits:** it again failed once with "Cannot access a chrome-extension:// URL of different extension" and once timed out on a screenshot; the checks above are from the retries.
+- **Not checked on production:**
+  - a real wheel drag and a lineup click signed in, because both save Dana's dial position. They are covered by the acceptance table on the production catalogue.
+  - `/checkout/return`, which needs an order.
+  - **For Dana:** turn the dial on `/bloom` and click a lineup square in your own browser (item 2.1 and 2.3).
+
+## Deviations and notes
+
+- **The order rule:** coffee presentation brief 3 decision 1 ("adjacency, not distance") is extended by Q1 = C, as decided today.
+- **Experimental and category coffees no longer get a compatibility badge.** They have no family relationship; before, they always read "Outside your comfort zone". Logged as OT-97 for Dana.
+- **OT-67 covered the five old palette literals.** The neutral greys and the typed family colours in `routes/users.ts` stay (OT-98).
+- **The order-placed beat (generated text) and `order_fulfillment_status` "Paid · being roasted"** are data and prompt changes outside this brief (OT-96).
+- **New open tasks:** OT-95 (unlabelled families until there are more cuppings or hops), OT-96, OT-97, OT-98. **Closed:** OT-67, OT-93, OT-94.
