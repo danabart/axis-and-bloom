@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-07 from database `axisandbloom` · 156 tables · 78 views · 1425 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `453228a96304` (full value in the footer).
+Generated 2026-11-07 from database `axisandbloom` · 156 tables · 78 views · 1425 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `415d005a1478` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -591,7 +591,7 @@ Lookup of an order's fulfillment states (pending legacy, awaiting_manual, placed
 | `id` | integer | no | Surrogate primary key; code is the natural key. |
 | `code` | text | no | Status code, unique. pending is the pre-Stripe column default kept for legacy rows; canceled is spelled the Stripe way. |
 | `label` | text | no | Admin-facing label. |
-| `customer_label` | text | no | Customer-facing words, such as Paid · being roasted; needs_attention shows the same words as awaiting_manual (an internal problem is never shown to the customer). |
+| `customer_label` | text | no | Customer-facing words, facts only (D14): Paid, Paid · sent to the roastery, On its way, Delivered, Canceled; needs_attention and pending show the same words as awaiting_manual (an internal problem is never shown to the customer). Changed by the seed-upgrade block in schema.sql (Website 10, OT-96): a label moves only while it still equals the previous seed value, never over an edited one. |
 | `is_closed` | boolean | no | True for the states that end an order (delivered, canceled); catalogService counts an order as open while this is false. |
 
 #### `order_payment_status`
@@ -3979,7 +3979,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `order` | checkoutService | checkoutService (INSERT) | admin, behavioralConfidence, brewCard, catalogService, checkoutService, commerceAdminReads, customerReads, engagementMetrics, exportCalibration, index, orders, qrDoor, shipmentService, staleGuestCleanup, userSignals, users | v_customer_bag_attribution, v_customer_calibration, v_customer_timeline, v_order_status, v_orders_weekly, v_palate_evidence, v_palate_recommendation_outcome |
 | `order_event` | checkoutService | checkoutService (INSERT) | catalogService, checkoutService, commerceAdminReads, index, orders, shipmentService, users | v_order_status |
 | `order_event_kind` | seed | seed (INSERT) | commerceAdminReads | — |
-| `order_fulfillment_status` | seed | seed (INSERT) | catalogService, checkoutService, commerceAdminReads, index, orders, shipmentService, users | v_order_status |
+| `order_fulfillment_status` | seed | seed (INSERT, UPDATE) | catalogService, checkoutService, commerceAdminReads, index, orders, shipmentService, users | v_order_status |
 | `order_line_item` | checkoutService, seed | checkoutService (INSERT), seed (UPDATE) | admin, backfillCustomerFacts, behavioralConfidence, brewCard, catalogService, checkoutService, commerceAdminReads, customerIntegrity, customerReads, engagementMetrics, exportCalibration, orders, qrDoor, userSignals, users | v_customer_bag_attribution, v_customer_calibration, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome |
 | `order_payment_status` | seed | seed (INSERT) | catalogService, checkoutService, commerceAdminReads, index, orders, shipmentService, users | v_order_status |
 | `order_refund_reason` | seed | seed (INSERT) | checkoutService, commerceAdminReads | — |
@@ -4079,5 +4079,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: 453228a96304b89486741b5c662091e73ff76089b665da998a18b9a96f13d036
-lineage-hash: 62f1a626ac383fa21c3f525e16b0da221c8c086f18ea906fb48fc53ce615b8e6
+catalog-hash: 415d005a1478a6a431adcae9d5a971aa159b388a1473fff87c65800c78d3fc8a
+lineage-hash: 122d0bec26081c603207efab078c353b1a8a56973947528e56a3792338aa9d3f

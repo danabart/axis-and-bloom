@@ -33,3 +33,37 @@ The label reaches the customer only through `v_order_status.customer_label` (`sc
 - Household files (`FamilyTab`, `JoinHousehold`, `routes/household.ts`) are not touched by any of the above.
 
 Task 0 does not contradict the brief. Proceeding to Part A.
+
+## What was built
+
+**Part A (OT-96).** `schema.sql`: the `order_fulfillment_status` seed INSERT carries the fact labels, and a seed-upgrade block right after it (`-- seed-upgrade:order_fulfillment_status:begin/end`) moves `pending`, `awaiting_manual`, `needs_attention` to "Paid" and `placed` to "Paid · sent to the roastery", each only while the live value still equals the previous seed. `shipped` "On its way", `delivered`, `canceled` unchanged. Writer stays `seed` (CATALOG now lists `seed (INSERT, UPDATE)`); `comments.sql` column comment says which mechanism. `/checkout/return`: "Your order is placed." stays the headline (or the generated beat when it exists); a caps status line under it reads `order.customerLabel` from the existing session-status payload. Profile orders needed no code change (already render `v_order_status.customer_label`).
+
+**Part B.** `App.tsx`: `RETIRED_ROUTES` (`/about` → `/`, `/how-it-works` → `/the-axis`) through the existing `ShortLink` forward (exported; reuse, not a new redirect component), so the incoming query (`?preview=true`) is kept and the target keeps its own pre-launch gate. Removed the two admin nav links, `PublicLayout`'s `footerInPage`, the `prelaunch.ts` comment; deleted `About.tsx`, `HowItWorks.tsx`, `TasteFinderSection.tsx`, `StripesDivider.tsx`; one stale comment in `design/assets.ts`. Registry keys kept, listed as OT-100.
+
+## Tests
+
+- Backend `db/orderStatusLabels.test.ts` (5): the block exists; the six labels; no label says roasting/preparing/fresh/timing; old seed values → upgrade moves 3 rows, a second run moves 0; an edited `placed` label survives the upgrade. Labels restored in `afterAll`. `services/checkoutService.test.ts` now expects "Paid".
+- Frontend `components/website10.test.tsx` (5): `/about` → `/`, `/how-it-works` → `/the-axis`, query kept; the return page shows the API's label under "Your order is placed."; no line when the label is null.
+- Full suites: backend 1159 passed / 7 failed = the known baseline (6 `quizScoring` + OT-73 `schema.catalog_blueprint`); frontend 145/145. CI lints all exit 0 (`lint:catalog`, `retention`, `customer`, `roastery-portal`, `cupping`, `lineage`); backend `tsc` clean; frontend `tsc` the known 7 only; `vite build` clean.
+
+## Acceptance
+
+**Test DB** (`backend/tmp/w10_accept.ts`, read-only, guarded on `_test`): lookup labels as above; all 7 orders `awaiting_manual`/`paid` → "Paid" in `v_order_status`; order `57f92768…` `getOrderSummary` → "Paid"; Profile route column → "Paid"; `getSessionStatus` for checkout session `10435e8e…` → `order.customerLabel` "Paid". Liam's `customer_orders` resolver reads no status (unchanged by design).
+
+**Production**, after deploy:
+- Commit `1fd5b62`, deploy run `42376491509` green (backend + frontend), revision `axis-bloom-backend-00838-q7j`.
+- Startup log: schema verified, no ERROR. `[data-catalog]` check #4 reported CATALOG stale (expected, the comment changed) and is regenerated in the follow-up commit (hash `415d005a1478…`). The other findings (`quiz-integrity` #10, `evidence-integrity` #2/#6, `sommelier-integrity` #3, dead-table candidates) are the same as on rev 00837.
+- Read-only SELECT (`backend/tmp/w10_prod_read.ts`, `READ ONLY` session): prod lookup upgraded at boot to the new labels; orders: 2 × paid/awaiting_manual → "Paid", 1 refunded → "Refunded", 1 partly refunded (shipped) → "Partly refunded".
+- Dana's browser (Chrome extension, signed in as Dana-admin): `/how-it-works?preview=true` → `/the-axis?preview=true` (The Axis headline); `/about?preview=true` → `/?preview=true` (Home); bundle `index-CdJr6c8o.js`. Profile → Past orders on that account: "You haven't placed any orders yet." (the prod orders belong to other test accounts), so no own-order label to see; the DB read above is the evidence.
+
+## Deviations
+
+- The status line on `/checkout/return` is new UI (the page did not show the label before); the brief's "the status line reads the label" was taken as adding it.
+- `website_handoff/README.md` (the CTO session's uncommitted Status section) went into the commit with this brief; `commerce/README.md` and the `misc/design_documents/genova` deletions in the working tree are not mine and were left alone.
+
+## Open / next
+
+- **Labels for Dana to edit if she wants:** "Paid" (`awaiting_manual`, `needs_attention`, `pending`), "Paid · sent to the roastery" (`placed`). Changing them later is another seed-upgrade line (previous → next).
+- **OT-99:** paid-order email headline and the generated order-placed beat still lean on roasting (D14), so Dana needs to decide the copy.
+- **OT-100:** unused registry entries (about videos, six bag SVGs), kept until Dana says to remove them.
+- OT-96 closed.
