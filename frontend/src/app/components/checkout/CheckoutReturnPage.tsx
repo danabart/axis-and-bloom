@@ -65,6 +65,10 @@ export default function CheckoutReturnPage() {
           <>
             <Titled style={{ alignSelf: 'flex-start' }}>Order confirmed</Titled>
             <h1 className="cp-ah" style={{ maxWidth: 'none', fontSize: 'clamp(28px, 3.2vw, 44px)', lineHeight: 1.1 }}>{status?.orderPlacedLine || FALLBACK_LINE}</h1>
+            {/* Website 10 (OT-96, D14): the order's status as a fact, v_order_status.customer_label; no status word typed here. */}
+            {order.customerLabel && (
+              <Caps as="p" weight={400} data-testid="return-status" style={{ alignSelf: 'flex-start' }}>{order.customerLabel}</Caps>
+            )}
             <div className="cp-panel" style={{ gap: 8 }}>
               {order.lines.map((l, i) => (
                 <p key={i} className="text-sm">

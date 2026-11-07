@@ -6600,6 +6600,26 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_9_REVIEW_
 
 **Verified:** see `CLOSING_REPORT_9.md`.
 
+### 262. Website 10: close-out: fact-only order status labels (OT-96), `/about` and `/how-it-works` retired (2026-11-07)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_10_CLOSEOUT.md`; full record `backend/src/features/website_handoff/CLOSING_REPORT_10.md`.
+
+**Part A, order labels (data, D14):**
+- `order_fulfillment_status.customer_label`: `awaiting_manual`, `needs_attention`, `pending` → "Paid"; `placed` → "Paid · sent to the roastery"; `shipped` / `delivered` / `canceled` unchanged.
+- Mechanism: a seed-upgrade block in `schema.sql` right after the seed INSERT (the `SEED_UPGRADES` rule in SQL): a label moves only while it still equals the previous seed value, so a hand-edited label is never overwritten and a second boot changes nothing. Writer stays `seed`. The INSERT carries the new values for a fresh database. `comments.sql` says so (`CATALOG.md` regenerated).
+- `/checkout/return` shows the label under "Your order is placed." (`order.customerLabel`, already in the session-status payload). Profile orders already read it. Liam's `customer_orders` resolver reads no status (by design), so nothing changed there.
+
+**Part B, retired pages:**
+- `/about` → `/`, `/how-it-works` → `/the-axis` (`RETIRED_ROUTES` in `App.tsx`, through the existing `ShortLink` forward, query params carried).
+- Removed: the admin nav links, `PublicLayout`'s `footerInPage`, the `prelaunch.ts` comment. Deleted `About.tsx`, `HowItWorks.tsx`, `TasteFinderSection.tsx`, `StripesDivider.tsx` (nothing else imported them). No sitemap exists; `robots.txt` never listed them.
+- Asset keys left in the registry, now unused: OT-100.
+
+**Tests:** backend `db/orderStatusLabels.test.ts` (5: the labels, no roasting/timing word, upgrade idempotent, edited label kept), `services/checkoutService.test.ts` (expects "Paid"); frontend `components/website10.test.tsx` (5: both redirects, query carried, the status line, no line without a label).
+
+**Not done in this pass:** the paid-order email headline ("on its way to being roasted") and the generated order-placed beat are copy/prompt decisions for Dana (OT-99).
+
+**Verified:** see `CLOSING_REPORT_10.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

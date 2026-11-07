@@ -207,7 +207,7 @@ describe('completeCheckoutSession', () => {
     const events = (await db.query(`SELECT event_kind, payment_status, fulfillment_status, source FROM order_event WHERE order_id = $1`, [o.id])).rows;
     expect(events).toEqual([{ event_kind: 'paid', payment_status: 'paid', fulfillment_status: 'awaiting_manual', source: 'webhook' }]);
     const status = (await db.query(`SELECT * FROM v_order_status WHERE order_id = $1`, [o.id])).rows[0];
-    expect(status).toMatchObject({ payment_status: 'paid', fulfillment_status: 'awaiting_manual', customer_label: 'Paid · being roasted', is_closed: false, finalized_at: null });
+    expect(status).toMatchObject({ payment_status: 'paid', fulfillment_status: 'awaiting_manual', customer_label: 'Paid', is_closed: false, finalized_at: null });
     expect((await db.query(`SELECT status, order_id FROM checkout_session WHERE id = $1`, [ours.id])).rows[0]).toEqual({ status: 'complete', order_id: o.id });
 
     expect((await db.query(`SELECT * FROM coffee_sku WHERE coffee_id = $1`, [coffeeId])).rows).toEqual(skuBefore);

@@ -43,6 +43,7 @@ Camila's site handoff (2026-11-04) at `misc/design_documents/website/axis-and-bl
 | 6 | `CLAUDE_CODE_PROMPT_WEBSITE_6_THE_AXIS.md` | Chapters rebuilt, live numbers kept, map retired | M | cheaper |
 | 7A | `CLAUDE_CODE_PROMPT_WEBSITE_7A_FIND_MY_FLAVOR_ENTRY_AND_QUESTIONS.md` | Find my flavor: entry + question scenes, progress bar, back, keyboard, question image as data | M | cheaper |
 | 7B | `CLAUDE_CODE_PROMPT_WEBSITE_7B_FIND_MY_FLAVOR_RESULT.md` | Find my flavor: result scene, archetype copy out of code, gate/dial/share preserved | M | cheaper |
+| 9 | `CLAUDE_CODE_PROMPT_WEBSITE_9_REVIEW_FIXES.md` | Dana's review fixes (Home figure, wheel feel, family relationship from data on Bloom + Shop, lineup card), site audit, OT-67/93/94 | M | cheaper |
 | 8 | `CLAUDE_CODE_PROMPT_WEBSITE_8_SIGN_IN_AND_CART.md` | Sign in page, Cart page (`/cart`), checkout restyle | M | cheaper |
 
 Brief 8 only depends on 1 and can run any time after it. 3–7 depend on 1 and 2.
@@ -88,6 +89,10 @@ Customer-facing routes with no design in Camila's folder. Briefs 1 and 8 give th
 | Pre-launch curtain | `/` while gated | untouched |
 
 Partner (roastery portal) and admin pages are out of scope.
+
+## Status (2026-11-07)
+
+Briefs 1–9 and the media upload are live. All seven handoff pages are on production with their behaviours kept (closing reports 1–9, `CLOSING_REPORT_MEDIA_UPLOAD.md`). Left: content in the admin (OT-70 decaf names, OT-71 origin regions, OT-84 family descriptions); Camila's designs (Profile, Liam, FAQ, the signed-in header, per-coffee photos OT-77, OT-89); OT-96 order status label wording (D14: "sent to the roastery", not "being roasted"); OT-95 Floral/Earthy relationship once cupped; OT-97, OT-98.
 
 ## Open with Dana
 

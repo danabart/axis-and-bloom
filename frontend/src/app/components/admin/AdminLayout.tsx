@@ -6,9 +6,7 @@ const NAV_TOP = [
 ];
 
 const NAV_UNLISTED = [
-  { to: '/about', label: 'About' },
   { to: '/shop', label: 'Shop' },
-  { to: '/how-it-works', label: 'How It Works' },
 ];
 
 const NAV_SECTIONS = [

@@ -17,9 +17,8 @@ export default function PublicLayout() {
   // so nothing is visible beneath the fixed full-screen overlay
   const isPreLaunchPage = gated && pathname === '/';
 
-  // No global footer on /about (it ends on TasteFinderSection's curtain reveal).
   // Home has the footer again since Website 3: the handoff draws it after 09 Film.
-  const footerInPage = pathname === '/about';
+  // (/about, which drew its own, is retired: Website 10.)
 
   // Website 3: on Home the header floats over the family panels, in paper.
   const isHome = pathname === '/';
@@ -31,7 +30,7 @@ export default function PublicLayout() {
   const isLiamChat = pathname === '/sommelier' && hasLiamAccess;
 
   // Quiz page has its own footer handling; suppress the global one
-  const noFooter = footerInPage || pathname === '/find-my-flavor' || isLiamChat;
+  const noFooter = pathname === '/find-my-flavor' || isLiamChat;
 
   if (isPreLaunchPage) {
     return <Outlet />;

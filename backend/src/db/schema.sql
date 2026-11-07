@@ -9050,14 +9050,29 @@ CREATE TABLE IF NOT EXISTS order_fulfillment_status (
   is_closed      BOOLEAN NOT NULL DEFAULT false
 );
 INSERT INTO order_fulfillment_status (code, label, customer_label, is_closed) VALUES
-  ('pending',         'Pending (legacy, pre-Stripe default)', 'Being prepared',       false),
-  ('awaiting_manual', 'Awaiting manual fulfillment',          'Paid · being roasted', false),
-  ('placed',          'Placed with the roaster',              'Paid · being roasted', false),
-  ('shipped',         'Shipped',                              'On its way',           false),
-  ('delivered',       'Delivered',                            'Delivered',            true),
-  ('canceled',        'Canceled',                             'Canceled',             true),
-  ('needs_attention', 'Needs attention',                      'Paid · being roasted', false)
+  ('pending',         'Pending (legacy, pre-Stripe default)', 'Paid',                        false),
+  ('awaiting_manual', 'Awaiting manual fulfillment',          'Paid',                        false),
+  ('placed',          'Placed with the roaster',              'Paid · sent to the roastery', false),
+  ('shipped',         'Shipped',                              'On its way',                  false),
+  ('delivered',       'Delivered',                            'Delivered',                   true),
+  ('canceled',        'Canceled',                             'Canceled',                    true),
+  ('needs_attention', 'Needs attention',                      'Paid',                        false)
 ON CONFLICT (code) DO NOTHING;
+
+-- Website 10 (OT-96, D14, 2026-11-07): fact-only customer labels. Seed
+-- upgrade, the SEED_UPGRADES rule in SQL: a label moves only while it still
+-- equals the previous seed value, so a hand-edited label is never
+-- overwritten and a second run matches no row. Writer stays seed.
+-- seed-upgrade:order_fulfillment_status:begin
+UPDATE order_fulfillment_status s SET customer_label = v.next_label
+FROM (VALUES
+  ('pending',         'Being prepared',       'Paid'),
+  ('awaiting_manual', 'Paid · being roasted', 'Paid'),
+  ('placed',          'Paid · being roasted', 'Paid · sent to the roastery'),
+  ('needs_attention', 'Paid · being roasted', 'Paid')
+) AS v(code, previous_label, next_label)
+WHERE s.code = v.code AND s.customer_label = v.previous_label;
+-- seed-upgrade:order_fulfillment_status:end
 
 -- "order".fulfillment_status: the at-insert value only (checkoutService
 -- writes awaiting_manual once, never changes it); readers use v_order_status.

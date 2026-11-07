@@ -22,11 +22,10 @@ export const PRELAUNCH_MODE = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
  * PrelaunchGate — the gate must not add anything in front of it. "/b/:token"
  * is token-gated and was never wrapped in anything. Both are listed here only
  * for documentation completeness, not as something PrelaunchGate checks.
- * "/about" and "/the-axis" are deliberately NOT here despite the original
- * written spec listing them — Dana closed both live during execution (/about
- * is an old, admin-linked-only page not part of the live site; /the-axis was
- * a separate live call to also close it), so both are wrapped in
- * <PrelaunchGate> too. */
+ * "/the-axis" is deliberately NOT here despite the original written spec
+ * listing it (a separate live call by Dana to close it), so it is wrapped in
+ * <PrelaunchGate> too. "/about" and "/how-it-works" are retired (Website 10,
+ * 2026-11-07): they forward to "/" and "/the-axis". */
 export const PRELAUNCH_OPEN_ROUTES = [
   '/',
   '/find-my-flavor',

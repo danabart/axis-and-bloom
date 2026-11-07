@@ -157,7 +157,7 @@ export const cardAssets: Record<ArchetypeSlug, OptimizedAsset> = {
   experimental:     optimized('archetypes/web-experimental'),
 };
 
-// Small per-archetype background patterns — shared by FlavorQuiz and TasteFinderSection.
+// Small per-archetype background patterns — used by FlavorQuiz (TasteFinderSection retired, Website 10).
 export const patternAssets: Record<ArchetypeSlug, OptimizedAsset> = {
   floral: optimized('patterns/floral'),
   fruity: optimized('patterns/fruity'),

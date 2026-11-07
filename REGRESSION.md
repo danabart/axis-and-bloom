@@ -260,3 +260,8 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **Profile features** are the family's `customer_words`.
 - [ ] **Old card:** "Premium ★" for an award tag; the shipping line from the checkout rules.
 - [ ] **No date, no typed count** on the curtain, the gate or Crawl; `/checkout/return` states order facts only.
+
+## Close-out: order labels, retired pages (Website 10, 2026-11-07)
+
+- [ ] **Order status words are facts only (D14):** Profile orders and `/checkout/return` show "Paid" / "Paid · sent to the roastery" / "On its way" / "Delivered" from `v_order_status.customer_label`; nothing about roasting, freshness or timing. A boot never overwrites a hand-edited label.
+- [ ] **`/about` lands on Home and `/how-it-works` on The Axis**, query string kept (`?preview=true`).

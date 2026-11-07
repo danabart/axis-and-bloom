@@ -6,9 +6,7 @@ import { CartProvider } from './context/CartContext';
 import PreLaunch from './components/PreLaunch';
 import PublicLayout from './components/PublicLayout';
 import Home from './components/Home';
-import HowItWorks from './components/HowItWorks';
 import FlavorQuiz from './components/FlavorQuiz';
-import About from './components/About';
 import ShopAll from './components/shop/ShopAll';
 import SignIn from './components/SignIn';
 import Profile from './components/Profile';
@@ -103,7 +101,7 @@ const SHORTLINKS = {
 // Carries any incoming query params (e.g. ?preview=true) through to the target,
 // with the target's own campaign/utm_* values taking precedence — otherwise a bare
 // <Navigate to="..."> would silently drop whatever the visitor's URL carried.
-function ShortLink({ to }: { to: string }) {
+export function ShortLink({ to }: { to: string }) {
   const [incomingParams] = useSearchParams();
   const [path, targetQuery] = to.split('?');
   const merged = new URLSearchParams(incomingParams);
@@ -111,6 +109,14 @@ function ShortLink({ to }: { to: string }) {
   const qs = merged.toString();
   return <Navigate replace to={qs ? `${path}?${qs}` : path} />;
 }
+
+// Website 10 (Dana, 2026-11-07): /about and /how-it-works are retired; their
+// content lives on Home and The Axis. The routes stay as forwards so old links
+// keep working (query params carried, like the short links).
+export const RETIRED_ROUTES = {
+  '/about': '/',
+  '/how-it-works': '/the-axis',
+} as const;
 
 export default function App() {
   return (
@@ -191,11 +197,9 @@ export default function App() {
                  VITE_PRELAUNCH_MODE is on and the session hasn't bypassed it. ── */}
             <Route element={<PublicLayout />}>
               <Route path="/" element={<HomeOrPrelaunch />} />
-              <Route path="/how-it-works" element={<PrelaunchGate><HowItWorks /></PrelaunchGate>} />
-              {/* Live deviation from the original spec (Dana, mid-execution): /about
-                  is an old, admin-only-linked page not used on the live site — closed
-                  like everything else, not kept open as the written prompt listed it. */}
-              <Route path="/about" element={<PrelaunchGate><About /></PrelaunchGate>} />
+              {/* Website 10: retired pages forward (RETIRED_ROUTES); the targets keep their own gate. */}
+              <Route path="/how-it-works" element={<ShortLink to={RETIRED_ROUTES['/how-it-works']} />} />
+              <Route path="/about" element={<ShortLink to={RETIRED_ROUTES['/about']} />} />
               <Route path="/shop" element={<PrelaunchGate><ShopAll /></PrelaunchGate>} />
               <Route path="/sign-in" element={<SignIn />} />
               <Route
