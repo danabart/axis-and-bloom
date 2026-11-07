@@ -1488,7 +1488,7 @@ export default function FlavorQuiz() {
                     It's on its way to {sealedEmail}. Open it to meet your match.
                   </h2>
                   <p style={{ fontSize: 13, color: 'rgba(26,26,26,0.45)', letterSpacing: '.06em', margin: 0 }}>
-                    You're on the first-access list for this fall.
+                    You're on the first-access list for when the doors open.
                   </p>
                 </div>
               ) : resultLabel ? (

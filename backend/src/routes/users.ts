@@ -12,7 +12,7 @@ import {
 import { getUserBrewCards } from '../services/brewCard.js';
 import { hasLiamAccess } from '../services/liamAccess.js';
 import { getAliases } from '../services/sommelierRag.js';
-import { archetypeCode, archetypeLabel as catalogArchetypeLabel } from '../services/catalogReads.js';
+import { archetypeCode, archetypeLabel as catalogArchetypeLabel, archetypeCustomerWords } from '../services/catalogReads.js';
 import { record } from '../services/customerFacts.js';
 import { getTimeline, getFeedbackCurrent, getBrewProfileCurrent } from '../services/customerReads.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -42,19 +42,23 @@ function brewProfileFallbackSourceId(uid: string, field: string, op: string, val
 // normalizing this map's keys to archetype_enum and deriving the lookup key from
 // catalogReads.archetypeCode() (below) instead of a blind .toLowerCase().
 //
+// Website 9 (2026-11-06, AU8): `features` is the family's customer_words
+// (coffee_archetype, catalogReads.archetypeCustomerWords), never typed here;
+// the old typed sentences are gone. `color` stays (no catalog source yet).
+
 // Catalog Blueprint brief 3: this map no longer carries a `name` field —
 // hardcoded archetype display-label literals outside admin.ts/tests are a lint
-// violation (lint rule 4). `features`/`color` are genuinely quiz-personality
+// violation (lint rule 4). `color` is genuinely quiz-personality
 // content with no catalog source, so they stay here; the label itself is
 // always resolved live via archetypeLabel() at each of this file's two
 // response-construction sites instead.
-const ARCHETYPES: Record<string, { features: string[]; color: string }> = {
-  floral:          { color: '#a34b78', features: ['You prefer delicate aromatics over heavy roasts', 'You enjoy a light, tea-like body', 'You appreciate a bright, clean finish'] },
-  fruity:          { color: '#ca445f', features: ['You prefer juicy acidity and bright notes', 'You enjoy vibrant fruit-forward flavors', 'You appreciate a crisp, clean finish'] },
-  balanced_sweet:  { color: '#d1ac11', features: ['You prefer lower acidity and round body', 'You enjoy caramelized and nutty sweetness', 'You are less sensitive to roast intensity'] },
-  chocolate_nutty: { color: '#a54c2d', features: ['You prefer a bold and comforting cup', 'You enjoy deep cocoa and roasted nut flavors', 'You appreciate a heavy, satisfying body'] },
-  earthy:          { color: '#912f2f', features: ['You prefer a complex, savory depth', 'You enjoy warming spices and earthy notes', 'You appreciate a thick, structured finish'] },
-  experimental:    { color: '#056c7a', features: ['You prefer unique, unexpected flavor profiles', 'You enjoy wild fermentation and intense fruit', 'You appreciate complex, lively acidity'] },
+const ARCHETYPES: Record<string, { color: string }> = {
+  floral:          { color: '#a34b78' },
+  fruity:          { color: '#ca445f' },
+  balanced_sweet:  { color: '#d1ac11' },
+  chocolate_nutty: { color: '#a54c2d' },
+  earthy:          { color: '#912f2f' },
+  experimental:    { color: '#056c7a' },
 };
 
 // ── GET /api/users/profile ────────────────────────────────────────────────────
@@ -161,7 +165,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
     const archetypeKey = quiz?.archetype_name ? ((await archetypeCode(quiz.archetype_name)) ?? quiz.archetype_name.toLowerCase()) : null;
     // Label comes from archetypeLabel() (v_coffee_archetype) for a recognized
     // key; an unrecognized key falls back to the raw quiz label, same as before.
-    const archetypeMeta = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { features: [], color: '#a33726' }) : null;
+    const archetypeMeta = archetypeKey ? { ...(ARCHETYPES[archetypeKey] ?? { color: '#a33726' }), features: await archetypeCustomerWords(archetypeKey) } : null;
     const archetypeName = archetypeKey && ARCHETYPES[archetypeKey] ? await catalogArchetypeLabel(archetypeKey) : (quiz?.archetype_name ?? null);
     const archetypeData = archetypeMeta ? { name: archetypeName, ...archetypeMeta } : null;
 
@@ -350,7 +354,7 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
     }
 
     const archetypeKey = signals.archetype ? ((await archetypeCode(signals.archetype)) ?? signals.archetype.toLowerCase()) : null;
-    const archetypeMeta = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { features: [], color: '#a33726' }) : null;
+    const archetypeMeta = archetypeKey ? { ...(ARCHETYPES[archetypeKey] ?? { color: '#a33726' }), features: await archetypeCustomerWords(archetypeKey) } : null;
     const archetypeName = archetypeKey && ARCHETYPES[archetypeKey] ? await catalogArchetypeLabel(archetypeKey) : (signals.archetype ?? null);
     const archetypeData = archetypeMeta ? { name: archetypeName, ...archetypeMeta } : null;
 

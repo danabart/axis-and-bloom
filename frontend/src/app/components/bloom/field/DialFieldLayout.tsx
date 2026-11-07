@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router';
 import { Wrap, Caps, Titled, ArrowIcon } from '../../chrome';
-import { FlowerWheel, stopOf, tOf, usePrefersReducedMotion } from '../wheel/FlowerWheel';
+import { FlowerWheel, stopOf, tOf } from '../wheel/FlowerWheel';
 import { tints } from '../wheel/tints';
 import { fieldLook } from '../dial/archetypeConfig';
 import { DOORS_ENABLED } from '../doorConfig';
@@ -34,7 +34,6 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
     userArchetype, source = 'bloom', hideProfileLink = false, prelaunch = false, onDoorClick, between, hideHints = false, hideQuizLink = false,
   } = props;
   const look = fieldLook(data.archetype);
-  const reduced = usePrefersReducedMotion();
   const rules = useCheckoutRules();
 
   const slots = useMemo(() => [...data.slots].sort((a, b) => a.dialSortOrder - b.dialSortOrder), [data.slots]);
@@ -50,6 +49,9 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
   // `t` follows it whenever it changes from outside (a tab, a deep link, a quick pick).
   const selectedIdx = indexOf(selectedSortOrder);
   const [t, setT] = useState(() => tOf(selectedIdx, stops));
+  // Website 9: while a pointer turns the wheel, the comfort-zone line keeps the
+  // stop it had (no compatibility fetch per stop crossed); it follows on release.
+  const [dragging, setDragging] = useState(false);
   useEffect(() => { setT(tOf(selectedIdx, stops)); }, [selectedIdx, stops, data.archetype]);
 
   const liveIdx = stopOf(t, stops);
@@ -60,6 +62,20 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
   const { currentSlot, cardData } = ds;
   const card: SlotCard | undefined = cards?.find(c => c.dialSortOrder === currentSlot.dialSortOrder);
   const hasCoffee = currentSlot.isActive && currentSlot.coffeeId != null;
+  // D18 (Website 9): a lineup card turns the dial in place. The field above
+  // changes height with the coffee, so the lineup is held where it was on the
+  // screen (measured before the turn, corrected before paint): nothing moves
+  // under the pointer.
+  const lineupRef = useRef<HTMLElement | null>(null);
+  const holdLineup = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (holdLineup.current == null || !lineupRef.current) return;
+    const delta = lineupRef.current.getBoundingClientRect().top - holdLineup.current;
+    holdLineup.current = null;
+    if (Math.abs(delta) > 0.5) window.scrollBy(0, delta);
+  });
+  const asideCoffee = useRef<number | null>(null);
+  if (!dragging) asideCoffee.current = hasCoffee ? currentSlot.coffeeId : null;
 
   /** A settled turn: snap to the stop; a new stop is the dial's select (silent auto-save upstream). */
   function commit(value: number) {
@@ -99,8 +115,6 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
   const lineup: SlotCard[] = slots.map(s => cards?.find(c => c.dialSortOrder === s.dialSortOrder)
     ?? { ...s, archetype: data.archetype, archetypeLabel: data.archetypeLabel });
   const family = familyLookOf(data);
-  const scrollToField = () => document.getElementById(data.archetype)
-    ?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
 
   const offer = data.collectionOffer;
   const { classicAvailable, defaultSlot } = ds;
@@ -123,6 +137,7 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
                 ariaLabel={`${data.archetypeLabel}${measure ? `: ${measure}` : ''}`}
                 onChange={setT}
                 onCommit={commit}
+                onDragChange={setDragging}
                 meta={(
                   <Caps as="div" className="bf-row">
                     <span>{measure}</span>
@@ -204,7 +219,8 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
                     )}
                   </>
                 )}
-                {ds.user && !ds.isPlaceholder && (
+                {/* AU11 (Website 9): no save on a stop with no coffee */}
+                {ds.user && !ds.isPlaceholder && hasCoffee && (
                   <div className="bf-quiet">
                     <button type="button" className="ab-caps bf-ulink" onClick={ds.handleExplicitSave} disabled={ds.isSaved} data-testid="save">
                       {ds.isSaved ? 'Saved to flavor memory ✓' : 'Save to flavor memory'}
@@ -223,7 +239,7 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
               )}
             </div>
 
-            <ComfortZoneAside archetype={data.archetype} userArchetype={userArchetype} coffeeId={hasCoffee ? currentSlot.coffeeId : null} prelaunch={prelaunch} />
+            <ComfortZoneAside archetype={data.archetype} userArchetype={userArchetype} coffeeId={asideCoffee.current} prelaunch={prelaunch} />
           </div>
 
           <RevealedPanel
@@ -245,7 +261,7 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
         </Wrap>
       </section>
 
-      <section className="bf-lineup" aria-label={`The ${data.archetypeLabel} coffees`}>
+      <section className="bf-lineup" ref={lineupRef} aria-label={`The ${data.archetypeLabel} coffees`}>
         <Wrap>
           <div className="bf-lineup-head">
             <Titled style={{ alignSelf: 'flex-start' }} data-testid="lineup-label">
@@ -265,7 +281,8 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
                 source={source ?? 'bloom'}
                 compact
                 selected={i === liveIdx}
-                onSelect={() => { commit(tOf(i, stops)); scrollToField(); }}
+                // D18/D20 (Website 9): a card turns the dial to its coffee in place; the page does not scroll
+                onSelect={() => { holdLineup.current = lineupRef.current?.getBoundingClientRect().top ?? null; commit(tOf(i, stops)); }}
               />
             ))}
           </div>

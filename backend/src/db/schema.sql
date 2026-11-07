@@ -9624,6 +9624,32 @@ INSERT INTO marketing_home_quote (quote, sort_order) VALUES
   ('When coffee is great, it feels like home.', 8)
 ON CONFLICT (quote) DO NOTHING;
 
+-- Website 9 (2026-11-06, D16 + Dana's Q1/Q2): how a family of taste relates
+-- to the customer's own, as a vocabulary (G2.7). One row per level, with every
+-- customer-facing word for that level: the family label (Bloom tabs, Shop
+-- sections), the per-coffee comfort-zone pill (zone_code = the `zone` that
+-- compatibilityReads.compareCoffee returns) and the old compatibility badge
+-- (badge_code = the frontend's CompatLevel). The classing itself is
+-- archetypeRelationshipReads.getArchetypeRelationships (hops, else the
+-- cupped-coffee profile distance). Seed only if missing.
+CREATE TABLE IF NOT EXISTS coffee_archetype_relationship_kind (
+  id              SERIAL PRIMARY KEY,
+  code            TEXT NOT NULL UNIQUE,
+  zone_code       TEXT NOT NULL UNIQUE,
+  badge_code      TEXT NOT NULL UNIQUE,
+  label           TEXT NOT NULL,
+  customer_label  TEXT NOT NULL,
+  zone_label      TEXT NOT NULL,
+  badge_label     TEXT NOT NULL,
+  sort_order      INTEGER NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO coffee_archetype_relationship_kind (code, zone_code, badge_code, label, customer_label, zone_label, badge_label, sort_order) VALUES
+  ('own',      'in',      'wheelhouse', 'Own family',      'Your family',               'In your comfort zone',             'In your wheelhouse',        1),
+  ('adjacent', 'edge',    'exploring',  'Adjacent family', 'Worth exploring',           'At the edge of your comfort zone', 'Worth exploring',           2),
+  ('distant',  'outside', 'stretch',    'Distant family',  'Outside your comfort zone', 'Outside your comfort zone',        'Outside your comfort zone', 3)
+ON CONFLICT (code) DO NOTHING;
+
 -- 5. The "This week" coffee on Home: a dial slot as archetype_code:sort_order,
 -- seeded to the Chocolate & Nutty landing-default slot (read from the slot
 -- table, not typed). Only if missing; editable on the admin Commerce card.

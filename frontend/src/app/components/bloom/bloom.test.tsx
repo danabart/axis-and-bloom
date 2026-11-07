@@ -75,10 +75,25 @@ import { PETALS } from './wheel/wheelGeometry';
 import { comfortZoneOf } from '../coffee-info/useCompatibility';
 import { openingSortOrder } from './useDialSlot';
 
+// Website 9: the relationship words come from the archetype-order payload (the lookup), never the code.
+const KINDS = [
+  { code: 'own', zoneCode: 'in', badgeCode: 'wheelhouse', customerLabel: 'Your family', zoneLabel: 'In your comfort zone', badgeLabel: 'In your wheelhouse', sortOrder: 1 },
+  { code: 'adjacent', zoneCode: 'edge', badgeCode: 'exploring', customerLabel: 'Worth exploring', zoneLabel: 'At the edge of your comfort zone', badgeLabel: 'Worth exploring', sortOrder: 2 },
+  { code: 'distant', zoneCode: 'outside', badgeCode: 'stretch', customerLabel: 'Outside your comfort zone', zoneLabel: 'Outside your comfort zone', badgeLabel: 'Outside your comfort zone', sortOrder: 3 },
+];
+function orderPayload(url: string, order: string[], relation: (archetype: string, own: string) => string | null = (a, o) => a === o ? 'own' : 'distant') {
+  const own = /[?&]archetype=([a-z_]+)/.exec(url)?.[1] ?? null;
+  const ord = own ? [own, ...order.filter(a => a !== own)] : order;
+  return {
+    order: ord, kinds: KINDS,
+    ...(own ? { relationships: ord.map(a => { const code = relation(a, own); return { archetype: a, code, customerLabel: KINDS.find(k => k.code === code)?.customerLabel ?? null }; }) } : {}),
+  };
+}
+
 function route(url: string): unknown {
   if (url.startsWith('/api/coffees/archetypes')) return ARCHETYPES;
   if (url.startsWith('/api/coffees/experimental')) return EXPERIMENTAL;
-  if (url.startsWith('/api/coffees/archetype-order')) return { order: ORDER };
+  if (url.startsWith('/api/coffees/archetype-order')) return orderPayload(url, ORDER, (a, o) => a === o ? 'own' : a === 'earthy' ? 'adjacent' : 'distant');
   if (url.startsWith('/api/axis/adjacency')) return { adjacency: { chocolate_nutty: ['earthy'] } };
   if (url.startsWith('/api/shop/slot-availability')) return { available: true };
   if (/\/api\/coffees\/\d+\/compatibility/.test(url)) return { ...compat, reason: compat.sentence ? 'ok' : 'below_min_coffees', coffee_count: 0, divergences: [] };
@@ -166,11 +181,19 @@ describe('FlowerWheel', () => {
 
 describe('comfortZoneOf', () => {
   it('the server zone wins; without one the family level maps in / edge / outside; no family, no pill', () => {
-    expect(comfortZoneOf('wheelhouse', 'outside')).toBe('outside');
-    expect(comfortZoneOf('wheelhouse', null)).toBe('in');
-    expect(comfortZoneOf('exploring', null)).toBe('edge');
-    expect(comfortZoneOf('stretch', null)).toBe('outside');
-    expect(comfortZoneOf(null, null)).toBeNull();
+    // Website 9: the level-to-zone mapping is the lookup's rows (badge_code ↔ zone_code)
+    const kinds = [
+      { code: 'own', zoneCode: 'in', badgeCode: 'wheelhouse', customerLabel: 'A', zoneLabel: 'A1', badgeLabel: 'A2', sortOrder: 1 },
+      { code: 'adjacent', zoneCode: 'edge', badgeCode: 'exploring', customerLabel: 'B', zoneLabel: 'B1', badgeLabel: 'B2', sortOrder: 2 },
+      { code: 'distant', zoneCode: 'outside', badgeCode: 'stretch', customerLabel: 'C', zoneLabel: 'C1', badgeLabel: 'C2', sortOrder: 3 },
+    ] as const;
+    const k = kinds as unknown as Parameters<typeof comfortZoneOf>[2];
+    expect(comfortZoneOf('wheelhouse', 'outside', k)).toBe('outside');
+    expect(comfortZoneOf('wheelhouse', null, k)).toBe('in');
+    expect(comfortZoneOf('exploring', null, k)).toBe('edge');
+    expect(comfortZoneOf('stretch', null, k)).toBe('outside');
+    expect(comfortZoneOf(null, null, k)).toBeNull();
+    expect(comfortZoneOf('stretch', null, [])).toBeNull();
   });
 });
 
@@ -250,6 +273,15 @@ describe('The Bloom page', () => {
     expect(within(field()).queryByTestId('add-to-cart')).toBeNull();
   });
 
+  it('AU11: a signed-in customer is not offered "Save to flavor memory" on a stop with no coffee', async () => {
+    auth.user = { isAnonymous: false };
+    renderBloom('/bloom?archetype=chocolate_nutty&slot=3');
+    await waitFor(() => expect(within(field()).getByTestId('save')).toBeTruthy(), { timeout: 4000 });
+    // End is idempotent at the last stop (slot 4, no coffee), so pressing it inside the wait is safe under load
+    await waitFor(() => { fireEvent.keyDown(slider(), { key: 'End' }); expect(within(field()).getByTestId('state').textContent).toBe('Coming soon'); }, { timeout: 4000 });
+    expect(within(field()).queryByTestId('save')).toBeNull();
+  });
+
   it('the pill follows the server zone; without one, the family level ("In" for your own family)', async () => {
     auth.user = { isAnonymous: false };
     profile = { archetype: { id: 'chocolate_nutty', name: 'Chocolate & Nutty' } };
@@ -261,7 +293,7 @@ describe('The Bloom page', () => {
     compat = { sentence: null, zone: null };
     renderBloom('/bloom?archetype=chocolate_nutty&slot=2');
     await waitFor(() => expect(screen.getByTestId('comfort-zone').textContent).toContain('In your comfort zone'));
-    expect(screen.getByText('Your', { selector: '.bf-tab-kicker' })).toBeTruthy();
+    expect(screen.getByText('Your family', { selector: '.bf-tab-kicker' })).toBeTruthy();
   });
 
   it('guest: "Find your flavor to see your match", no pill, no Liam; Liam with access; never while gated (and no add to cart)', async () => {
@@ -299,9 +331,15 @@ describe('The Bloom page', () => {
     await waitFor(() => expect(screen.getByTestId('lineup-label').textContent).toBe('The four Chocolate & Nutty coffees'));
     expect(screen.getByText('From watery / light to very heavy.')).toBeTruthy();
     const homeCard = screen.getByRole('button', { name: 'Turn the dial to Home' });
+    const scroll = vi.mocked(Element.prototype.scrollIntoView);
+    scroll.mockClear();
     fireEvent.click(homeCard);
     await waitFor(() => expect(coffeeName()).toBe('Home'));
     expect(setDialPosition).toHaveBeenCalledWith('chocolate_nutty', 3);
+    // D18/D20 (Website 9): the card turns the dial in place, selected, and the page does not scroll
+    expect(scroll).not.toHaveBeenCalled();
+    expect(homeCard.className).toContain(' on');
+    expect(homeCard.getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByTestId('quick-picks').textContent).toContain('The Chocolate & Nutty Collection · 3 coffees · 10% off · $82.80');
     expect(screen.getByTestId('quick-picks').textContent).toContain('The Chocolate & Nutty classic · Coado');
   });
@@ -362,3 +400,26 @@ describe('opening stop (Website 6 B2)', () => {
     await waitFor(() => expect(within(field()).getByTestId('stop-label').textContent).toBe('4 · Full'));
   });
 });
+
+describe('Website 9: turning never scrolls (D18), tabs scroll only when the field is out of view', () => {
+  it('slider keys and a tab click with the field in view do not scroll; a tab click with the field below does', async () => {
+    renderBloom('/bloom');
+    await waitFor(() => expect(coffeeName()).toBeTruthy());
+    const scroll = vi.mocked(Element.prototype.scrollIntoView);
+    const raf = vi.fn((cb: FrameRequestCallback) => { cb(0); return 1; });
+    vi.stubGlobal('requestAnimationFrame', raf);
+    scroll.mockClear();
+    fireEvent.keyDown(slider(), { key: 'ArrowRight' });
+    fireEvent.keyDown(slider(), { key: 'ArrowLeft' });
+    const tabs = screen.getAllByRole('tab');
+    fireEvent.click(tabs[1]);
+    await waitFor(() => expect(tabs[1].getAttribute('aria-selected')).toBe('true'));
+    expect(scroll).not.toHaveBeenCalled();
+    // the field far below the fold: the tab brings it into view
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 5000, left: 0, width: 10, height: 10, right: 10, bottom: 5010, x: 0, y: 5000, toJSON: () => ({}) } as DOMRect);
+    fireEvent.click(screen.getAllByRole('tab')[2]);
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
+    rect.mockRestore();
+  });
+});
+

@@ -376,7 +376,7 @@ export default function Profile() {
   }
 
   if (loading) {
-    return <div className="w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center"><p className="text-[#a33726] text-sm uppercase tracking-widest">Loading...</p></div>;
+    return <div className="w-full min-h-screen bg-[var(--ab-paper)] flex items-center justify-center"><p className="text-[var(--ab-ink)] text-sm uppercase tracking-widest">Loading...</p></div>;
   }
 
   const pastOrders = profile?.orders ?? [];
@@ -384,8 +384,8 @@ export default function Profile() {
     ? `${profile.firstName}${profile.lastName ? ' ' + profile.lastName : ''}`
     : (user?.displayName ?? user?.email ?? '');
 
-  const inputClass = "w-full text-left text-base tracking-wide transition-all duration-300 py-2.5 rounded-none border-b border-[#a33726]/30 bg-transparent focus:outline-none focus:border-[#ee5974] text-[#a33726] placeholder-[#a33726]/40";
-  const labelClass = "block text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 mb-1.5 font-normal";
+  const inputClass = "w-full text-left text-base tracking-wide transition-all duration-300 py-2.5 rounded-none border-b border-[var(--ab-ink)]/30 bg-transparent focus:outline-none focus:border-[var(--ab-mark-b)] text-[var(--ab-ink)] placeholder-[var(--ab-ink)]/40";
+  const labelClass = "block text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/60 mb-1.5 font-normal";
 
   const stageCode = homepageState?.stageCode ?? null;
   // Guard (Part 1): the archetype box renders off the archetype itself, never off
@@ -396,10 +396,10 @@ export default function Profile() {
 
   function renderStageNote() {
     if (stageCode === 'QUIZ_TAKEN_FRESH_NO_ORDER' || stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER') {
-      return <p className="text-sm text-[#a33726]/50 tracking-wide mt-6">You haven't tried your match yet — it's below.</p>;
+      return <p className="text-sm text-[var(--ab-ink)]/50 tracking-wide mt-6">You haven't tried your match yet — it's below.</p>;
     }
     if (stageCode === 'SUBSCRIBER' && homepageState?.nextDeliveryDate) {
-      return <p className="text-sm text-[#a33726]/50 tracking-wide mt-6">Your next delivery: {formatCalendarDate(homepageState.nextDeliveryDate, { month: 'long', day: 'numeric' })}</p>;
+      return <p className="text-sm text-[var(--ab-ink)]/50 tracking-wide mt-6">Your next delivery: {formatCalendarDate(homepageState.nextDeliveryDate, { month: 'long', day: 'numeric' })}</p>;
     }
     return null;
   }
@@ -407,7 +407,7 @@ export default function Profile() {
   const retakeCopy = stageCode === 'QUIZ_STALE_NO_ORDER' ? 'Palates change — retake anytime' : 'Retake the quiz';
 
   return (
-    <div className="w-full min-h-screen bg-[#f2f1ea]">
+    <div className="w-full min-h-screen bg-[var(--ab-paper)]">
       {/* Part 22 — one centered content column (~760px), replacing the old
           1400px-wide shell. Outer padding lives on this full-width wrapper
           (mockup's .canvas), the column itself (mockup's .col) carries no
@@ -423,19 +423,19 @@ export default function Profile() {
         <div className="max-w-[760px] mx-auto">
 
         <div className="mb-16">
-          <h3 className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/60 mb-4 font-normal">
+          <h3 className="text-[10px] uppercase tracking-[0.3em] text-[var(--ab-ink)]/60 mb-4 font-normal">
             Welcome back, {displayName}
           </h3>
-          <h1 className="text-[3rem] lg:text-[4rem] text-[#a33726] leading-[1.05] font-normal tracking-tight">
+          <h1 className="text-[3rem] lg:text-[4rem] text-[var(--ab-ink)] leading-[1.05] font-normal tracking-tight">
             {homepageState?.archetype ? 'Your flavor memory.' : 'Trust your taste.'}
           </h1>
         </div>
 
-        <div className="flex w-full mb-12 border-b border-[#a33726]/20 relative gap-8">
+        <div className="flex w-full mb-12 border-b border-[var(--ab-ink)]/20 relative gap-8">
           {(['memory', 'orders', 'settings', 'family'] as Tab[]).map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`pb-4 text-[11px] uppercase tracking-[0.2em] font-normal transition-colors relative ${activeTab === tab ? 'text-[#ee5974]' : 'text-[#a33726]/40 hover:text-[#a33726]/70'}`}>
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`pb-4 text-[11px] uppercase tracking-[0.2em] font-normal transition-colors relative ${activeTab === tab ? 'text-[var(--ab-mark-b)]' : 'text-[var(--ab-ink)]/40 hover:text-[var(--ab-ink)]/70'}`}>
               {tab === 'memory' ? 'Flavor Memory' : tab === 'orders' ? 'Past Orders' : tab === 'settings' ? 'Settings' : 'Family'}
-              {activeTab === tab && <motion.div layoutId="profile-tab-indicator" className="absolute bottom-0 left-0 right-0 h-[1px] bg-[#ee5974]" />}
+              {activeTab === tab && <motion.div layoutId="profile-tab-indicator" className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--ab-mark-b)]" />}
             </button>
           ))}
         </div>
@@ -448,14 +448,14 @@ export default function Profile() {
               <motion.div key="memory" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col w-full">
                 {showEmptyState && (
                   <div className="flex flex-col items-start gap-6 py-8">
-                    <Heart size={32} className="text-[#a33726]/30" strokeWidth={1} />
-                    <p className="text-lg text-[#a33726]/70 tracking-wide leading-relaxed">You haven't discovered your flavor archetype yet. Take the quiz to unlock exact matches tailored to your palate.</p>
-                    <Link to="/find-my-flavor" className="mt-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors">Start the Quiz <ArrowRight size={14} /></Link>
+                    <Heart size={32} className="text-[var(--ab-ink)]/30" strokeWidth={1} />
+                    <p className="text-lg text-[var(--ab-ink)]/70 tracking-wide leading-relaxed">You haven't discovered your flavor archetype yet. Take the quiz to unlock exact matches tailored to your palate.</p>
+                    <Link to="/find-my-flavor" className="mt-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/30 pb-1 hover:border-[var(--ab-ink)] hover:text-[var(--ab-mark-b)] transition-colors">Start the Quiz <ArrowRight size={14} /></Link>
                   </div>
                 )}
 
                 {/* Part 22 — the whole tab is now one ~760px column, hairline-
-                    separated (#deded1, ~34px rhythm) rather than a flex gap:
+                    separated (var(--ab-ink-hairline), ~34px rhythm) rather than a flex gap:
                     quotes/nudge → archetype block (folded, breakout unfold) →
                     hr → worth exploring (+ its adjacent-archetype expansion)
                     → hr → the one two-up row (flavor activity / tasting
@@ -476,12 +476,12 @@ export default function Profile() {
                   <div className="flex flex-col">
                     {/* 1 — YOUR ARCHETYPE quotes + nudge (existing left-border-accent list). */}
                     <div>
-                      <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-6">Your archetype</p>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/40 mb-6">Your archetype</p>
                       <ul className="flex flex-col gap-5">
                         {(homepageState?.archetype?.features ?? []).map((f: string, i: number) => (
                           <li key={i} className="flex items-start gap-5">
-                            <div className="w-[1px] h-8 shrink-0 opacity-40 mt-1" style={{ backgroundColor: '#ee5974' }} />
-                            <span className="text-lg text-[#a33726]/80 leading-relaxed">{f}</span>
+                            <div className="w-[1px] h-8 shrink-0 opacity-40 mt-1" style={{ backgroundColor: 'var(--ab-mark-b)' }} />
+                            <span className="text-lg text-[var(--ab-ink)]/80 leading-relaxed">{f}</span>
                           </li>
                         ))}
                       </ul>
@@ -496,12 +496,12 @@ export default function Profile() {
                         now expands the pending order's form inline in the tasting journal below
                         (the journal supersedes the Past-Orders-tab detour Part 1 used). */}
                     {homepageState?.pendingFeedback && !feedbackNudgeDismissed && (
-                      <div className="mt-6 p-5 border border-[#a33726]/15 bg-white/40 flex items-center justify-between gap-4 flex-wrap">
-                        <p className="text-sm text-[#a33726]">How was {homepageState.pendingFeedback.blendName ?? 'your last coffee'}?</p>
+                      <div className="mt-6 p-5 border border-[var(--ab-ink)]/15 bg-white/40 flex items-center justify-between gap-4 flex-wrap">
+                        <p className="text-sm text-[var(--ab-ink)]">How was {homepageState.pendingFeedback.blendName ?? 'your last coffee'}?</p>
                         <div className="flex items-center gap-4">
                           <button
                             onClick={() => setExpandedJournalOrderId(homepageState.pendingFeedback!.orderId)}
-                            className="text-[10px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors"
+                            className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/40 pb-1 hover:border-[var(--ab-mark-b)] hover:text-[var(--ab-mark-b)] transition-colors"
                           >
                             Leave feedback
                           </button>
@@ -511,7 +511,7 @@ export default function Profile() {
                               localStorage.setItem(`axisBloomFeedbackDismiss_${homepageState.pendingFeedback!.orderId}`, String(Date.now()));
                               setFeedbackNudgeDismissed(true);
                             }}
-                            className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors"
+                            className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/40 hover:text-[var(--ab-ink)] transition-colors"
                           >
                             Not now
                           </button>
@@ -550,7 +550,7 @@ export default function Profile() {
                       </div>
                     )}
 
-                    <hr className="border-0 border-t border-[#deded1] my-[34px]" />
+                    <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
 
                     {/* 3 — Worth exploring, one row. Part 6: chips expand the adjacent
                         archetype in place (below) rather than navigating away. */}
@@ -584,7 +584,7 @@ export default function Profile() {
                                   ? `/flavor-intelligence?archetype=${adjacentData.archetype}&slot=${computeDefaultSortOrder(adjacentData)}`
                                   : `/flavor-intelligence?archetype=${adjacentData.archetype}`
                               }
-                              className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 border-b border-[#a33726]/20 pb-1 hover:text-[#a33726] hover:border-[#a33726]/40 transition-colors w-fit"
+                              className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/40 border-b border-[var(--ab-ink)]/20 pb-1 hover:text-[var(--ab-ink)] hover:border-[var(--ab-ink)]/40 transition-colors w-fit"
                             >
                               See in Flavor Intelligence →
                             </Link>
@@ -614,7 +614,7 @@ export default function Profile() {
                       </div>
                     )}
 
-                    <hr className="border-0 border-t border-[#deded1] my-[34px]" />
+                    <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
 
                     {/* 4 — the only two-up row: flavor activity (left) / tasting journal
                         (right), 50/50, stacking under ~720px. Both components already
@@ -640,28 +640,28 @@ export default function Profile() {
                         (the hairline shows even when BrewCards itself renders nothing). */}
                     {flavorMemory && (
                       <>
-                        <hr className="border-0 border-t border-[#deded1] my-[34px]" />
+                        <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
                         <BrewCards cards={flavorMemory.brewCards} />
                       </>
                     )}
 
-                    <hr className="border-0 border-t border-[#deded1] my-[34px]" />
+                    <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
 
                     {/* 5 — HOME_TASK_4 (§4.5 write rule 2): "what Liam knows about your
                         setup," full column width. */}
                     <BrewProfileMirror />
 
-                    <hr className="border-0 border-t border-[#deded1] my-[34px]" />
+                    <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
 
                     <div className="flex flex-col gap-6">
                       {/* Liam entry point — generic across stages, no stage-aware copy (decided).
                           /sommelier is a hidden route while gated — omitted, same rule as everywhere else. */}
                       {!prelaunchGated && hasLiamAccess && (
                         <div>
-                          <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-3">Coffee Sommelier</p>
+                          <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/40 mb-3">Coffee Sommelier</p>
                           <Link
                             to="/sommelier?entry=user_initiated"
-                            className="flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] transition-colors w-fit"
+                            className="flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/30 pb-1 hover:border-[var(--ab-ink)] transition-colors w-fit"
                           >
                             Talk to Liam <ArrowRight size={14} />
                           </Link>
@@ -673,7 +673,7 @@ export default function Profile() {
                       {!flavorMemory && (
                         <Link
                           to="/find-my-flavor?retake=1"
-                          className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 border-b border-[#a33726]/20 pb-1 hover:text-[#a33726] hover:border-[#a33726]/40 transition-colors w-fit"
+                          className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/40 border-b border-[var(--ab-ink)]/20 pb-1 hover:text-[var(--ab-ink)] hover:border-[var(--ab-ink)]/40 transition-colors w-fit"
                         >
                           {retakeCopy} <ArrowRight size={12} />
                         </Link>
@@ -698,34 +698,34 @@ export default function Profile() {
                 <SubscriptionPanel />
                 {pastOrders.length === 0 ? (
                   <div className="flex flex-col items-start gap-6 py-8">
-                    <Package size={32} className="text-[#a33726]/30" strokeWidth={1} />
-                    <p className="text-lg text-[#a33726]/70 tracking-wide leading-relaxed">You haven't placed any orders yet.</p>
+                    <Package size={32} className="text-[var(--ab-ink)]/30" strokeWidth={1} />
+                    <p className="text-lg text-[var(--ab-ink)]/70 tracking-wide leading-relaxed">You haven't placed any orders yet.</p>
                     {/* /shop is a hidden route while gated — omitted rather than shown. */}
                     {!prelaunchGated && (
-                      <Link to="/shop" className="mt-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors">Explore the Shop <ArrowRight size={14} /></Link>
+                      <Link to="/shop" className="mt-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/30 pb-1 hover:border-[var(--ab-ink)] hover:text-[var(--ab-mark-b)] transition-colors">Explore the Shop <ArrowRight size={14} /></Link>
                     )}
                   </div>
                 ) : (
                   <div className="flex flex-col gap-8">
                     {pastOrders.map((order: any, idx: number) => (
-                      <div key={idx} className="flex flex-col border border-[#a33726]/20 bg-white/40 p-6">
-                        <div className="flex justify-between items-end mb-6 pb-6 border-b border-[#a33726]/10">
+                      <div key={idx} className="flex flex-col border border-[var(--ab-ink)]/20 bg-white/40 p-6">
+                        <div className="flex justify-between items-end mb-6 pb-6 border-b border-[var(--ab-ink)]/10">
                           <div>
-                            <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 mb-2 font-normal">Order {order.id}</p>
-                            <p className="text-sm text-[#a33726] font-normal">{order.date}</p>
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/60 mb-2 font-normal">Order {order.id}</p>
+                            <p className="text-sm text-[var(--ab-ink)] font-normal">{order.date}</p>
                           </div>
                           {/* customer_label from the status lookups (v_order_status), Commerce 1: no status word typed here. */}
-                          <span className="text-[10px] font-normal px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm uppercase tracking-[0.1em]">{order.status}</span>
+                          <span className="text-[10px] font-normal px-2 py-1 bg-[var(--ab-ink)]/10 text-[var(--ab-ink)] rounded-sm uppercase tracking-[0.1em]">{order.status}</span>
                         </div>
-                        <p className="text-lg text-[#a33726]">Total: {order.total}</p>
+                        <p className="text-lg text-[var(--ab-ink)]">Total: {order.total}</p>
                         {/* Commerce 3: the tracking link from the carrier's template, once it ships. */}
                         {order.trackingUrl ? (
                           <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer"
-                            className="mt-3 self-start text-[10px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726]">
+                            className="mt-3 self-start text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/30 pb-1 hover:border-[var(--ab-ink)]">
                             Track your package{order.tracking ? ` · ${order.tracking}` : ''}
                           </a>
                         ) : order.tracking ? (
-                          <p className="mt-3 text-sm text-[#a33726]/70">{order.tracking}</p>
+                          <p className="mt-3 text-sm text-[var(--ab-ink)]/70">{order.tracking}</p>
                         ) : null}
 
                         {feedbackOrderId === order.id ? (
@@ -751,7 +751,7 @@ export default function Profile() {
                         ) : (
                           <button
                             onClick={() => setFeedbackOrderId(order.id)}
-                            className="mt-6 self-start text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1"
+                            className="mt-6 self-start text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/50 hover:text-[var(--ab-ink)] transition-colors border-b border-[var(--ab-ink)]/20 pb-1"
                           >
                             {order.hasFeedback ? 'Edit Feedback' : 'Leave Feedback'}
                           </button>
@@ -776,7 +776,7 @@ export default function Profile() {
 
                 {/* Personal info */}
                 <form onSubmit={handleSaveProfile} className="flex flex-col gap-6">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">Personal Info</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/60 font-normal">Personal Info</p>
                   <div className="flex gap-4">
                     <div className="flex-1">
                       <label className={labelClass}>First name</label>
@@ -789,7 +789,7 @@ export default function Profile() {
                   </div>
                   <div>
                     <label className={labelClass}>Email</label>
-                    <p className="text-base text-[#a33726]/60 py-2.5 border-b border-[#a33726]/10">{profile?.email ?? user?.email ?? '—'}</p>
+                    <p className="text-base text-[var(--ab-ink)]/60 py-2.5 border-b border-[var(--ab-ink)]/10">{profile?.email ?? user?.email ?? '—'}</p>
                   </div>
                   <div>
                     <label className={labelClass}>Birthday <span className="opacity-50 normal-case tracking-normal">— for exclusive promos</span></label>
@@ -797,7 +797,7 @@ export default function Profile() {
                   </div>
                   <div className="flex items-center gap-4 pt-2">
                     <button type="submit" disabled={savingProfile}
-                      className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30">
+                      className="text-[10px] uppercase tracking-[0.3em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/40 pb-1 hover:border-[var(--ab-mark-b)] hover:text-[var(--ab-mark-b)] transition-colors disabled:opacity-30">
                       {savingProfile ? 'Saving…' : 'Save Changes'}
                     </button>
                     {profileSaved && <span className="text-[10px] uppercase tracking-[0.2em] text-green-700">Saved</span>}
@@ -812,35 +812,35 @@ export default function Profile() {
                   const defaultShipping = (profile?.addresses ?? []).find(a => a.address_type === 'shipping' && a.is_default);
 
                   return (
-                    <div key={type} className="flex flex-col gap-4 border-t border-[#a33726]/10 pt-8">
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">
+                    <div key={type} className="flex flex-col gap-4 border-t border-[var(--ab-ink)]/10 pt-8">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/60 font-normal">
                         {type === 'shipping' ? 'Shipping Addresses' : 'Billing Addresses'}
                       </p>
 
                       {typeAddresses.map(addr => (
                         <div key={addr.id}
                           className="flex items-start justify-between p-4 bg-white/40"
-                          style={{ border: `1px solid ${addr.is_default ? '#a33726' : 'rgba(163,55,38,0.15)'}` }}
+                          style={{ border: `1px solid ${addr.is_default ? 'var(--ab-ink)' : 'color-mix(in srgb, var(--ab-ink) 15%, transparent)'}` }}
                         >
                           <div>
                             {addr.is_default && (
-                              <span className="text-[9px] uppercase tracking-widest font-normal block mb-1.5" style={{ color: '#a33726' }}>
+                              <span className="text-[9px] uppercase tracking-widest font-normal block mb-1.5" style={{ color: 'var(--ab-ink)' }}>
                                 ✓ Default {type} address
                               </span>
                             )}
-                            <p className="text-sm text-[#a33726]">{addr.street}</p>
-                            <p className="text-sm text-[#a33726]/70">{addr.city}, {addr.state} {addr.postal_code}</p>
-                            <p className="text-sm text-[#a33726]/50">{addr.country}</p>
+                            <p className="text-sm text-[var(--ab-ink)]">{addr.street}</p>
+                            <p className="text-sm text-[var(--ab-ink)]/70">{addr.city}, {addr.state} {addr.postal_code}</p>
+                            <p className="text-sm text-[var(--ab-ink)]/50">{addr.country}</p>
                           </div>
                           <div className="flex flex-col items-end gap-2 ml-4 mt-1 shrink-0">
                             {!addr.is_default && (
                               <button onClick={() => handleSetDefault(addr.id, type)}
-                                className="text-[9px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors whitespace-nowrap">
+                                className="text-[9px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/50 hover:text-[var(--ab-ink)] transition-colors whitespace-nowrap">
                                 Use as default
                               </button>
                             )}
                             <button onClick={() => handleDeleteAddress(addr.id)}
-                              className="text-[9px] uppercase tracking-[0.2em] text-[#a33726]/30 hover:text-[#a33726] transition-colors">
+                              className="text-[9px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/30 hover:text-[var(--ab-ink)] transition-colors">
                               Remove
                             </button>
                           </div>
@@ -851,7 +851,7 @@ export default function Profile() {
                       {!isThisFormOpen ? (
                         <button
                           onClick={() => setShowAddressForm(type)}
-                          className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1 w-fit">
+                          className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/50 hover:text-[var(--ab-ink)] transition-colors border-b border-[var(--ab-ink)]/20 pb-1 w-fit">
                           + Add {type === 'shipping' ? 'Shipping' : 'Billing'} Address
                         </button>
                       ) : (
@@ -870,12 +870,12 @@ export default function Profile() {
                 })}
 
                 {/* SMS opt-in + phone number (Profile Part 4) */}
-                <div className="border-t border-[#a33726]/10 pt-8 flex flex-col gap-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">Notifications</p>
+                <div className="border-t border-[var(--ab-ink)]/10 pt-8 flex flex-col gap-3">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/60 font-normal">Notifications</p>
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-[11px] uppercase tracking-[0.15em] text-[#a33726]">Text updates from Liam</p>
-                      <p className="text-[10px] text-[#a33726]/50 mt-1">
+                      <p className="text-[11px] uppercase tracking-[0.15em] text-[var(--ab-ink)]">Text updates from Liam</p>
+                      <p className="text-[10px] text-[var(--ab-ink)]/50 mt-1">
                         {profile?.hasPhone
                           ? 'Receive a personal check-in from Liam after your deliveries.'
                           : 'Add a phone number to enable this.'}
@@ -885,7 +885,7 @@ export default function Profile() {
                       type="button"
                       disabled={!profile?.hasPhone || savingSms}
                       onClick={() => handleSmsToggle(!smsOptIn)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-30 ${smsOptIn ? 'bg-[#a33726]' : 'bg-[#a33726]/20'}`}
+                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-30 ${smsOptIn ? 'bg-[var(--ab-ink)]' : 'bg-[var(--ab-ink)]/20'}`}
                       style={{ cursor: profile?.hasPhone ? 'pointer' : 'not-allowed' }}
                     >
                       <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${smsOptIn ? 'translate-x-4' : 'translate-x-0'}`} />
@@ -906,11 +906,11 @@ export default function Profile() {
                       {phoneError && <p className="text-xs text-red-600">{phoneError}</p>}
                       <div className="flex gap-4">
                         <button type="submit" disabled={savingPhone || !phoneInput.trim()}
-                          className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30">
+                          className="text-[10px] uppercase tracking-[0.3em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/40 pb-1 hover:border-[var(--ab-mark-b)] hover:text-[var(--ab-mark-b)] transition-colors disabled:opacity-30">
                           {savingPhone ? 'Saving…' : 'Save Number'}
                         </button>
                         <button type="button" onClick={() => { setEditingPhone(false); setPhoneInput(''); setPhoneError(''); }}
-                          className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors">
+                          className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/40 hover:text-[var(--ab-ink)] transition-colors">
                           Cancel
                         </button>
                       </div>
@@ -919,7 +919,7 @@ export default function Profile() {
                     <button
                       type="button"
                       onClick={() => { setEditingPhone(true); setPhoneInput(profile?.phoneNumber ?? ''); setPhoneError(''); }}
-                      className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1 w-fit mt-1"
+                      className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/50 hover:text-[var(--ab-ink)] transition-colors border-b border-[var(--ab-ink)]/20 pb-1 w-fit mt-1"
                     >
                       {profile?.hasPhone ? `${profile.phoneNumber} — Change` : '+ Add Phone Number'}
                     </button>
@@ -927,8 +927,8 @@ export default function Profile() {
                 </div>
 
                 {/* Sign out */}
-                <div className="border-t border-[#a33726]/10 pt-8">
-                  <button onClick={handleLogout} className="flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726]/60 hover:text-[#a33726] transition-colors">
+                <div className="border-t border-[var(--ab-ink)]/10 pt-8">
+                  <button onClick={handleLogout} className="flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/60 hover:text-[var(--ab-ink)] transition-colors">
                     <LogOut size={14} /> Sign Out
                   </button>
                 </div>

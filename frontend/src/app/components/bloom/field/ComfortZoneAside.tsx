@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import { Caps, Titled, ArrowIcon } from '../../chrome';
 import { useAuth } from '../../../context/AuthContext';
-import { useCompatibility, COMFORT_ZONE_LABEL } from '../../coffee-info/useCompatibility';
+import { useCompatibility } from '../../coffee-info/useCompatibility';
 
 // Website 5 (2026-11-05): the handoff's "Your comfort zone" aside, on the
 // server's compatibility (useCompatibility, decided 2026-11-05): the pill is
@@ -20,7 +20,7 @@ export function ComfortZoneAside({ archetype, userArchetype, coffeeId, prelaunch
   prelaunch: boolean;
 }) {
   const { hasLiamAccess } = useAuth();
-  const { comfortZone, dimCompText } = useCompatibility(archetype, userArchetype, coffeeId);
+  const { comfortZone, comfortZoneLabel, dimCompText } = useCompatibility(archetype, userArchetype, coffeeId);
   const showLiam = hasLiamAccess && !prelaunch;
 
   return (
@@ -35,7 +35,7 @@ export function ComfortZoneAside({ archetype, userArchetype, coffeeId, prelaunch
         </Link>
       ) : (
         <>
-          {comfortZone && <p className="bf-fy-word" data-zone={comfortZone}>{COMFORT_ZONE_LABEL[comfortZone]}</p>}
+          {comfortZone && comfortZoneLabel && <p className="bf-fy-word" data-zone={comfortZone}>{comfortZoneLabel}</p>}
           {dimCompText && <p className="bf-fit">{dimCompText}</p>}
         </>
       )}

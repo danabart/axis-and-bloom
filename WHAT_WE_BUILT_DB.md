@@ -33,6 +33,8 @@ The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXI
 
 > **As of 2026-11-05 (Website 6, `WHAT_WE_BUILT.md` #256)**: new view `v_axis_origin_region_count` (sellable coffees per origin region for The Axis hero; reader `axisStatsReads.getAxisStats`). No table change. Description in `CATALOG.md`.
 
+> **As of 2026-11-06 (Website 9, `WHAT_WE_BUILT.md` #261)**: new lookup `coffee_archetype_relationship_kind` (own / adjacent / distant, with the family label, the comfort-zone pill words and the badge words; writer `seed`; reader `archetypeRelationshipReads`, served on `GET /api/coffees/archetype-order`). Reader changes: `v_coffee_archetype_adjacency` and `v_archetype_dimension_profile` are now also read by `archetypeRelationshipReads`. Description in `CATALOG.md`.
+
 > **As of 2026-11-06 (Website 7A, `WHAT_WE_BUILT.md` #258)**: new column `quiz_question.image_asset_key` (the question scene's photo, a registry path; additive on the SCD2 table, no new version; filled once while NULL by the seed, `quiz_content_guard` exempts exactly that fill). Description in `CATALOG.md`.
 
 > **As of 2026-11-04 (Website 2, `WHAT_WE_BUILT.md` #252)**: presentation data for Camila's site handoff. New tables `coffee_presentation` (A&B's editorial layer per coffee: hint, milk, photo key; one writer `catalogService.setCoffeePresentation`), `coffee_milk_recommendation` (lookup, mapped to the portal's `takes_it`), `marketing_home_quote` (seeded quotes); new column `coffee_archetype.customer_words`; new view `v_coffee_card`; `v_coffee_archetype` gains `customer_words`; `commerce_parameter` gains the `home_featured_slot` key (text format `dial slot`). Descriptions in `CATALOG.md`.

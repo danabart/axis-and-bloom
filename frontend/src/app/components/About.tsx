@@ -53,7 +53,7 @@ export default function About() {
   }, []);
 
   return (
-    <div style={{ backgroundColor: '#f2f1ea' }}>
+    <div style={{ backgroundColor: 'var(--ab-paper)' }}>
 
       {/* ━━━ 1. HERO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {/*
@@ -111,9 +111,9 @@ export default function About() {
             letterSpacing: '-0.02em',
             margin: '0 0 28px',
           }}>
-            <span style={{ display: 'block', color: '#9a2918' }}>About</span>
-            <span style={{ display: 'block', color: '#9a2918' }}>Axis &</span>
-            <span style={{ display: 'block', color: '#9a2918' }}>Bloom.</span>
+            <span style={{ display: 'block', color: 'var(--ab-ink)' }}>About</span>
+            <span style={{ display: 'block', color: 'var(--ab-ink)' }}>Axis &</span>
+            <span style={{ display: 'block', color: 'var(--ab-ink)' }}>Bloom.</span>
           </h1>
 
           {/* Sub-heading — "personal" highlighted in pink */}
@@ -121,15 +121,15 @@ export default function About() {
             fontFamily: "'Lato', Arial, sans-serif",
             fontSize: 'clamp(0.95rem, 1.4vw, 1.15rem)',
             fontWeight: 400,
-            color: 'rgba(242,241,234,0.78)',
+            color: 'color-mix(in srgb, var(--ab-paper) 78%, transparent)',
             lineHeight: 1.75,
             margin: 0,
             maxWidth: 500,
           }}>
             Choosing coffee should feel{' '}
             <span style={{
-              backgroundColor: '#ee5974',
-              color: '#f2f1ea',
+              backgroundColor: 'var(--ab-mark-b)',
+              color: 'var(--ab-paper)',
               padding: '1px 10px 4px',
               display: 'inline',
             }}>
@@ -141,7 +141,7 @@ export default function About() {
       </section>
 
       {/* ━━━ 2. BRAND STORY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px, 10vw, 136px) clamp(32px, 6vw, 96px)' }}>
+      <section style={{ backgroundColor: 'var(--ab-paper)', padding: 'clamp(80px, 10vw, 136px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 1160, margin: '0 auto' }}>
           <div style={{ display: 'flex', gap: 'clamp(40px, 7vw, 112px)', flexWrap: 'wrap' }}>
 
@@ -149,14 +149,14 @@ export default function About() {
               <p style={{
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: '0.68rem', letterSpacing: '0.24em',
-                textTransform: 'uppercase', color: '#9a2918', margin: '0 0 20px',
+                textTransform: 'uppercase', color: 'var(--ab-ink)', margin: '0 0 20px',
               }}>
                 What we are
               </p>
               <h2 style={{
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: 'clamp(1.7rem, 2.6vw, 2.6rem)',
-                fontWeight: 400, color: '#9a2918', lineHeight: 1.1, margin: 0,
+                fontWeight: 400, color: 'var(--ab-ink)', lineHeight: 1.1, margin: 0,
               }}>
                 A new way<br />to discover<br />coffee.
               </h2>
@@ -177,7 +177,7 @@ export default function About() {
                 <p style={{ margin: '0 0 1.6em' }}>
                   You may know that you want something warm, smooth, bright, floral, chocolatey, deep, or surprising — but not know how to translate that into the right coffee. Axis & Bloom begins there.
                 </p>
-                <p style={{ margin: '0 0 1.6em', color: '#9a2918', fontSize: 'clamp(1rem, 1.3vw, 1.1rem)', lineHeight: 1.75 }}>
+                <p style={{ margin: '0 0 1.6em', color: 'var(--ab-ink)', fontSize: 'clamp(1rem, 1.3vw, 1.1rem)', lineHeight: 1.75 }}>
                   Instead of asking you to become a coffee expert, we ask questions about taste, mood, ritual, comfort, curiosity, and how coffee fits into your day.
                 </p>
                 <p style={{ margin: '0 0 1.6em' }}>
@@ -199,13 +199,13 @@ export default function About() {
         Left: "Axis" display type + copy.
         Right: CoffeePic15 editorial photo + "Bloom" display type + copy.
       */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px, 10vw, 128px) clamp(32px, 6vw, 96px)' }}>
+      <section style={{ backgroundColor: 'var(--ab-paper)', padding: 'clamp(80px, 10vw, 128px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 1160, margin: '0 auto' }}>
 
           <motion.p {...fadeUp(0)} style={{
             fontFamily: "'Lato', Arial, sans-serif",
             fontSize: '0.68rem', letterSpacing: '0.24em',
-            textTransform: 'uppercase', color: '#9a2918',
+            textTransform: 'uppercase', color: 'var(--ab-ink)',
             margin: '0 0 clamp(48px, 7vw, 80px)',
             opacity: 0.7,
           }}>
@@ -221,7 +221,7 @@ export default function About() {
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: 'clamp(5rem, 9vw, 9rem)',
                 fontWeight: 400,
-                color: '#9a2918',
+                color: 'var(--ab-ink)',
                 opacity: 0.07,
                 lineHeight: 0.85,
                 letterSpacing: '-0.03em',
@@ -236,14 +236,14 @@ export default function About() {
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: 'clamp(1.4rem, 2.2vw, 2rem)',
                 fontWeight: 400,
-                color: '#9a2918',
+                color: 'var(--ab-ink)',
                 lineHeight: 1.2,
                 margin: '0 0 20px',
               }}>
                 The point of orientation.
               </p>
               {/* Thin rule */}
-              <div style={{ width: 40, height: 1, backgroundColor: '#9a2918', opacity: 0.22, margin: '0 0 20px' }} />
+              <div style={{ width: 40, height: 1, backgroundColor: 'var(--ab-ink)', opacity: 0.22, margin: '0 0 20px' }} />
               {/* Body */}
               <p style={{
                 fontFamily: "'Lato', Arial, sans-serif",
@@ -282,7 +282,7 @@ export default function About() {
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: 'clamp(5rem, 9vw, 9rem)',
                 fontWeight: 400,
-                color: '#9a2918',
+                color: 'var(--ab-ink)',
                 opacity: 0.07,
                 lineHeight: 0.85,
                 letterSpacing: '-0.03em',
@@ -297,14 +297,14 @@ export default function About() {
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: 'clamp(1.4rem, 2.2vw, 2rem)',
                 fontWeight: 400,
-                color: '#9a2918',
+                color: 'var(--ab-ink)',
                 lineHeight: 1.2,
                 margin: '0 0 20px',
               }}>
                 What opens from there.
               </p>
               {/* Thin rule */}
-              <div style={{ width: 40, height: 1, backgroundColor: '#9a2918', opacity: 0.22, margin: '0 0 20px' }} />
+              <div style={{ width: 40, height: 1, backgroundColor: 'var(--ab-ink)', opacity: 0.22, margin: '0 0 20px' }} />
               {/* Body */}
               <p style={{
                 fontFamily: "'Lato', Arial, sans-serif",
@@ -337,22 +337,22 @@ export default function About() {
               <p style={{
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: '0.68rem', letterSpacing: '0.24em',
-                textTransform: 'uppercase', color: '#9a2918', margin: '0 0 20px',
+                textTransform: 'uppercase', color: 'var(--ab-ink)', margin: '0 0 20px',
               }}>
                 A note from us
               </p>
               <p style={{
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: 'clamp(1.1rem, 1.5vw, 1.35rem)',
-                fontWeight: 400, color: '#9a2918', lineHeight: 1.4, margin: '0 0 16px',
+                fontWeight: 400, color: 'var(--ab-ink)', lineHeight: 1.4, margin: '0 0 16px',
               }}>
                 Camila<br />& Dana
               </p>
-              <div style={{ width: 32, height: 1, backgroundColor: '#9a2918', opacity: 0.25, margin: '0 0 14px' }} />
+              <div style={{ width: 32, height: 1, backgroundColor: 'var(--ab-ink)', opacity: 0.25, margin: '0 0 14px' }} />
               <p style={{
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: '0.7rem', letterSpacing: '0.12em',
-                textTransform: 'uppercase', color: '#9a2918', opacity: 0.55,
+                textTransform: 'uppercase', color: 'var(--ab-ink)', opacity: 0.55,
                 lineHeight: 1.7, margin: '0 0 clamp(28px, 4vw, 44px)',
               }}>
                 Partners in life<br />and in this project.
@@ -383,7 +383,7 @@ export default function About() {
                 fontSize: 'clamp(0.95rem, 1.2vw, 1.05rem)',
                 fontWeight: 400, color: '#7b7f80', lineHeight: 1.9,
               }}>
-                <p style={{ margin: '0 0 1.6em', color: '#9a2918', fontSize: 'clamp(1.05rem, 1.4vw, 1.2rem)', lineHeight: 1.65 }}>
+                <p style={{ margin: '0 0 1.6em', color: 'var(--ab-ink)', fontSize: 'clamp(1.05rem, 1.4vw, 1.2rem)', lineHeight: 1.65 }}>
                   We created Axis & Bloom because we wanted coffee discovery to feel more human, more beautiful, and more connected to everyday ritual.
                 </p>
                 <p style={{ margin: '0 0 1.6em' }}>
@@ -429,15 +429,15 @@ export default function About() {
             fontFamily: "'Lato', Arial, sans-serif",
             fontSize: 'clamp(1.05rem, 2vw, 1.55rem)',
             fontWeight: 400,
-            color: '#f2f1ea',
+            color: 'var(--ab-paper)',
             lineHeight: 1.65,
             margin: 0,
             maxWidth: 520,
           }}>
             For us, coffee is a morning{' '}
             <span style={{
-              backgroundColor: '#ee5974',
-              color: '#f2f1ea',
+              backgroundColor: 'var(--ab-mark-b)',
+              color: 'var(--ab-paper)',
               padding: '0 8px 3px',
               display: 'inline',
             }}>
@@ -449,7 +449,7 @@ export default function About() {
       </section>
 
       {/* ━━━ 6. FLAVOR SYSTEM / ARCHETYPE BRIDGE ━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(72px, 9vw, 112px) clamp(32px, 6vw, 96px)' }}>
+      <section style={{ backgroundColor: 'var(--ab-paper)', padding: 'clamp(72px, 9vw, 112px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 1160, margin: '0 auto' }}>
           <div style={{
             display: 'flex', gap: 'clamp(40px, 7vw, 96px)',
@@ -460,14 +460,14 @@ export default function About() {
               <p style={{
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: '0.68rem', letterSpacing: '0.24em',
-                textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px',
+                textTransform: 'uppercase', color: 'var(--ab-ink)', margin: '0 0 16px',
               }}>
                 The flavor system
               </p>
               <h2 style={{
                 fontFamily: "'Lato', Arial, sans-serif",
                 fontSize: 'clamp(1.6rem, 2.6vw, 2.4rem)',
-                fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0,
+                fontWeight: 400, color: 'var(--ab-ink)', lineHeight: 1.15, margin: 0,
               }}>
                 Every palate belongs<br />to a sensory world.
               </h2>

@@ -4,7 +4,7 @@ import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { resolveQrToken, type QrResolveResult, type QrBagCard } from '../lib/api';
 
-const RUST = '#a33726';
+const RUST = 'var(--ab-ink)';
 
 const METHOD_LABEL: Record<string, string> = {
   v60: 'V60', french_press: 'French press', espresso: 'Espresso', moka: 'Moka pot',
@@ -40,7 +40,7 @@ function BagView({ coffeeId, displayName, card }: { coffeeId: number; displayNam
   const { hasLiamAccess } = useAuth();
   return (
     <div className="max-w-xl mx-auto px-6 py-16">
-      <p className="text-[10px] uppercase tracking-[0.3em] mb-2" style={{ color: `${RUST}99` }}>Your bag</p>
+      <p className="text-[10px] uppercase tracking-[0.3em] mb-2" style={{ color: 'color-mix(in srgb, var(--ab-ink) 60%, transparent)' }}>Your bag</p>
       <h1 className="text-2xl font-normal mb-8" style={{ color: '#3a2e28' }}>{displayName}</h1>
 
       <div className="flex flex-col gap-1.5 mb-10">
@@ -49,7 +49,7 @@ function BagView({ coffeeId, displayName, card }: { coffeeId: number; displayNam
           {card.tempC != null ? ` · ${card.tempC}°C` : ''}
         </p>
         {card.notes && (
-          <p className="text-xs leading-relaxed" style={{ color: `${RUST}99` }}>{card.notes}</p>
+          <p className="text-xs leading-relaxed" style={{ color: 'color-mix(in srgb, var(--ab-ink) 60%, transparent)' }}>{card.notes}</p>
         )}
       </div>
 
@@ -79,7 +79,7 @@ function TwoDoors({ returnTo }: { returnTo: string }) {
   ];
   return (
     <div className="max-w-xl mx-auto px-6 py-16">
-      <p className="text-[10px] uppercase tracking-[0.3em] mb-2" style={{ color: `${RUST}99` }}>
+      <p className="text-[10px] uppercase tracking-[0.3em] mb-2" style={{ color: 'color-mix(in srgb, var(--ab-ink) 60%, transparent)' }}>
         FROM: AXIS &amp; BLOOM · TO: YOU
       </p>
       <h1 className="text-2xl font-normal mb-10" style={{ color: '#3a2e28' }}>See how this coffee matches you.</h1>
@@ -93,7 +93,7 @@ function TwoDoors({ returnTo }: { returnTo: string }) {
             >
               {door.label} <ArrowRight size={12} />
             </span>
-            <span className="text-xs leading-relaxed" style={{ color: `${RUST}99` }}>{door.line}</span>
+            <span className="text-xs leading-relaxed" style={{ color: 'color-mix(in srgb, var(--ab-ink) 60%, transparent)' }}>{door.line}</span>
           </Link>
         ))}
       </div>

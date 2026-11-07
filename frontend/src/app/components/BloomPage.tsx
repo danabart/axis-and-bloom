@@ -5,6 +5,7 @@ import { useCart } from '../context/CartContext';
 import { getUserProfile, getDialPosition, setDialPosition, getCoffeeCards, type CoffeeCards, type OtherCard } from '../lib/api';
 import { reportError } from '../lib/errorReporter';
 import { usePrelaunchGated } from '../lib/prelaunch';
+import { useArchetypeRelationships } from '../lib/useArchetypeRelationships';
 import { ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
@@ -18,7 +19,7 @@ import './bloom/field/bloomField.css';
 
 // Website 5 (2026-11-05): /bloom is the handoff page (source/bloom-b, option B):
 // "The Bloom Dial" with the 01/02/03 strip, five family tabs (personalized
-// order, YOUR / TO EXPLORE), one field for the selected family
+// order, each family's relationship label from the API since Website 9), one field for the selected family
 // (DialArchetypeSection layout="field": the flower wheel, the coffee, the
 // comfort zone, the reveal, the lineup, the quick picks), then the Other
 // block (Experimental as compact cards, S2 decided 2026-11-05; the named
@@ -39,8 +40,6 @@ export default function BloomPage() {
   const [archetypes, setArchetypes] = useState<ArchetypeData[]>([]);
   const [experimentalData, setExperimentalData] = useState<ArchetypeData | null>(null);
   const [cards, setCards] = useState<CoffeeCards | null>(null);
-  const [archetypeOrder, setArchetypeOrder] = useState<string[] | null>(null);
-  const [orderSettled, setOrderSettled] = useState(false);
   const [catalogueSettled, setCatalogueSettled] = useState(false);
   const [error, setError] = useState(false);
   const [userArchetype, setUserArchetype] = useState<string | null>(null);
@@ -102,16 +101,11 @@ export default function BloomPage() {
       .finally(() => setUserArchetypeLoaded(true));
   }, [user]);
 
-  // Personalized order (the customer's family first, then the nearest), server-side.
-  useEffect(() => {
-    if (!userArchetypeLoaded) return;
-    const qs = userArchetype ? `?archetype=${encodeURIComponent(userArchetype)}` : '';
-    fetch(`/api/coffees/archetype-order${qs}`)
-      .then(r => r.json())
-      .then((data: { order: string[] }) => setArchetypeOrder(data.order))
-      .catch(err => { reportError('[BloomPage/archetype-order]', err); setArchetypeOrder(null); })
-      .finally(() => setOrderSettled(true));
-  }, [userArchetype, userArchetypeLoaded]);
+  // Personalized order and each family's relationship (D16, Website 9), server-side:
+  // the customer's family first, then hops/profile-near families, then the rest.
+  const relationships = useArchetypeRelationships(userArchetype, userArchetypeLoaded);
+  const archetypeOrder = relationships.order;
+  const orderSettled = relationships.settled;
 
   const ordered = useMemo(() => {
     if (!archetypeOrder) return archetypes;
@@ -163,7 +157,9 @@ export default function BloomPage() {
   }, [catalogueSettled, archetypeParam, searchParams, archetypes, experimentalData]);
 
   function selectTab(archetype: string, focusTab = false) {
-    internalNav.current = true;
+    // AU14 (Website 9): only a real URL change is "internal"; the same tab again
+    // changes nothing, and a stale flag would swallow the next deep link.
+    if (archetypeParam !== archetype || searchParams.has('slot')) internalNav.current = true;
     setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('archetype', archetype); next.delete('slot'); return next; }, { replace: true });
     if (focusTab) requestAnimationFrame(() => document.getElementById(`bf-tab-${archetype}`)?.focus());
   }
@@ -209,9 +205,22 @@ export default function BloomPage() {
     setCompareState({ open: true, archetype, archetypeLabel, slot });
   }
 
-  const kickerFor = (archetype: string) => (user && userArchetype)
-    ? (userArchetype === archetype ? 'Your' : 'To explore')
-    : null;
+  // D16 (Website 9): the word beside each family is its relationship's customer
+  // label from the API (coffee_archetype_relationship_kind); guests see none.
+  const kickerFor = (archetype: string) => (user && userArchetype) ? relationships.labelOf(archetype) : null;
+
+  // D18 (Website 9): a tab click scrolls only when the field is out of view.
+  function revealField(archetype: string) {
+    requestAnimationFrame(() => {
+      // the new family's field may not be committed yet; the field sits in the same place either way
+      const el = document.getElementById(archetype) ?? document.querySelector<HTMLElement>('[data-testid="bloom-field"]');
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const header = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+      // out of view = scrolled past it (its end under the header) or still mostly below the fold
+      if (r.bottom < header || r.top > window.innerHeight * 0.75) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
 
   // OT-70: a category coffee with no customer-facing name is never shown.
   const otherCards = useMemo(
@@ -266,7 +275,7 @@ export default function BloomPage() {
   const familyCards = selected ? cards?.families.find(f => f.archetype === selected.archetype)?.cards : undefined;
 
   return (
-    <div style={{ background: '#ffffff', minHeight: '100vh' }}>
+    <div style={{ background: 'var(--ab-page)', minHeight: '100vh' }}>
       <Wrap as="section" className="bf-top" aria-label="Families of taste">
         <div className="bf-top-row">
           <h1 className="bf-h1"><Titled>The Bloom Dial</Titled></h1>
@@ -293,7 +302,7 @@ export default function BloomPage() {
                   style={{ ['--c' as string]: ARCHETYPE_VISUALS[a.archetype]?.color ?? 'currentColor' } as CSSProperties}
                   onClick={() => {
                     selectTab(a.archetype);
-                    requestAnimationFrame(() => document.getElementById(a.archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+                    revealField(a.archetype);
                   }}
                 >
                   <span className="bf-tab-kicker" aria-hidden={!kicker}>{kicker ?? ''}</span>

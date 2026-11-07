@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useLocation, useSearchParams, Navigate } from 'react-router';
+import { useEffect, useRef } from 'react';
+import { BrowserRouter, Routes, Route, useLocation, useNavigationType, useSearchParams, Navigate } from 'react-router';
 import { trackPageView } from './lib/analytics';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
@@ -67,6 +67,25 @@ function AnalyticsRouteTracker() {
   return null;
 }
 
+// AU9 (Website 9, 2026-11-06): a new page opens at its top. React Router keeps
+// the window where the last page left it, so a link from deep in a page (The
+// Bloom's "Full profile ↗") opened the next one half-way down. On a PUSH or
+// REPLACE to a new path, scroll to the top; Back/Forward (POP) keeps the
+// browser's restoration, a hash (/shop#fruity) is left to the page's own
+// deep-link effect, and a change of query alone (tabs, ?archetype=) never scrolls.
+export function ScrollToTopOnNavigate() {
+  const location = useLocation();
+  const navType = useNavigationType();
+  const prevPath = useRef(location.pathname);
+  useEffect(() => {
+    const changed = prevPath.current !== location.pathname;
+    prevPath.current = location.pathname;
+    if (!changed || navType === 'POP' || location.hash) return;
+    window.scrollTo(0, 0);
+  }, [location.pathname, location.hash, navType]);
+  return null;
+}
+
 function HomeOrPrelaunch() {
   const gated = usePrelaunchGated();
   if (gated) return <PreLaunch />;
@@ -100,6 +119,7 @@ export default function App() {
         {/* Commerce 1: CartProvider sits inside the router so checkout() can navigate to /checkout. */}
         <CartProvider>
           <AnalyticsRouteTracker />
+          <ScrollToTopOnNavigate />
           <CampaignQueryReader />
           <ConsentBanner />
           <Routes>

@@ -238,3 +238,24 @@ describe('Liam button and prelaunch', () => {
     expect(screen.getAllByTestId('home-family')[0].getAttribute('href')).toBe('/find-my-flavor');
   });
 });
+
+describe('Website 9 D17: the 03 figure follows the family', () => {
+  const figure = () => screen.getByTestId('home-03-figure');
+  it('a customer with a family sees that family; the invite (guest, NEW_NO_QUIZ) sees the Balanced photo', async () => {
+    renderHome();
+    expect(figure().getAttribute('data-family')).toBe('invite');
+    expect(figure().querySelector('img')!.getAttribute('src')).toMatch(/balanced-sweet/);
+    cleanup();
+    auth.user = { isAnonymous: false };
+    homepageState = state('QUIZ_TAKEN_FRESH_NO_ORDER', { archetype: { name: 'Chocolate & Nutty', id: 'chocolate_nutty', color: '#a54c2d', features: [] } });
+    renderHome();
+    await waitFor(() => expect(figure().getAttribute('data-family')).toBe('chocolate_nutty'));
+    expect(figure().querySelector('img')!.getAttribute('src')).toMatch(/chocolate-nutty/);
+    cleanup();
+    homepageState = state('NEW_NO_QUIZ');
+    renderHome();
+    await waitFor(() => expect(within(section03()).getByText('Ready to see your shape?')).toBeTruthy());
+    expect(figure().getAttribute('data-family')).toBe('invite');
+  });
+});
+

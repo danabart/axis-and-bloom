@@ -6556,6 +6556,50 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_8_SIGN_IN
 
 **Verified:** see `CLOSING_REPORT_8.md`.
 
+### 261. Website 9: Dana's review fixes: family relationships as data, the flower wheel turns like the old dial, no scroll on a turn, the old palette gone (2026-11-06)
+
+Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_9_REVIEW_FIXES.md`; full record (the Task 0 audit, Dana's decisions Q1–Q5, evidence) `backend/src/features/website_handoff/CLOSING_REPORT_9.md`.
+
+**Schema and API (Part A):**
+- New lookup `coffee_archetype_relationship_kind` (`own` / `adjacent` / `distant`). It holds every customer-facing relationship word: the family label ("Your family" / "Worth exploring" / "Outside your comfort zone"), the per-coffee pill words (`zone_code`) and the old badge words (`badge_code`). Seeded; the writer is `seed`.
+- `services/archetypeRelationshipReads.ts`: `getArchetypeRelationships()` classes each family. Bridge hops make it `adjacent`. Otherwise the cupped-coffee profile distance applies (`v_archetype_dimension_profile`, never `archetype_vector`) against `dimension_delta_significant`. If neither family has enough cupped coffees, it gets no label.
+- `catalogReads.getArchetypeOrder` is now its projection. `GET /api/coffees/archetype-order` adds `relationships` (matched customers) and `kinds`.
+- `catalogReads.archetypeCustomerWords()`: Profile and Home "features" are the family's `customer_words` (the typed sentences in `routes/users.ts` are gone).
+
+**The Bloom (Part B):**
+- `FlowerWheel`:
+  - per-move angle accumulation (no flip at half a turn);
+  - a centre dead zone;
+  - `preventDefault` on pointerdown;
+  - a local repaint while dragging, with the parent told only on a stop change;
+  - the tick row is a 47 px drag strip;
+  - snap on release.
+- `.bf-dial-left` aligns to start (the wheel no longer moves 50–84 px between stops).
+- The comfort-zone line follows the settled stop.
+- A lineup card turns the dial in place and holds the lineup still (no `scrollIntoView`). A tab click scrolls only when the field is out of view. The stale `internalNav` flag is fixed.
+- No "Save to flavor memory" on a stop with no coffee.
+- The tab kicker is the relationship label from the API (the typed YOUR / TO EXPLORE is gone, including the dead rule in `DialArchetypeSection`).
+
+**Home and Shop (Part C):**
+- Home section 03's figure follows `homepageState.archetype` (Balanced only for the invite).
+- Shop sections show each family's relationship word and follow its order.
+- `lib/useArchetypeRelationships.ts` is the one client of the payload. `useCompatibility` / `CompatibilityBadge` / `ComfortZoneAside` read their level and words from it (`COMFORT_ZONE_LABEL`, the `BADGE_CONFIG` words and the stretch apology line are gone).
+
+**Other pages (Part D):**
+- OT-93: the drawer link is `CHECKOUT_SIGN_IN_HREF`, shared with `/cart`.
+- OT-94: `/checkout/return` reads "Your order is placed." / "Your subscription has started with this order."
+- OT-67: 261 literals (`#9a2918`, `#a33726`, `#f2f1ea`, `#ee5974`, `#deded1`) → `--ab-*` tokens on Profile, Liam, About, How it works, Privacy, Terms, Crawl, QR door, Join household, the pre-launch curtain, the post-quiz gate, `FloatingCart`, `CompanyGiftRedemption` and Flavor Intelligence.
+- AU9: `ScrollToTopOnNavigate` in `App.tsx` (a new path opens at the top).
+- AU12: `/sign-in` sends an already signed-in visitor to the redirect.
+- AU7: the old dial card shows "Premium ★" (`CardTags`) and its shipping line comes from the checkout rules.
+- Copy: the three Axis lines are rewritten (G4.4). "This fall" and "Six" are gone from the curtain, the gate, the quiz's sealed line and Crawl.
+
+**Tests:**
+- backend `db/archetypeRelationships.test.ts` (10), `db/coffeePresentation3.test.ts` (updated);
+- frontend `components/website9.test.tsx` (9), plus additions to `bloom.test.tsx`, `shop.test.tsx`, `home.test.tsx` and `signin.test.tsx`.
+
+**Verified:** see `CLOSING_REPORT_9.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

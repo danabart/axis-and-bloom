@@ -6,7 +6,7 @@ import { getActiveCampaign } from '../lib/campaign';
 // Website 7B (2026-11-06): the chrome tokens (theme.css) in place of the old hexes;
 // the field underline keeps the family colour the caller passes (archetypeColor).
 const BRAND = 'var(--ab-ink)';
-const ACCENT = '#ee5974';
+const ACCENT = 'var(--ab-mark-b)';
 const INK   = 'var(--ab-ink)';
 const GRAY  = 'color-mix(in srgb, var(--ab-ink) 55%, transparent)';
 
@@ -75,8 +75,8 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
         maxWidth: 480, margin: '0 0 40px',
       }}>
         {sealed
-          ? 'Your archetype, the why behind it, and your matched coffees — plus first access this fall.'
-          : 'See why this is you — and meet the coffees chosen for your taste. Then make it entirely yours with the Bloom Dial. First access when doors open this fall.'}
+          ? 'Your archetype, the why behind it, and your matched coffees, plus first access when the doors open.'
+          : 'See why this is you — and meet the coffees chosen for your taste. Then make it entirely yours with the Bloom Dial. First access when the doors open.'}
       </p>
 
       {/* Parcel address block */}

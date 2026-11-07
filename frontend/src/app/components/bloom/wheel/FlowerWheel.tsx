@@ -10,6 +10,12 @@ import '../field/bloomField.css';
 // it maps to (k / (stops - 1)). onChange fires while dragging or sliding
 // (continuous), onCommit once a turn settles, snapped to a stop: that is the
 // dial's "settled turn" (the silent auto-save hangs off it upstream).
+// Website 9 (2026-11-06, D19): turned like the old dial. The pointer is
+// tracked by accumulating each move's angle (never the angle from the start,
+// which flipped end to end at half a turn), the wheel repaints locally during
+// a drag and the parent hears onChange only when the stop under the needle
+// changes, the tick row is a drag strip (BloomDial's ruler), and the page never
+// scrolls or selects text. Snap on release only.
 // backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_5_THE_BLOOM.md, Part A
 
 export interface FlowerWheelProps {
@@ -29,6 +35,8 @@ export interface FlowerWheelProps {
   meta?: ReactNode;
   /** Rendered under the slider (the end words and the hints). */
   foot?: ReactNode;
+  /** Website 9: true while a pointer turn is in progress (wheel or bar), false once it settles. */
+  onDragChange?: (dragging: boolean) => void;
 }
 
 /** The stop a value sits on. */
@@ -60,18 +68,34 @@ export function usePrefersReducedMotion(): boolean {
 }
 
 const RANGE_MAX = 300;
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+/** Share of the wheel's size around the centre where a drag does not turn it. */
+const CENTRE_DEAD_ZONE = 0.12;
 
-export function FlowerWheel({ t, stops, color, stopLabels, ariaLabel, onChange, onCommit, meta, foot }: FlowerWheelProps) {
+/** One pointer move's turn in radians, folded into (-π, π]: summed per move, it never flips at half a turn. */
+export function angleStep(from: number, to: number): number {
+  let d = to - from;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d <= -Math.PI) d += 2 * Math.PI;
+  return d;
+}
+
+export function FlowerWheel({ t, stops, color, stopLabels, ariaLabel, onChange, onCommit, meta, foot, onDragChange }: FlowerWheelProps) {
   const reduced = usePrefersReducedMotion();
   const still = stops <= 1;
   const tt = tints(color);
   const gRef = useRef<SVGGElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const cur = useRef(-t * WHEEL_SWEEP_DEG);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  // the wheel's own value while a pointer turns it; null at rest (then it shows `t`)
+  const [dragT, setDragT] = useState<number | null>(null);
+  const [dragKind, setDragKind] = useState<'wheel' | 'bar' | null>(null);
+  const shown = dragT ?? t;
+  const cur = useRef(-shown * WHEEL_SWEEP_DEG);
   const target = useRef(cur.current);
   const raf = useRef<number | null>(null);
   const instant = useRef(false);
-  const drag = useRef<{ a0: number; t0: number; id: number } | null>(null);
+  const drag = useRef<{ kind: 'wheel' | 'bar'; last: number; t: number; stop: number } | null>(null);
   const tRef = useRef(t);
   tRef.current = t;
 
@@ -79,11 +103,11 @@ export function FlowerWheel({ t, stops, color, stopLabels, ariaLabel, onChange, 
     gRef.current?.setAttribute('transform', `rotate(${deg.toFixed(2)} ${WHEEL_CENTRE.x} ${WHEEL_CENTRE.y})`);
   };
 
-  // spin(): ease the rotation toward -t*270deg; instant under reduced motion,
-  // while dragging and while sliding (the handoff's `instant`).
+  // spin(): ease the rotation toward -t*270deg; instant under reduced motion
+  // and while a pointer or the slider is turning it.
   useEffect(() => {
-    target.current = -t * WHEEL_SWEEP_DEG;
-    if (reduced || instant.current || typeof requestAnimationFrame === 'undefined') {
+    target.current = -shown * WHEEL_SWEEP_DEG;
+    if (reduced || instant.current || dragT != null || typeof requestAnimationFrame === 'undefined') {
       if (raf.current != null && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(raf.current);
       raf.current = null;
       cur.current = target.current;
@@ -98,35 +122,67 @@ export function FlowerWheel({ t, stops, color, stopLabels, ariaLabel, onChange, 
       raf.current = cur.current !== target.current ? requestAnimationFrame(step) : null;
     };
     raf.current = requestAnimationFrame(step);
-  }, [t, reduced]);
+  }, [shown, reduced, dragT]);
 
   useEffect(() => () => { if (raf.current != null && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(raf.current); }, []);
 
-  const k = stopOf(t, stops);
+  const k = stopOf(shown, stops);
   const commitStop = (stop: number) => onCommit(tOf(stop, stops));
 
   function angle(e: PointerEvent) {
     const r = wrapRef.current!.getBoundingClientRect();
     return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2));
   }
-  function onPointerDown(e: PointerEvent<HTMLDivElement>) {
-    if (still) return;
-    drag.current = { a0: angle(e), t0: tRef.current, id: e.pointerId };
-    instant.current = true;
+  /** Near the centre the angle swings wildly; a pointer there turns nothing (the crossing is not a half-turn jump). */
+  function nearCentre(e: PointerEvent) {
+    const r = wrapRef.current!.getBoundingClientRect();
+    return Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)) < CENTRE_DEAD_ZONE * Math.min(r.width, r.height);
+  }
+  function barValue(e: PointerEvent) {
+    const r = barRef.current!.getBoundingClientRect();
+    return clamp01((e.clientX - r.left) / (r.width || 1));
+  }
+  /** A pointer value: repaint here, tell the parent only when the stop changes. */
+  function move(next: number) {
+    const d = drag.current!;
+    d.t = next;
+    setDragT(next);
+    const s = stopOf(next, stops);
+    if (s !== d.stop) { d.stop = s; onChange(next); }
+  }
+  function start(e: PointerEvent<HTMLDivElement>, kind: 'wheel' | 'bar') {
+    if (still || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    e.preventDefault(); // no text selection, no focus jump, no native drag
     e.currentTarget.setPointerCapture?.(e.pointerId);
+    drag.current = { kind, last: kind === 'wheel' ? angle(e) : 0, t: tRef.current, stop: stopOf(tRef.current, stops) };
+    setDragT(tRef.current);
+    setDragKind(kind);
+    onDragChange?.(true);
+    if (kind === 'bar') move(barValue(e));
   }
-  function onPointerMove(e: PointerEvent<HTMLDivElement>) {
-    if (!drag.current) return;
-    let d = angle(e) - drag.current.a0;
-    if (d > Math.PI) d -= 2 * Math.PI;
-    if (d < -Math.PI) d += 2 * Math.PI;
-    onChange(Math.max(0, Math.min(1, drag.current.t0 - d / (Math.PI * 1.5))));
+  function onWheelMove(e: PointerEvent<HTMLDivElement>) {
+    const d = drag.current;
+    if (!d || d.kind !== 'wheel') return;
+    const a = angle(e);
+    if (nearCentre(e)) { d.last = a; return; }
+    const turn = angleStep(d.last, a);
+    d.last = a;
+    // clockwise on screen turns toward the first stop, as before
+    move(clamp01(d.t - turn / (Math.PI * 1.5)));
   }
-  function onPointerUp() {
-    if (!drag.current) return;
+  function onBarMove(e: PointerEvent<HTMLDivElement>) {
+    const d = drag.current;
+    if (!d || d.kind !== 'bar') return;
+    move(barValue(e));
+  }
+  function end() {
+    const d = drag.current;
+    if (!d) return;
     drag.current = null;
-    instant.current = false;
-    commitStop(stopOf(tRef.current, stops));
+    setDragT(null);
+    setDragKind(null);
+    onDragChange?.(false);
+    commitStop(stopOf(d.t, stops));
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -146,18 +202,20 @@ export function FlowerWheel({ t, stops, color, stopLabels, ariaLabel, onChange, 
     <div className="bf-wheel" data-testid="flower-wheel">
       <div
         ref={wrapRef}
-        className={`bf-wheel-wrap${still ? ' is-still' : ''}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        className={`bf-wheel-wrap${still ? ' is-still' : ''}${dragKind === 'wheel' ? ' is-dragging' : ''}`}
+        data-testid="wheel-drag"
+        onPointerDown={e => start(e, 'wheel')}
+        onPointerMove={onWheelMove}
+        onPointerUp={end}
+        onPointerCancel={end}
+        onLostPointerCapture={end}
       >
         <span className="bf-marker" aria-hidden="true" />
         <svg viewBox={WHEEL_VIEWBOX} aria-hidden="true" focusable="false">
           <g ref={gRef} transform={`rotate(${(-t * WHEEL_SWEEP_DEG).toFixed(2)} ${WHEEL_CENTRE.x} ${WHEEL_CENTRE.y})`}>
             <g fill="none" strokeMiterlimit={10}>
               {PETALS.map((p, i) => {
-                const on = petalOn(p.thr, t);
+                const on = petalOn(p.thr, shown);
                 return (
                   <path
                     key={i}
@@ -175,27 +233,37 @@ export function FlowerWheel({ t, stops, color, stopLabels, ariaLabel, onChange, 
       </div>
       <div className="bf-slider">
       {meta}
-      <div className="bf-ticks" aria-hidden="true">
-        {Array.from({ length: tickCount }, (_, q) => <i key={q} className={q % ticksPer === 0 ? 'big' : undefined} />)}
+      <div
+        ref={barRef}
+        className={`bf-bar${still ? ' is-still' : ''}${dragKind === 'bar' ? ' is-dragging' : ''}`}
+        data-testid="wheel-bar"
+        onPointerDown={e => start(e, 'bar')}
+        onPointerMove={onBarMove}
+        onPointerUp={end}
+        onPointerCancel={end}
+        onLostPointerCapture={end}
+      >
+        <div className="bf-ticks" aria-hidden="true">
+          {Array.from({ length: tickCount }, (_, q) => <i key={q} className={q % ticksPer === 0 ? 'big' : undefined} />)}
+        </div>
+        <input
+          className="bf-range"
+          type="range"
+          min={0}
+          max={RANGE_MAX}
+          step={1}
+          value={Math.round(shown * RANGE_MAX)}
+          disabled={still}
+          aria-label={ariaLabel}
+          aria-valuemin={1}
+          aria-valuemax={Math.max(1, stops)}
+          aria-valuenow={k + 1}
+          aria-valuetext={stopLabels[k] ?? String(k + 1)}
+          onKeyDown={onKeyDown}
+          onChange={e => { instant.current = true; onChange(Number(e.target.value) / RANGE_MAX); }}
+          onBlur={() => { if (instant.current) { instant.current = false; commitStop(stopOf(tRef.current, stops)); } }}
+        />
       </div>
-      <input
-        className="bf-range"
-        type="range"
-        min={0}
-        max={RANGE_MAX}
-        step={1}
-        value={Math.round(t * RANGE_MAX)}
-        disabled={still}
-        aria-label={ariaLabel}
-        aria-valuemin={1}
-        aria-valuemax={Math.max(1, stops)}
-        aria-valuenow={k + 1}
-        aria-valuetext={stopLabels[k] ?? String(k + 1)}
-        onKeyDown={onKeyDown}
-        onChange={e => { instant.current = true; onChange(Number(e.target.value) / RANGE_MAX); }}
-        onPointerUp={() => { instant.current = false; commitStop(stopOf(tRef.current, stops)); }}
-        onBlur={() => { if (instant.current) { instant.current = false; commitStop(stopOf(tRef.current, stops)); } }}
-      />
       {foot}
       </div>
     </div>

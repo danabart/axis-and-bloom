@@ -60,7 +60,7 @@ export default function JoinHousehold() {
   const signInUrl = `/sign-in?redirect=${encodeURIComponent(`/join-household?token=${token}`)}`;
 
   return (
-    <div className="w-full h-screen bg-[#f2f1ea] flex overflow-hidden">
+    <div className="w-full h-screen bg-[var(--ab-paper)] flex overflow-hidden">
       <div className="hidden lg:flex w-1/2 bg-[#1a1a1a] relative flex-col justify-center items-center overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center"
@@ -72,17 +72,17 @@ export default function JoinHousehold() {
         <div className="w-full max-w-[400px] flex flex-col items-start gap-8">
 
           {loading ? (
-            <p className="text-[#a33726]/50 text-sm uppercase tracking-widest">Loading…</p>
+            <p className="text-[var(--ab-ink)]/50 text-sm uppercase tracking-widest">Loading…</p>
 
           ) : fetchError ? (
             <div className="flex flex-col gap-6">
-              <h1 className="text-[2.5rem] text-[#a33726] leading-tight font-normal">
+              <h1 className="text-[2.5rem] text-[var(--ab-ink)] leading-tight font-normal">
                 This invitation is no longer valid.
               </h1>
-              <p className="text-base text-[#a33726]/60 font-light">{fetchError}</p>
+              <p className="text-base text-[var(--ab-ink)]/60 font-light">{fetchError}</p>
               <Link
                 to="/"
-                className="text-[10px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors w-fit"
+                className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/30 pb-1 hover:border-[var(--ab-ink)] hover:text-[var(--ab-mark-b)] transition-colors w-fit"
               >
                 Return home
               </Link>
@@ -91,17 +91,17 @@ export default function JoinHousehold() {
           ) : invite ? (
             <div className="flex flex-col gap-8 w-full">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/60 mb-4">
+                <p className="text-[10px] uppercase tracking-[0.3em] text-[var(--ab-ink)]/60 mb-4">
                   Family Bundle Invitation
                 </p>
-                <h1 className="text-[2.5rem] text-[#a33726] leading-tight font-normal">
+                <h1 className="text-[2.5rem] text-[var(--ab-ink)] leading-tight font-normal">
                   {invite.inviterName} invited you.
                 </h1>
               </div>
 
-              <p className="text-lg text-[#a33726]/70 font-light leading-relaxed">
+              <p className="text-lg text-[var(--ab-ink)]/70 font-light leading-relaxed">
                 You've been invited to join{' '}
-                <strong className="text-[#a33726] font-normal">
+                <strong className="text-[var(--ab-ink)] font-normal">
                   {invite.householdName ?? 'a Family Bundle'}
                 </strong>
                 . Everyone gets coffee matched to their own palate, delivered together.
@@ -114,20 +114,20 @@ export default function JoinHousehold() {
                   <button
                     onClick={handleJoin}
                     disabled={joining}
-                    className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30 w-fit"
+                    className="text-[10px] uppercase tracking-[0.3em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/40 pb-1 hover:border-[var(--ab-mark-b)] hover:text-[var(--ab-mark-b)] transition-colors disabled:opacity-30 w-fit"
                   >
                     {joining ? 'Joining…' : 'Join Household'}
                   </button>
                 ) : (
                   <div className="flex flex-col gap-3">
-                    <p className="text-sm text-[#a33726]/60 font-light">
+                    <p className="text-sm text-[var(--ab-ink)]/60 font-light">
                       This invitation was sent to{' '}
                       <strong className="font-normal">{invite.invitedEmail}</strong>.
                       You're signed in as {user.email}.
                     </p>
                     <Link
                       to={signInUrl}
-                      className="text-[10px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors w-fit"
+                      className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/30 pb-1 hover:border-[var(--ab-ink)] hover:text-[var(--ab-mark-b)] transition-colors w-fit"
                     >
                       Sign in with the right account
                     </Link>
@@ -135,12 +135,12 @@ export default function JoinHousehold() {
                 )
               ) : (
                 <div className="flex flex-col gap-4">
-                  <p className="text-sm text-[#a33726]/60 font-light">
+                  <p className="text-sm text-[var(--ab-ink)]/60 font-light">
                     Sign in to accept this invitation.
                   </p>
                   <Link
                     to={signInUrl}
-                    className="text-[10px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors w-fit"
+                    className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/30 pb-1 hover:border-[var(--ab-ink)] hover:text-[var(--ab-mark-b)] transition-colors w-fit"
                   >
                     Sign in or create account
                   </Link>

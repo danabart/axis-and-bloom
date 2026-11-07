@@ -18,7 +18,8 @@ import '../bloom/cartPage.css';
 
 const POLL_MS = 1500;
 const POLL_FOR_MS = 20_000;
-const FALLBACK_LINE = 'Your coffee is on its way to being roasted.';
+// OT-94 (Website 9, D14): order facts only; no roasting or delivery claim.
+const FALLBACK_LINE = 'Your order is placed.';
 
 export default function CheckoutReturnPage() {
   const [params] = useSearchParams();
@@ -76,7 +77,7 @@ export default function CheckoutReturnPage() {
             </div>
             {status?.subscription && (
               <div className="flex flex-col gap-1 p-5" style={{ backgroundColor: 'var(--ab-paper)' }} data-testid="return-subscription">
-                <p className="text-sm">Your first bag is on its way to being roasted.</p>
+                <p className="text-sm">Your subscription has started with this order.</p>
                 {status.subscription.nextDeliveryDate && (
                   <p className="text-sm">
                     Next delivery {formatCalendarDate(status.subscription.nextDeliveryDate)}, every {status.subscription.frequencyWeeks} weeks.

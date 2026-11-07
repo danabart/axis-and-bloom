@@ -20,9 +20,13 @@ function fixtureRunner(pairs: Pair[]) {
   const values = pairs
     .map(([a, b, hops, c]) => `('${a}', '${b}', ${hops}::bigint, ${c === null ? 'NULL' : c}::numeric)`)
     .join(', ');
+  // Website 9: the order now also reads cupped-family profiles; these tests pin
+  // the hop rule alone, so the profiles are swapped for none (every non-hop
+  // family unlabelled, sort_order). archetypeRelationships.test.ts covers them.
   return {
     query: (sql: string, params?: unknown[]) => db.query(
-      sql.replace('FROM v_coffee_archetype_adjacency', `FROM (VALUES ${values}) AS adj(archetype_a, archetype_b, hop_count, avg_confidence)`),
+      sql.replace('FROM v_coffee_archetype_adjacency', `FROM (VALUES ${values}) AS adj(archetype_a, archetype_b, hop_count, avg_confidence)`)
+        .replace('FROM v_archetype_dimension_profile', 'FROM (SELECT NULL::text AS archetype, NULL::int AS dimension_id, NULL::numeric AS avg_midpoint, NULL::int[] AS coffee_ids WHERE false) AS prof'),
       params,
     ),
   } as unknown as typeof db;

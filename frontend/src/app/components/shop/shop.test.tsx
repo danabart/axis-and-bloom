@@ -12,7 +12,18 @@ const addToCart = vi.fn();
 let gated = false;
 let profile: unknown = null;
 const setDialPosition = vi.fn(async () => ({ ok: true }));
-const getArchetypeOrder = vi.fn(async (_a: string | null) => ['chocolate_nutty', 'earthy', 'balanced_sweet', 'floral', 'fruity']);
+// Website 9 (D16): the order and each family's relationship word come from GET /api/coffees/archetype-order.
+const REL_ORDER = ['chocolate_nutty', 'earthy', 'balanced_sweet', 'floral', 'fruity'];
+const REL_CODE: Record<string, string | null> = { chocolate_nutty: 'own', earthy: 'adjacent', balanced_sweet: 'adjacent', floral: 'distant', fruity: null };
+const REL_LABEL: Record<string, string> = { own: 'Your family', adjacent: 'Worth exploring', distant: 'Outside your comfort zone' };
+const orderCalls: string[] = [];
+function archetypeOrder(url: string) {
+  orderCalls.push(url);
+  return {
+    order: REL_ORDER, kinds: [],
+    relationships: REL_ORDER.map(a => ({ archetype: a, code: REL_CODE[a], customerLabel: REL_CODE[a] ? REL_LABEL[REL_CODE[a]!] : null })),
+  };
+}
 
 const price = (cents: number, oz = 12) => ({ weightOz: oz, retailPriceCents: cents, label: `${oz} oz`, isAnchor: oz === 12 });
 const slot = (n: number, extra: Record<string, unknown> = {}) => ({
@@ -55,7 +66,6 @@ vi.mock('../../lib/prelaunch', () => ({ usePrelaunchGated: () => gated }));
 vi.mock('../../lib/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../lib/api', () => ({
   getCoffeeCards: vi.fn(async () => payload()),
-  getArchetypeOrder: (a: string | null) => getArchetypeOrder(a),
   getUserProfile: vi.fn(async () => profile),
   getHomeContent: vi.fn(async () => ({ facts: { questions: 6, dimensions: 8, families: 5, scaleMin: 0, scaleMax: 15 }, quotes: [], featured: null })),
   setDialPosition: (...a: unknown[]) => setDialPosition(...(a as [])),
@@ -66,9 +76,9 @@ import ShopAll, { FAMILY_FIRST_KEY } from './ShopAll';
 let available = true;
 beforeEach(() => {
   auth.user = null; auth.isGuest = false; gated = false; profile = null; available = true;
-  addToCart.mockClear(); setDialPosition.mockClear(); getArchetypeOrder.mockClear();
+  addToCart.mockClear(); setDialPosition.mockClear(); orderCalls.length = 0;
   localStorage.clear();
-  vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ available }) })));
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ json: async () => (String(url).startsWith('/api/coffees/archetype-order') ? archetypeOrder(String(url)) : { available }) })));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -85,17 +95,23 @@ describe('sections', () => {
     expect(screen.getByText(/5 families, a handful of coffees in each\. Every one cupped on 8 dimensions, from partner roasteries\./)).toBeTruthy();
   });
 
-  it('signed in with a family: that family first, labelled "Your family"; the toggle restores sort_order and is remembered', async () => {
+  it('signed in with a family: the order and a relationship word on every family from the payload; the toggle restores sort_order and is remembered', async () => {
     auth.user = { isAnonymous: false };
     profile = { archetype: { id: 'chocolate_nutty', name: 'Chocolate & Nutty' } };
     renderShop();
     await waitFor(() => expect(sectionIds()[0]).toBe('chocolate_nutty'));
-    expect(getArchetypeOrder).toHaveBeenCalledWith('chocolate_nutty');
-    expect(choc().textContent).toContain('04 — Your family');
+    expect(orderCalls).toContain('/api/coffees/archetype-order?archetype=chocolate_nutty');
+    expect(sectionIds()).toEqual(REL_ORDER);
+    const kicker = (id: string) => screen.getAllByTestId('shop-family').find(s => s.id === id)!.querySelector('[data-testid=shop-family-kicker]')!.textContent;
+    expect(kicker('chocolate_nutty')).toBe('04 — Your family');
+    expect(kicker('earthy')).toBe('05 — Worth exploring');
+    expect(kicker('floral')).toBe('01 — Outside your comfort zone');
+    expect(kicker('fruity')).toBe('02 — Family of taste'); // no evidence: no relationship word
     expect(screen.getByTestId('shop-foryou').textContent).toContain('Your family is Chocolate & Nutty · from your quiz');
     fireEvent.click(screen.getByRole('button', { name: 'Your family first' }));
     await waitFor(() => expect(sectionIds()[0]).toBe('floral'));
     expect(localStorage.getItem(FAMILY_FIRST_KEY)).toBe('off');
+    expect(kicker('earthy')).toBe('05 — Worth exploring'); // the words stay with the toggle off
   });
 
   it('anonymous: the line leads to the quiz', async () => {

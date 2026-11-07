@@ -13,7 +13,8 @@ const signInWithGoogle = vi.fn(async () => {});
 const signInWithApple = vi.fn(async () => {});
 let gated = false;
 
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ signIn, signUp, signInWithGoogle, signInWithApple }) }));
+const authState: { user: null | { isAnonymous: boolean }; loading: boolean } = { user: null, loading: false };
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ ...authState, signIn, signUp, signInWithGoogle, signInWithApple }) }));
 vi.mock('../lib/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../lib/prelaunch', () => ({ usePrelaunchGated: () => gated }));
 vi.mock('../lib/api', () => ({
@@ -37,7 +38,7 @@ const tab = (name: string) => screen.getByRole('tab', { name });
 const type = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
 
 beforeEach(() => {
-  gated = false;
+  gated = false; authState.user = null; authState.loading = false;
   [signIn, signUp, signInWithGoogle, signInWithApple].forEach(f => { f.mockReset(); f.mockImplementation(async () => {}); });
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) })));
 });
@@ -141,3 +142,19 @@ describe('/sign-in', () => {
     expect(screen.getByRole('link', { name: /Begin my profile/ })).toBeTruthy();
   });
 });
+
+describe('Website 9 AU12: already signed in', () => {
+  it('a signed-in visitor goes straight to the redirect; a guest (anonymous) stays on the form', async () => {
+    authState.user = { isAnonymous: false };
+    renderAt('/sign-in?redirect=/checkout');
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/checkout'));
+    cleanup();
+    renderAt('/sign-in');
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/profile'));
+    cleanup();
+    authState.user = { isAnonymous: true };
+    renderAt('/sign-in?redirect=/checkout');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Begin your profile.');
+  });
+});
+

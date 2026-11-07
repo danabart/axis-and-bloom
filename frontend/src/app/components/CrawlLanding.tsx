@@ -54,7 +54,7 @@ const COPY = {
   perkHot1: 'ships free',
   perkBody2: '. Five of you will receive your',
   perkHot2: 'first match free',
-  perkBody3: ', drawn when the doors open this fall.',
+  perkBody3: ', drawn when the doors open.',
 } as const;
 
 export default function CrawlLanding() {
@@ -105,7 +105,7 @@ export default function CrawlLanding() {
     <>
       <style>{`
         .crawl-page {
-          background: #f2f1ea;
+          background: var(--ab-paper);
           font-family: 'Lato', sans-serif;
           color: #45474a;
           -webkit-font-smoothing: antialiased;
@@ -124,7 +124,7 @@ export default function CrawlLanding() {
         .crawl-wordmark {
           font-size: 10.5px;
           letter-spacing: .3em;
-          color: #9a2918;
+          color: var(--ab-ink);
           font-weight: 400;
           margin-top: 9px;
         }
@@ -143,8 +143,8 @@ export default function CrawlLanding() {
           margin-top: 18px;
           text-transform: uppercase;
         }
-        .crawl-h1-pink { color: #ee5974; }
-        .crawl-h1-terra { color: #9a2918; }
+        .crawl-h1-pink { color: var(--ab-mark-b); }
+        .crawl-h1-terra { color: var(--ab-ink); }
         .crawl-lede {
           font-size: 15.5px;
           font-weight: 300;
@@ -170,27 +170,27 @@ export default function CrawlLanding() {
           font-size: 14px;
           font-weight: 300;
           line-height: 1.7;
-          color: #9a2918;
+          color: var(--ab-ink);
           margin: 34px auto 0;
           max-width: 380px;
         }
         .crawl-good {
           font-weight: 900;
           background: #f8b3bd;
-          color: #9a2918;
+          color: var(--ab-ink);
           padding: .06em .24em .1em;
           border-radius: 1px;
         }
         .crawl-palate {
           font-size: 29px;
           font-weight: 400;
-          color: #9a2918;
+          color: var(--ab-ink);
           letter-spacing: .01em;
           line-height: 1.32;
           margin: 30px auto 0;
           max-width: 420px;
         }
-        .crawl-palate-pink { color: #ee5974; }
+        .crawl-palate-pink { color: var(--ab-mark-b); }
         .crawl-form { margin-top: 26px; }
         .crawl-field {
           display: block;
@@ -209,11 +209,11 @@ export default function CrawlLanding() {
           outline: none;
         }
         .crawl-field::placeholder { color: #7b7f80; opacity: .8; }
-        .crawl-field:focus { border-bottom-color: #ee5974; }
+        .crawl-field:focus { border-bottom-color: var(--ab-mark-b); }
         .crawl-btn {
           display: inline-block;
-          background: #9a2918;
-          color: #f2f1ea;
+          background: var(--ab-ink);
+          color: var(--ab-paper);
           font-size: 12.5px;
           letter-spacing: .24em;
           font-weight: 900;
@@ -226,7 +226,7 @@ export default function CrawlLanding() {
           transition: background .3s;
         }
         .crawl-btn:hover:not(:disabled) { background: #8a2416; }
-        .crawl-btn:focus-visible { outline: 2px solid #ee5974; outline-offset: 2px; }
+        .crawl-btn:focus-visible { outline: 2px solid var(--ab-mark-b); outline-offset: 2px; }
         .crawl-btn:disabled { opacity: .3; cursor: not-allowed; }
         .crawl-perk {
           font-size: 11px;
@@ -240,9 +240,9 @@ export default function CrawlLanding() {
           font-weight: 900;
           font-size: 10px;
           letter-spacing: .06em;
-          color: #ee5974;
+          color: var(--ab-mark-b);
         }
-        .crawl-hot { color: #9a2918; font-weight: 900; }
+        .crawl-hot { color: var(--ab-ink); font-weight: 900; }
         .crawl-footer { margin-top: auto; padding-top: 44px; }
         .crawl-fromto {
           font-size: 9.5px;

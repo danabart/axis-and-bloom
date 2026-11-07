@@ -13,6 +13,10 @@ import './cartPage.css';
 // Website 8 (2026-11-06) — /cart uses the same pieces (variant="page").
 
 /** Bags in the cart: one per unit of every line, a collection counts each member (same rule as the server's cartResolver). */
+
+/** The signed-out checkout link, one for the drawer and /cart (OT-93, Website 9). */
+export const CHECKOUT_SIGN_IN_HREF = '/sign-in?mode=signin&redirect=/checkout';
+
 export function cartBagCount(items: CartItem[]): number {
   return items.reduce((n, i) => n + i.qty * (i.kind === 'collection' ? i.memberCount : 1), 0);
 }

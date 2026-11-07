@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { reportError } from '../lib/errorReporter';
 
-const RUST = '#a33726';
+const RUST = 'var(--ab-ink)';
 
 const INTENT_LABELS: Record<string, string> = {
   PROFILE_AMBIGUOUS:   'Discovering your profile',

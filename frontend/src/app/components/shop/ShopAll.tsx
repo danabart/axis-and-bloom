@@ -8,8 +8,9 @@ import { formatPrice } from '../bloom/types';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { usePrelaunchGated } from '../../lib/prelaunch';
-import { getCoffeeCards, getArchetypeOrder, getUserProfile, getHomeContent, type CoffeeCards, type FamilyCards, type OtherCard } from '../../lib/api';
+import { getCoffeeCards, getUserProfile, getHomeContent, type CoffeeCards, type FamilyCards, type OtherCard } from '../../lib/api';
 import { reportError } from '../../lib/errorReporter';
+import { useArchetypeRelationships } from '../../lib/useArchetypeRelationships';
 import { archetypeAssets, shopAssets, lifestyleAssets, type ArchetypeSlug } from '../../../design/assets';
 import './shop.css';
 
@@ -45,7 +46,6 @@ export default function ShopAll() {
   const [error, setError] = useState(false);
   const [you, setYou] = useState<{ code: string; name: string } | null>(null);
   const [familyFirst, setFamilyFirst] = useState(readFamilyFirst);
-  const [order, setOrder] = useState<string[] | null>(null);
   const [current, setCurrent] = useState<string>('all');
   const [dimensions, setDimensions] = useState<number | null>(null);
 
@@ -67,10 +67,11 @@ export default function ShopAll() {
   const yourFamily = you ? families.find(f => f.archetype === you.code) ?? null : null;
   const personalise = !!yourFamily && familyFirst;
 
-  useEffect(() => {
-    if (!personalise || !yourFamily) { setOrder(null); return; }
-    getArchetypeOrder(yourFamily.archetype).then(setOrder).catch(err => { reportError('[ShopAll/archetype-order]', err); setOrder(null); });
-  }, [personalise, yourFamily?.archetype]);
+  // D16 (Website 9): each family's relationship to hers and the order, from the
+  // archetype-order payload (the same one The Bloom tabs read). The words show
+  // whenever her family is known; the order only with "Your family first".
+  const rel = useArchetypeRelationships(yourFamily?.archetype ?? null, !!yourFamily);
+  const order = personalise ? rel.order : null;
 
   const ordered = useMemo(() => {
     if (!order) return families;
@@ -176,13 +177,13 @@ export default function ShopAll() {
       <div id="families">
         {ordered.map(f => {
           const look = familyLook(f);
-          const mine = personalise && yourFamily?.archetype === f.archetype;
+          const relation = yourFamily ? rel.labelOf(f.archetype) : null;
           const offer = f.collectionOffer;
           return (
             <Wrap as="section" key={f.archetype} id={f.archetype} className="sh-family" aria-label={f.archetypeLabel} data-shop-section="" data-testid="shop-family" style={{ ['--c' as string]: look.color }}>
               <div className="sh-fam-head">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <Titled style={{ alignSelf: 'flex-start' }}>{pad2(f.sortOrder)} — {mine ? 'Your family' : 'Family of taste'}</Titled>
+                  <Titled style={{ alignSelf: 'flex-start' }} data-testid="shop-family-kicker">{pad2(f.sortOrder)} — {relation ?? 'Family of taste'}</Titled>
                   <h2 className="sh-fam-name">{f.archetypeLabel}</h2>
                   {f.customerWords && <Caps weight={400}>{f.customerWords.join(' · ')}</Caps>}
                 </div>

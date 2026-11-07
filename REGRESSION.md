@@ -241,3 +241,22 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_8.md`. Tests: 
 - [ ] **Signed-out checkout:** a signed-out visitor or guest sees "Sign in to check out" → `/sign-in?mode=signin&redirect=/checkout`; signed in → `/checkout`.
 - [ ] **Gated cart:** `/cart` is behind `PrelaunchGate` (redirects to the curtain while gated, unless `?preview=true`).
 - [ ] **Checkout from `/cart`:** `/cart` → `/checkout` → `/checkout/return` completes in Stripe test mode; the return page clears the cart.
+
+## Review fixes: relationships, the wheel, no scroll (Website 9, 2026-11-06)
+
+Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: `backend/src/db/archetypeRelationships.test.ts`, `frontend/src/app/components/website9.test.tsx`, `bloom/bloom.test.tsx`, `shop/shop.test.tsx`, `home/home.test.tsx`, `signin.test.tsx`.
+
+- [ ] **Relationship words are data:** a signed-in customer with a family sees, beside every family (The Bloom tabs, the Shop sections), the `customer_label` of its relationship from `GET /api/coffees/archetype-order`; a family with no evidence and every guest see none. No YOUR / TO EXPLORE anywhere.
+- [ ] **The relationship rule:** bridge hops make a family adjacent; else its cupped-coffee profile within `dimension_delta_significant` of hers is adjacent, further is distant; profiles come from `v_archetype_dimension_profile` only (never `archetype_vector`).
+- [ ] **Pill and badge words:** the comfort-zone pill and the compatibility badge read their words from the same payload (`kinds`); no stretch apology line.
+- [ ] **The wheel turns like the old dial:** drag anywhere outside the centre, mouse and touch; a turn past half a circle keeps going (never flips to the other end); the centre turns nothing; the tick row drags; snap on release; arrow keys, Home and End on the slider.
+- [ ] **The wheel never moves:** stepping through a family's stops at desktop width moves the wheel 0 px.
+- [ ] **No scroll on a turn (D18):** wheel, bar, keys and a lineup card change the stop in place (the lineup stays still on screen); a tab click scrolls only when the field is out of view; deep links and doors still scroll.
+- [ ] **A new page opens at the top** (`ScrollToTopOnNavigate`): Full profile ↗ lands on Flavor Intelligence at its title; Back keeps the browser's position; `/shop#family` still lands on its section.
+- [ ] **Home 03 figure:** a customer with a family sees that family's photo; the invite (guest, `NEW_NO_QUIZ`) sees the Balanced photo.
+- [ ] **No save on an empty stop:** "Save to flavor memory" only on a stop with a live coffee.
+- [ ] **Drawer and `/cart` share one sign-in link** (`?mode=signin&redirect=/checkout`).
+- [ ] **`/sign-in` while signed in** goes straight to the redirect (default `/profile`); an anonymous guest still sees the form.
+- [ ] **Profile features** are the family's `customer_words`.
+- [ ] **Old card:** "Premium ★" for an award tag; the shipping line from the checkout rules.
+- [ ] **No date, no typed count** on the curtain, the gate or Crawl; `/checkout/return` states order facts only.

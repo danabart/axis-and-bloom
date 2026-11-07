@@ -1,11 +1,11 @@
-const RED = '#9a2918';
+const RED = 'var(--ab-ink)';
 const BODY = 'rgba(0,0,0,0.62)';
 
 const section: React.CSSProperties = { marginTop: '2.25rem' };
 const h2: React.CSSProperties = { fontSize: '1.2rem', fontWeight: 500, color: RED, margin: '0 0 0.75rem' };
 const p: React.CSSProperties = { fontSize: '0.95rem', color: BODY, lineHeight: 1.75, margin: '0 0 0.9rem', maxWidth: 680 };
 const calloutCard: React.CSSProperties = {
-  background: '#f2f1ea', border: '0.5px solid rgba(154,41,24,0.15)', borderLeft: `2.5px solid ${RED}`,
+  background: 'var(--ab-paper)', border: '0.5px solid color-mix(in srgb, var(--ab-ink) 15%, transparent)', borderLeft: `2.5px solid ${RED}`,
   borderRadius: 8, padding: '1.1rem 1.25rem', maxWidth: 680,
 };
 
@@ -13,7 +13,7 @@ const calloutCard: React.CSSProperties = {
 // final wording lands out of the Aug 8, 2026 pricing workshop (launch/30_compliance/README.md).
 export default function Terms() {
   return (
-    <div style={{ fontFamily: "'Lato', Arial, sans-serif", backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
+    <div style={{ fontFamily: "'Lato', Arial, sans-serif", backgroundColor: 'var(--ab-paper)', minHeight: '100vh' }}>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: 'clamp(72px, 10vw, 108px) clamp(24px, 6vw, 32px) clamp(64px, 8vw, 96px)' }}>
         <p style={{ fontSize: 12, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.4)', margin: '0 0 10px' }}>
           Legal

@@ -25,18 +25,22 @@
 .bf-intro { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; padding-block: clamp(32px, 4vw, 56px) clamp(16px, 2vw, 28px); }
 .bf-h { margin: 0; font-size: clamp(30px, 3.4vw, 48px); font-weight: 300; letter-spacing: -.03em; line-height: 1.05; }
 .bf-dial { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr) minmax(250px, 300px); gap: clamp(56px, 8.5vw, 136px); align-items: start; padding-block: clamp(36px, 4.5vw, 64px) clamp(56px, 7vw, 104px); }
-.bf-dial-left { align-self: center; min-width: 0; }
+.bf-dial-left { align-self: start; min-width: 0; } /* Website 9: start, never centred, so the wheel does not move as the coffee column changes height */
 .bf-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 
 /* the wheel */
 .bf-wheel-wrap { position: relative; width: 100%; max-width: 520px; margin: 0 auto; touch-action: none; user-select: none; }
 .bf-wheel-wrap svg { display: block; width: 100%; height: auto; overflow: visible; cursor: grab; }
-.bf-wheel-wrap svg:active { cursor: grabbing; }
+.bf-wheel-wrap svg:active, .bf-wheel-wrap.is-dragging svg { cursor: grabbing; }
 .bf-wheel-wrap.is-still svg { cursor: default; }
-.bf-wheel-wrap path { fill: #f1efe5; stroke-width: .9; transition: fill .5s ease; }
+.bf-wheel-wrap path { fill: var(--ab-paper); stroke-width: .9; transition: fill .5s ease; }
 .bf-wheel-wrap path.on { fill: var(--tint); }
 .bf-marker { position: absolute; left: 50%; top: -14px; width: 1px; height: 22px; background: currentColor; transform: translateX(-50%); }
 .bf-slider { display: flex; flex-direction: column; gap: 10px; margin-top: clamp(28px, 3.6vw, 48px); }
+/* Website 9: the tick row and the line are one drag strip (BloomDial's ruler); the range input stays for keys and screen readers */
+.bf-bar { position: relative; padding-block: 6px; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; }
+.bf-bar.is-still { cursor: default; }
+.bf-bar .bf-range { pointer-events: none; }
 .bf-ticks { display: flex; justify-content: space-between; align-items: flex-end; height: 14px; }
 .bf-ticks i { display: block; width: 1px; height: 8px; background: currentColor; opacity: .7; }
 .bf-ticks i.big { height: 14px; opacity: 1; }

@@ -175,6 +175,18 @@ export async function getArchetypes(): Promise<ArchetypeData[]> {
   return res.json();
 }
 
+/** Website 9 (D16): how a family relates to the customer's own; words from coffee_archetype_relationship_kind. */
+export type RelationshipCode = 'own' | 'adjacent' | 'distant';
+export interface RelationshipKind {
+  code: RelationshipCode; zoneCode: string; badgeCode: string;
+  customerLabel: string; zoneLabel: string; badgeLabel: string; sortOrder: number;
+}
+export interface ArchetypeOrderPayload {
+  order: string[];
+  /** signed-in customers with a family only, in `order` */
+  relationships?: Array<{ archetype: string; code: RelationshipCode | null; customerLabel: string | null }>;
+  kinds: RelationshipKind[];
+}
 /** GET /api/coffees/archetype-order?archetype=: the customer's family first, then its neighbours (catalogReads.getArchetypeOrder). */
 export async function getArchetypeOrder(archetype: string | null): Promise<string[]> {
   const qs = archetype ? `?archetype=${encodeURIComponent(archetype)}` : '';

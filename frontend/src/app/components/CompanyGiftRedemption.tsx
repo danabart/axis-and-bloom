@@ -72,7 +72,7 @@ export default function CompanyGiftRedemption({ onRedeemed }: Props) {
 
   if (success) {
     return (
-      <p className="text-sm text-[#a33726]/80 font-light">
+      <p className="text-sm text-[var(--ab-ink)]/80 font-light">
         You're all set — {success.sponsorshipMonths ?? 3} months of coffee, on us. Take the quiz to get started.
       </p>
     );
@@ -80,25 +80,25 @@ export default function CompanyGiftRedemption({ onRedeemed }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-3">
-      <span className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 whitespace-nowrap">Have a code?</span>
+      <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/60 whitespace-nowrap">Have a code?</span>
       <input
         type="text"
         value={code}
         onChange={e => { setCode(e.target.value); setError(''); setNeedsSignIn(false); }}
         placeholder="AXBL-XXXXXX"
         maxLength={16}
-        className="bg-transparent border-b border-[#a33726]/25 text-sm text-[#a33726] placeholder-[#a33726]/35 focus:outline-none focus:border-[#ee5974] px-1 py-1 w-40"
+        className="bg-transparent border-b border-[var(--ab-ink)]/25 text-sm text-[var(--ab-ink)] placeholder-[var(--ab-ink)]/35 focus:outline-none focus:border-[var(--ab-mark-b)] px-1 py-1 w-40"
       />
       <button
         type="submit"
         disabled={submitting || !code.trim()}
-        className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30"
+        className="text-[10px] uppercase tracking-[0.3em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/40 pb-1 hover:border-[var(--ab-mark-b)] hover:text-[var(--ab-mark-b)] transition-colors disabled:opacity-30"
       >
         {submitting ? 'Checking…' : 'Redeem'}
       </button>
       {needsSignIn && (
-        <span className="text-xs text-[#a33726]/70">
-          <button type="button" onClick={goSignIn} className="underline hover:text-[#ee5974]">Sign in or create an account</button> to redeem this.
+        <span className="text-xs text-[var(--ab-ink)]/70">
+          <button type="button" onClick={goSignIn} className="underline hover:text-[var(--ab-mark-b)]">Sign in or create an account</button> to redeem this.
         </span>
       )}
       {error && <span className="text-xs text-red-700/80">{error}</span>}

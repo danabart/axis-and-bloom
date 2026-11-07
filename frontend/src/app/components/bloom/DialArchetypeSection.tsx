@@ -10,6 +10,8 @@ import { classicOf, collectionPct, arrivingSoonLine, numberWord, useDialSlot } f
 import type { SlotCard } from '../../lib/api';
 import type { ArchetypeData, CartItem, DoorTarget, Slot } from './types';
 import { formatPrice, priceLabel } from './types';
+import { useCheckoutRules, shippingCentsFor } from './CartLines';
+import { dialCartItem } from './cartItems';
 
 // Part 21 — small-number spellout for the /bloom why-line ("Four {Archetype}
 // coffees live here..."); falls back to the numeral itself past Ten (never
@@ -233,15 +235,18 @@ function DialLayout({
   } = useDialSlot({ data, displaySortOrder, revealedKeys, source, onAddToCart, onDialSelect });
   const handleClassicAdd = () => classicAdd(n => dialRef.current?.rotateTo(n));
   const savedKey = isSaved ? currentKey : null;
+  const rules = useCheckoutRules();
+  const shipCents = cardData.selectedPrice && rules ? shippingCentsFor(
+    [dialCartItem(data, currentSlot, cardData.selectedPrice)].filter((x): x is NonNullable<typeof x> => !!x), rules,
+  ) : null;
+  const shipLine = shipCents == null || !rules ? null
+    : shipCents === 0 ? 'Free shipping' : `Free shipping with ${rules.freeShippingMinBags} bags`;
 
   // Part 21 — /bloom-only copy layer (§4). Both null on every folded/embedded
   // surface — computed here (not in BloomDial) since both need data this
   // component already has (userArchetype, data.slots/dimension labels) that
   // BloomDial itself never sees.
   const isBloomSurface = !folded && !embedded;
-  const kicker = (isBloomSurface && user)
-    ? (userArchetype === data.archetype ? 'YOUR' : (userArchetype ? 'TO EXPLORE' : null))
-    : null;
   const whyLine = (isBloomSurface && data.dimensionScaleMinLabel && data.dimensionScaleMaxLabel)
     ? `${numberWord(data.slots.length)} ${data.archetypeLabel} coffees live here, from ${data.dimensionScaleMinLabel.toLowerCase()} to ${data.dimensionScaleMaxLabel.toLowerCase()}.`
     : null;
@@ -309,7 +314,8 @@ function DialLayout({
                     {priceLabel(cardData.selectedPrice)} · {formatPrice(cardData.selectedPrice.retailPriceCents)}
                   </span>
                 ) : null}
-                <span className="bd-card-ship">shipping included</span>
+                {/* AU7 (Website 9): the shipping line from the checkout rules, never typed (D13) */}
+                {shipLine && <span className="bd-card-ship" data-testid="card-ship">{shipLine}</span>}
               </div>
 
               {!prelaunch && (
@@ -461,7 +467,6 @@ function DialLayout({
         bottomContent={bottomContent}
         belowStage={belowStage}
         embedded={embedded}
-        kicker={kicker}
         folded={folded}
         matchMode={matchMode}
         dialOpen={isOpen}

@@ -330,7 +330,10 @@ export default function Home() {
     );
   }
 
-  const balancedPhoto = familyPhoto('balanced_sweet')!;
+  // D17 (Website 9): section 03's figure follows the customer's family when the
+  // homepage state knows it; the handoff's Balanced photo is the invite's only.
+  const stateFamily = user && homepageState?.archetype && homepageState.stageCode !== 'NEW_NO_QUIZ' ? homepageState.archetype.id : null;
+  const figurePhoto = (stateFamily ? familyPhoto(stateFamily) : null) ?? familyPhoto('balanced_sweet')!;
 
   return (
     <div className="hm">
@@ -380,8 +383,8 @@ export default function Home() {
       <Wrap as="section" id="quiz" aria-label="Find my flavor" style={{ paddingBottom: 'clamp(64px, 8vw, 128px)' }}>
         <div className="hm-fmf">
           <figure className="hm-figure">
-            <div className="hm-mat">
-              <Photo asset={balancedPhoto.asset} fallback={balancedPhoto.fallback} alt="" sizes="(max-width: 900px) 100vw, 40vw" style={{ aspectRatio: '1158 / 1384' }} />
+            <div className="hm-mat" data-testid="home-03-figure" data-family={stateFamily ?? 'invite'}>
+              <Photo asset={figurePhoto.asset} fallback={figurePhoto.fallback} alt="" sizes="(max-width: 900px) 100vw, 40vw" style={{ aspectRatio: '1158 / 1384' }} />
             </div>
           </figure>
           <div className="hm-col" data-testid="home-section-03">

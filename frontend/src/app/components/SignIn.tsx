@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { reportError } from '../lib/errorReporter';
@@ -58,7 +58,7 @@ export default function SignIn() {
   const [resetSent, setResetSent] = useState(false);
   const [questions, setQuestions] = useState<number | null>(null);
   const navigate = useNavigate();
-  const { signIn, signUp, signInWithGoogle, signInWithApple } = useAuth();
+  const { user, loading: authLoading, signIn, signUp, signInWithGoogle, signInWithApple } = useAuth();
   const fromQuiz = searchParams.get('quiz_id');
   // /sign-in is open while gated; The Bloom is not, so its link waits for launch (no door we won't open).
   const gated = usePrelaunchGated();
@@ -68,6 +68,16 @@ export default function SignIn() {
   useEffect(() => {
     getHomeContent().then(c => setQuestions(c.facts.questions)).catch(err => reportError('[SignIn/facts]', err));
   }, []);
+
+  // AU12 (Website 9): a visitor who is already signed in (not an anonymous
+  // guest) goes straight to where the link was taking them. Only on arrival:
+  // a sign-in or sign-up on this page navigates itself.
+  const arrivedSignedIn = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (authLoading) return;
+    if (arrivedSignedIn.current === null) arrivedSignedIn.current = !!user && !user.isAnonymous;
+    if (arrivedSignedIn.current) navigate(redirectTo, { replace: true });
+  }, [authLoading, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

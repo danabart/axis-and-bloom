@@ -10,5 +10,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
+    // Website 9: module caches that must not leak between tests
+    setupFiles: ['./src/test/setup.ts'],
   },
 });

@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { Wrap, Titled, Btn } from '../chrome';
 import {
-  CartLines, ShippingLine, SubscribeChoice, SubtotalLine, estimatedTotalCents, useCartQuote, useCheckoutRules,
+  CartLines, ShippingLine, SubscribeChoice, SubtotalLine, estimatedTotalCents, useCartQuote, useCheckoutRules, CHECKOUT_SIGN_IN_HREF,
 } from '../bloom/CartLines';
 import { formatPrice } from '../bloom/types';
 import { numberWord } from '../bloom/useDialSlot';
@@ -25,7 +25,7 @@ export function cartHeadline(count: number): string {
 }
 
 /** Signed out: today's rule, sign in then straight on to /checkout. */
-export const CART_SIGN_IN_HREF = '/sign-in?mode=signin&redirect=/checkout';
+export const CART_SIGN_IN_HREF = CHECKOUT_SIGN_IN_HREF;
 
 export default function CartPage() {
   const { user, isGuest } = useAuth();

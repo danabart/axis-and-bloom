@@ -1,4 +1,4 @@
-const RED = '#9a2918';
+const RED = 'var(--ab-ink)';
 const BODY = 'rgba(0,0,0,0.62)';
 
 const section: React.CSSProperties = { marginTop: '2.25rem' };
@@ -11,7 +11,7 @@ const li: React.CSSProperties = { fontSize: '0.95rem', color: BODY, lineHeight: 
 // review of this text is a standing manual step (launch/GAPS.md #21) before ad spend scales.
 export default function Privacy() {
   return (
-    <div style={{ fontFamily: "'Lato', Arial, sans-serif", backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
+    <div style={{ fontFamily: "'Lato', Arial, sans-serif", backgroundColor: 'var(--ab-paper)', minHeight: '100vh' }}>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: 'clamp(72px, 10vw, 108px) clamp(24px, 6vw, 32px) clamp(64px, 8vw, 96px)' }}>
         <p style={{ fontSize: 12, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.4)', margin: '0 0 10px' }}>
           Legal

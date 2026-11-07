@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import type { CartItem } from './types';
-import { CartLines, ShippingLine, SubscribeChoice, SubtotalLine, useCartQuote, useCheckoutRules } from './CartLines';
+import { CartLines, ShippingLine, SubscribeChoice, SubtotalLine, useCartQuote, useCheckoutRules, CHECKOUT_SIGN_IN_HREF } from './CartLines';
 import { useCart } from '../../context/CartContext';
 
 interface FloatingCartProps {
@@ -34,7 +34,7 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, isSi
         className="group fixed z-[60] rounded-full flex items-center justify-center shadow-lg"
         style={{
           bottom: 28, right: 96, width: 56, height: 56,
-          backgroundColor: 'transparent', border: '1.5px solid #9a2918', color: '#9a2918',
+          backgroundColor: 'transparent', border: '1.5px solid var(--ab-ink)', color: 'var(--ab-ink)',
         }}
         aria-label="Talk to Liam"
       >
@@ -43,7 +43,7 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, isSi
           className="absolute pointer-events-none opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-150"
           style={{
             right: '100%', marginRight: 10, whiteSpace: 'nowrap',
-            backgroundColor: '#9a2918', color: '#f2f1ea',
+            backgroundColor: 'var(--ab-ink)', color: 'var(--ab-paper)',
             fontSize: 12, padding: '6px 12px', borderRadius: 999,
           }}
         >
@@ -55,14 +55,14 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, isSi
       <button
         onClick={onToggle}
         className="fixed z-[60] rounded-full flex items-center justify-center shadow-lg"
-        style={{ bottom: 28, right: 28, width: 56, height: 56, backgroundColor: '#9a2918', color: '#f2f1ea' }}
+        style={{ bottom: 28, right: 28, width: 56, height: 56, backgroundColor: 'var(--ab-ink)', color: 'var(--ab-paper)' }}
         aria-label="Cart"
       >
         <span style={{ fontSize: 20 }}>🛍</span>
         {count > 0 && (
           <span
             className="absolute rounded-full flex items-center justify-center text-xs"
-            style={{ top: -4, right: -4, width: 20, height: 20, backgroundColor: '#ee5974', color: '#fff' }}
+            style={{ top: -4, right: -4, width: 20, height: 20, backgroundColor: 'var(--ab-mark-b)', color: '#fff' }}
           >
             {count}
           </span>
@@ -78,7 +78,7 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, isSi
             style={{ bottom: 96, right: 28, width: 360, maxWidth: 'calc(100vw - 40px)', maxHeight: '70vh', backgroundColor: '#fff', border: '1px solid #e0dcd4' }}
           >
             <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: '#e0dcd4' }}>
-              <p className="text-sm uppercase tracking-widest" style={{ color: '#9a2918' }}>Your cart</p>
+              <p className="text-sm uppercase tracking-widest" style={{ color: 'var(--ab-ink)' }}>Your cart</p>
               <button onClick={onToggle} className="text-sm" style={{ color: '#8a8070' }}>✕</button>
             </div>
 
@@ -98,15 +98,16 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, isSi
                   <button
                     onClick={onCheckout}
                     className="w-full text-sm px-4 py-2.5 rounded-full text-white"
-                    style={{ backgroundColor: '#9a2918' }}
+                    style={{ backgroundColor: 'var(--ab-ink)' }}
                   >
                     Checkout
                   </button>
                 ) : (
                   <Link
-                    to="/sign-in?redirect=/checkout"
+                    to={CHECKOUT_SIGN_IN_HREF} /* OT-93 (Website 9): the same link as /cart */
+                    data-testid="drawer-sign-in"
                     className="block text-center w-full text-sm px-4 py-2.5 rounded-full text-white"
-                    style={{ backgroundColor: '#9a2918' }}
+                    style={{ backgroundColor: 'var(--ab-ink)' }}
                   >
                     Sign in to check out
                   </Link>

@@ -8,9 +8,9 @@ const logoMark = brandAssets.logoQuarter1;
 // Her original pre-launch photograph (vertical crop) — kept per brief 28's note.
 const coffeeCup = lifestyleAssets.coffee15Vertical.src;
 
-// Palette — matches the quiz terracotta (#9a2918) and the six archetype colors
+// Palette — matches the quiz terracotta (var(--ab-ink)) and the six archetype colors
 // used on the result screen, so the flavor-world swatches read as a preview of it.
-const TERRA = '#9a2918';
+const TERRA = 'var(--ab-ink)';
 const FONT  = "'Lato', Arial, sans-serif";
 
 const ARCHETYPE_SWATCHES = [
@@ -35,7 +35,7 @@ export default function PreLaunch() {
           min-height: 100vh;
           min-height: 100dvh;
           font-family: ${FONT};
-          background: #f2f1ea;
+          background: var(--ab-paper);
           color: #45474a;
           line-height: 1.6;
         }
@@ -79,8 +79,8 @@ export default function PreLaunch() {
           margin-bottom: 22px;
         }
         .pl-hl {
-          background: #ee5974;
-          color: #f2f1ea;
+          background: var(--ab-mark-b);
+          color: var(--ab-paper);
           padding: 1px 10px;
         }
         .pl-sub {
@@ -110,7 +110,7 @@ export default function PreLaunch() {
         .pl-btn {
           display: inline-block;
           background: ${TERRA};
-          color: #f2f1ea;
+          color: var(--ab-paper);
           padding: 16px 34px;
           font-size: 12.5px;
           letter-spacing: .18em;
@@ -168,14 +168,14 @@ export default function PreLaunch() {
             <h1 className="pl-h1">
               You already know what you <span className="pl-hl">love.</span>
             </h1>
-            <p className="pl-sub">The doors open this&nbsp;fall.</p>
+            <p className="pl-sub">Find your flavor before the doors&nbsp;open.</p>
 
             <div className="pl-worlds" aria-hidden="true">
               {ARCHETYPE_SWATCHES.map((c) => (
                 <span key={c} style={{ background: c }} />
               ))}
             </div>
-            <p className="pl-worlds-cap">Six flavor worlds. One is yours.</p>
+            <p className="pl-worlds-cap">One flavor world is yours.</p>
 
             <Link
               className="pl-btn"

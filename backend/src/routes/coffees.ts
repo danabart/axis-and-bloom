@@ -10,8 +10,9 @@ import { voiceHasRoasterMaterial } from '../services/claude.js';
 import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import {
   getArchetypes, archetypeLabel, getCoffee, getCoffees, getHomeSlot, getSlots, getSellableSlots, getHops, getSizes, getAnchorSize,
-  getCategoryCoffees, getCoffeeRetailPrices, getArchetypeOrder,
+  getCategoryCoffees, getCoffeeRetailPrices,
 } from '../services/catalogReads.js';
+import { getArchetypeOrderPayload } from '../services/archetypeRelationshipReads.js';
 import { getCustomerDescriptors } from '../services/cuppingReads.js';
 // Cupping evidence brief 1 (2026-10-18): the numeric dimensions of a coffee's
 // pooled range in the row shape the dimension readers here have always
@@ -677,6 +678,11 @@ router.get('/experimental', async (_req, res) => {
 });
 
 // GET /api/coffees/archetype-order?archetype= ─────────────────────────────────
+// Website 9 (2026-11-06, D16): the same payload also carries `relationships`
+// (each family's code and customer label, matched only) and `kinds` (the
+// lookup's words, which the comfort-zone pill and the compatibility badge
+// read): archetypeRelationshipReads.getArchetypeOrderPayload. One reader path
+// for the order and the labels.
 // Public. Bloom Dial Base Data Part 4, §B3: the Bloom's archetype boxes are
 // ordered for the customer's match, computed here, not hard-coded in the
 // frontend. Coffee presentation brief 3 (2026-10-24), decision 1: the rule is
@@ -690,7 +696,7 @@ router.get('/experimental', async (_req, res) => {
 router.get('/archetype-order', async (req, res) => {
   try {
     const requested = typeof req.query.archetype === 'string' ? req.query.archetype : null;
-    res.json({ order: await getArchetypeOrder(requested) });
+    res.json(await getArchetypeOrderPayload(requested));
   } catch (err) {
     console.error('[coffees/archetype-order]', err);
     res.status(500).json({ error: 'Failed to compute archetype order' });

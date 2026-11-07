@@ -183,7 +183,7 @@ export default function TheAxis() {
               {widow(`Raw tasting data is noisy — a cloud of impressions. Structure turns it into a place: every coffee is assigned to one of ${families.length ? numberWord(families.length).toLowerCase() : 'our'} sensory archetypes, and given a position within it.`)}
             </p>
             <FamilyList families={families} hot={hot} onHot={setHover} />
-            <p className="ax-p">{widow('A position is not a poetic note. It’s a claim we can check — and we do. New coffees enter the map with an honest label: provisional. As cuppings and drinker feedback accumulate, the position hardens. We’d rather tell you a coordinate is young than pretend it was born perfect.')}</p>
+            <p className="ax-p">{widow('A position is a claim we can check, and we do. New coffees enter the map with an honest label: provisional. As cuppings and drinker feedback accumulate, the position hardens, and we tell you how young each coordinate is.')}</p>
             <Accordion question="What does ‘provisional’ mean?">
               {widow('Every position carries a confidence level based on how much evidence supports it. More cuppings, more Bloom Notes, more signal — higher confidence. You’ll see this honesty elsewhere on the site too; it’s how a measured system behaves.')}
             </Accordion>
@@ -201,7 +201,7 @@ export default function TheAxis() {
             <p className="ax-p">{widow('A shelf is a list. A map has neighbors. Every coffee on The Axis is connected to the coffees nearest it in taste — a step brighter, a step deeper, a step softer. Archetypes touch where real sensory bridges exist: some fruity coffees lean floral; some chocolatey coffees shade into earth.')}</p>
             <p className="ax-p">{widow('This is why you never fall off the map. Whatever you’re drinking, there is always a next step that makes sense — a small move, not a leap of faith.')}</p>
             <p className="ax-p">
-              And scattered across the regions, you’ll find coffees flagged <b>Experimental</b> — {widow('unusual, seasonal, hard to place. They’re not a separate world. Each one lives near its kin (an experimental with floral notes sits near Floral) and is exactly one hop away when you’re feeling curious.')}
+              And scattered across the regions, you’ll find coffees flagged <b>Experimental</b> — {widow('unusual, seasonal, hard to place. Each one lives near its kin (an experimental with floral notes sits near Floral) and is exactly one hop away when you’re feeling curious.')}
             </p>
             <p className="ax-note">{widow('The Axis is your direction: the profile you naturally return to. The Bloom is what unfolds within it — the small surprises, variations, and new expressions that keep coffee interesting.')}</p>
           </div>
@@ -240,7 +240,7 @@ export default function TheAxis() {
           <div className="ax-text">
             <Titled style={{ alignSelf: 'flex-start' }}>Start here</Titled>
             <h2 className="ax-h2">{widow('Find your place on the map.')}</h2>
-            <p className="ax-p">{widow('Three minutes. A few questions about how you experience flavor — not what you know about coffee. The result is your position on The Axis, and every recommendation flows from it.')}</p>
+            <p className="ax-p">{widow('A few questions about how you experience flavor: moments, reactions, familiar foods. The result is your position on The Axis, and every recommendation flows from it.')}</p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap', marginTop: 6 }}>
               <Btn to="/find-my-flavor">Take the Flavor Quiz</Btn>
               <Caps weight={400}>Free to take. No commitment.</Caps>
