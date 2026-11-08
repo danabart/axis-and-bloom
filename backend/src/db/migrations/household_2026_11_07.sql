@@ -9,8 +9,8 @@
 -- changes nothing. Writes nothing else; deletes nothing.
 --
 -- Production: run only after Dana's go at the Part A4 STOP. Run record:
---   test DB:    <filled in by the closing report>
---   production: <filled in by the closing report>
+--   test DB:    2026-11-07 (householdService.test.ts, twice, identical)
+--   production: 2026-11-07 after Dana's go, twice, identical (CLOSING_REPORT_1.md)
 
 BEGIN;
 

@@ -2,7 +2,7 @@
 
 Brief: `CLAUDE_CODE_PROMPT_HOUSEHOLD_1_FOUNDATION_AND_JOIN_LINKS.md` · Design: `DESIGN_HOUSEHOLD.md` · Test mode · Started 2026-11-07.
 
-Status: Task 0 done and accepted (Dana, 2026-11-07). Parts A–D built, tested locally, committed and deployed; **STOP 2: the A4 migration has not run against production** (waiting for Dana's go). Task 0's production reads ran inside `BEGIN READ ONLY … ROLLBACK` (`backend/tmp/household1_task0.ts`, gitignored, application_name `script:household1_task0`).
+Status: Task 0 done and accepted (Dana, 2026-11-07). Parts A–D built, tested, committed (`f21f564`) and deployed (rev 00840-5nx); A4 migration run on production after Dana's go; smoke done. Remaining step is Dana's signed-in check. Task 0's production reads ran inside `BEGIN READ ONLY … ROLLBACK` (`backend/tmp/household1_task0.ts`, gitignored, application_name `script:household1_task0`).
 
 ---
 
@@ -153,6 +153,36 @@ CATALOG.md checked (G2.4): no existing table holds a membership as a row with ro
 - Admin API lists the household. Events: created, member_added, link_created, member_claimed, link_accepted, member_added, link_created, link_revoked, link_created, link_declined, admin_transferred ×2. Links: Tom accepted, Ella revoked, Ella declined. Parameters as seeded. Retired `POST /invite` → 410.
 - UI (`backend/tmp/hh1_ui.mjs`, Vite with `VITE_PRELAUNCH_MODE=true`, headless at 390 and 1280): `/join-household?token=…` renders "Ella, join Acceptance House." signed out, with "Sign in or create your account to join" and Decline, no sideways scroll; `/shop` afterwards still lands on the curtain (`/`, no bypass set); `/privacy` shows the Family Household paragraph.
 
+## Deploy (2026-11-07)
+
+- Commit `f21f564` pushed to `main`; Deploy run `42427990725` green (backend + frontend); Cloud Run revision `axis-bloom-backend-00840-5nx`.
+- Startup log: `DB schema verified`, `[db-comments] applied 1743 statements`, no ERROR line. Findings already there before this deploy (unchanged): quiz-integrity #10 (OT-33), sommelier-integrity #3, evidence-integrity #2 and #6, data-catalog #6 (dead candidates). Data-catalog #4 reported `CATALOG.md` stale as expected; regenerated from prod (`catalog-hash 791d4b09…`, matches live), committed with the prod evidence.
+- Production before A4 (read-only): all 16 new/altered objects present; seeds current (`max_members` 6, `quiz_for_member_enabled` 1, `house_box_bags_per_member` 1, `household_handover_discount_pct` 5, `household_handover_window_days` 7); `household` 1, legacy members 1, `household_member` 0, `household_event` 0, the invitation still `pending` with `status_id` NULL; 0 managed profiles. Same as Task 0.
+
+## A4 — production migration
+
+Run on production 2026-11-07 after Dana's go (`backend/tmp/hh1_a4_run.ts`, application_name `script:household_2026_11_07`), then run a second time to prove it changes nothing.
+
+| | Task 0 | after run 1 | after run 2 |
+|---|---|---|---|
+| households | 1 | 1 | 1 |
+| legacy members (`user_profile.household_id`) / admins | 1 / 1 | 1 / 1 | 1 / 1 |
+| `household_member` | 0 | 1 | 1 |
+| admin roles / household roles | – | 1 / 1 | 1 / 1 |
+| invitations without `status_id` | 1 | 0 | 0 |
+| migration `created` events | – | 1 | 1 |
+| households without an admin | 0 | 0 | 0 |
+
+- Member `4384eb0c-d5ff-4f2b-abcb-4358ade5ebb2`: Dana-Admin (`5d005443…`), household `22cbcdf2…` "Bars-checout1-test", active, roles `admin, household`, account state `login`.
+- Event: `created`, source `system`, detail `{"migrated_from": "user_profile", "script": "household_2026_11_07"}`, dated the household's own `created_at` (2026-11-06T23:06:10Z).
+- Invitation `8aa38c6a…`: `legacy` ("Earlier invitation"), `member_id` NULL, `invited_email` kept (OT-101).
+
+## Smoke (production, 2026-11-07)
+
+API on `axis-bloom-backend-oiub7eumya-uc.a.run.app`: `GET /api/household/mine`, `/roles`, `POST /members`, `POST /links/:token/accept`, `GET /api/admin/household/households` → 401 signed out; `GET /links/<unknown>` and `POST /links/<unknown>/decline` → 404 `link_not_found`; retired `POST /invite`, `GET /invite/:token` → 410 `household_api_changed`.
+Frontend bundle `assets/index-bi140y1U.js` on `axis-and-bloom-prod.web.app` carries the open `/join-household` route, the join page copy, the tab, `/api/admin/household` and the privacy paragraph; `/join-household?token=…` serves 200.
+Not done by me: a rendered, signed-in production check. Headless browsers get Cloudflare's challenge on www (web.app redirects there), and the signed-in step is Dana's by the brief: open the Family Household tab (the migrated household with the legacy invitation), add a member, share the link to her phone.
+
 ## Deviations from the brief (and why)
 
 - T13 dropped (Dana): no session bypass.
@@ -161,7 +191,7 @@ CATALOG.md checked (G2.4): no existing table holds a membership as a row with ro
 - Migration declared `manual:` in `Writer:`, not `backfill:` (lineage lint semantics).
 - Extra readers moved: `users.ts:404`, `userSignals.ts:246, :282` (Dana).
 - Ownership is checked inside `householdService`'s transaction with the household row locked, not in the route through `householdReads`: the same check, free of races. Routes stay SQL-free.
-- The join page signs in through the existing `/sign-in` page with a redirect (OT-106).
+- The join page signs in through the existing `/sign-in` page with a redirect (OT-106, accepted by Dana 2026-11-07).
 - Badge words and button copy are typed in the tab; role names and states come from the lookups (OT-104).
 - `pays` in `v_household` is the admin pointer; brief 3 should read the house subscription (OT-103).
 
