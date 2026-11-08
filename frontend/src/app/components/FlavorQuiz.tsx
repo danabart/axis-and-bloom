@@ -8,6 +8,7 @@ import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQu
 import { getActiveCampaign, CAMPAIGNS } from '../lib/campaign';
 import { trackEvent, trackLead } from '../lib/analytics';
 import { reportError } from '../lib/errorReporter';
+import { shareOrCopy } from '../lib/share';
 import { PostQuizEmailGate } from './PostQuizEmailGate';
 import { ShareMatchRow } from './ShareMatchRow';
 import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
@@ -488,6 +489,41 @@ export default function FlavorQuiz() {
   const { addToCart, cart, cartOpen, toggleCartOpen, removeFromCart, checkout } = useCart();
   const navigate = useNavigate();
 
+  // ── Family Household 2 (2026-11-07, D9): `?for=<memberId>` is the head of the
+  // household taking the quiz for a member. The member's name, the header line,
+  // the share sentence and the join link come from GET /api/household/mine. In
+  // this mode the result is the member's: nothing is subscribed or emailed, no ad
+  // event fires, the dial reads and saves the member's position (Save only), and
+  // the result screen offers Share of the member's join link. A `for` the
+  // signed-in person may not act on goes back to the tab with the reason.
+  const forParam = searchParams.get('for');
+  const isProxy = !!forParam;
+  const [proxy, setProxy] = useState<{ memberId: string; firstName: string; header: string; shareLine: string; joinToken: string | null } | null>(null);
+  useEffect(() => {
+    if (!forParam || !user) return;
+    if (user.isAnonymous) { navigate('/sign-in?redirect=' + encodeURIComponent(`/find-my-flavor?for=${forParam}`), { replace: true }); return; }
+    let live = true;
+    (async () => {
+      try {
+        const r = await fetch('/api/household/mine', { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
+        const mine = r.ok ? await r.json() : null;
+        const m = mine?.members?.find((x: { memberId: string }) => x.memberId === forParam);
+        if (!live) return;
+        if (m?.mayQuizFor && m.proxyQuiz) {
+          setProxy({ memberId: m.memberId, firstName: m.firstName ?? '', header: m.proxyQuiz.header, shareLine: m.proxyQuiz.shareLine, joinToken: m.proxyQuiz.joinToken ?? null });
+          setUserName(m.firstName ?? '');
+        } else {
+          const reason = m ? `${m.firstName}: ${m.quizState?.label ?? ''}`.trim() : 'That member is not in your Family Household.';
+          navigate('/profile?tab=family', { replace: true, state: { notice: reason } });
+        }
+      } catch (err) {
+        reportError('[FlavorQuiz/proxy-load]', err);
+        if (live) navigate('/profile?tab=family', { replace: true });
+      }
+    })();
+    return () => { live = false; };
+  }, [forParam, user]);
+
   // Extracted so the error screen's retry button can re-run it. Checks r.ok
   // explicitly: a non-2xx (e.g. an App Check 401) used to parse its JSON error
   // body, find no questions, and only incidentally land on the error state.
@@ -522,7 +558,7 @@ export default function FlavorQuiz() {
     getUserProfile()
       .then(p => {
         setUserProfile(p);
-        if (!p?.archetype && (p?.firstName || user.displayName)) {
+        if (!searchParams.get('for') && !p?.archetype && (p?.firstName || user.displayName)) {
           const name = p?.firstName ?? user.displayName ?? '';
           setUserName(name);
           setHasStarted(true);
@@ -635,14 +671,16 @@ export default function FlavorQuiz() {
     setResultsSortOrder(null);
     setResultsSavedSortOrder(null);
     if (!user || !resultsArchetypeData) return;
-    getDialPosition(resultsArchetypeData.archetype)
+    if (searchParams.get('for') && !proxy) return;
+    getDialPosition(resultsArchetypeData.archetype, proxy?.memberId ?? null)
       .then(r => { if (r?.dialSortOrder != null) { setResultsSortOrder(r.dialSortOrder); setResultsSavedSortOrder(r.dialSortOrder); } })
       .catch(err => reportError('[FlavorQuiz/dial-position-read]', err));
-  }, [user, resultsArchetypeData?.archetype]);
+  }, [user, resultsArchetypeData?.archetype, proxy?.memberId]);
 
   function handleResultsDialSelect(archetype: string, dialSortOrder: number) {
     setResultsSortOrder(dialSortOrder);
-    if (user) setDialPosition(archetype, dialSortOrder).catch(err => reportError('[FlavorQuiz/dial-position-write]', err));
+    // Family Household 2: a member's dial saves only on an explicit Save (D27), never on a turn.
+    if (user && !searchParams.get('for')) setDialPosition(archetype, dialSortOrder).catch(err => reportError('[FlavorQuiz/dial-position-write]', err));
   }
 
   function toggleResultsReveal(key: string) {
@@ -676,7 +714,7 @@ export default function FlavorQuiz() {
     // an error, just means this browser never remembers a recognized guest.
     try { return localStorage.getItem(POST_QUIZ_EMAIL_KEY); } catch { return null; }
   });
-  const emailGateUnlocked = (!!user && !user.isAnonymous) || !!postQuizEmail;
+  const emailGateUnlocked = !!searchParams.get('for') || (!!user && !user.isAnonymous) || !!postQuizEmail;
   const signedInSubscribeFiredRef = useRef<string | null>(null); // last archetype synced
   const recognizedGuestSyncedRef = useRef<string | null>(null); // last archetype synced, avoids re-firing every render
   const [showSignedInConsentNote, setShowSignedInConsentNote] = useState(false);
@@ -732,7 +770,7 @@ export default function FlavorQuiz() {
     // transition before a new score exists). archetypeKey is nullable now,
     // so this null check is redundant with scoredThisSession in practice,
     // but kept as an explicit second guard per the brief.
-    if (!scoredThisSession) return;
+    if (!scoredThisSession || searchParams.get('for')) return;
     if (!archetypeKey || !resultsArchetypeData || (user && !user.isAnonymous) || !postQuizEmail) return;
     const name = resultsArchetypeData.archetypeLabel;
     if (recognizedGuestSyncedRef.current === name) return;
@@ -754,7 +792,7 @@ export default function FlavorQuiz() {
   // an existing subscriber's row is just silently resynced to the new archetype.
   useEffect(() => {
     // Quiz Resync Fix, Part A1/A2 — same guard as the guest effect above.
-    if (!scoredThisSession) return;
+    if (!scoredThisSession || searchParams.get('for')) return; // Family Household 2: a proxy quiz subscribes nobody
     if (!user || user.isAnonymous || !archetypeKey || !resultsArchetypeData || !userProfile || !profileFetchDone) return;
     const name = resultsArchetypeData.archetypeLabel;
     if (signedInSubscribeFiredRef.current === name) return;
@@ -873,6 +911,8 @@ export default function FlavorQuiz() {
       exploreReason:         score.exploreReason,
       primaryMargin:         score.primaryMargin,
       interpretationVersion: score.interpretationVersion,
+      // Family Household 2: the proxy door (the server checks the household and the D9 rule).
+      ...(proxy ? { forMemberId: proxy.memberId } : {}),
     };
   }
 
@@ -897,7 +937,7 @@ export default function FlavorQuiz() {
       const score: ScoreResult = await scoreRes.json();
       setScoreData(score);
 
-      trackEvent('QuizComplete', { archetype: score.archetype });
+      if (!searchParams.get('for')) trackEvent('QuizComplete', { archetype: score.archetype });
       const activeCampaignComplete = getActiveCampaign();
       logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_complete', score.archetype, activeCampaignComplete ? { campaign: activeCampaignComplete.slug, vid: activeCampaignComplete.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
 
@@ -1004,7 +1044,7 @@ export default function FlavorQuiz() {
     if (isScoring || isWrapping) return;
     if (currentStep === 0 && !quizStartFiredRef.current) {
       quizStartFiredRef.current = true;
-      trackEvent('QuizStart');
+      if (!searchParams.get('for')) trackEvent('QuizStart');
       const activeCampaignStart = getActiveCampaign();
       logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_start', undefined, activeCampaignStart ? { campaign: activeCampaignStart.slug, vid: activeCampaignStart.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
     }
@@ -1112,7 +1152,7 @@ export default function FlavorQuiz() {
   }
 
   // ── Returning user ───────────────────────────────────────────────────────────
-  if (!isPreview && user && !hasStarted && (profileLoading || userProfile?.archetype)) {
+  if (!isPreview && !isProxy && user && !hasStarted && (profileLoading || userProfile?.archetype)) {
     if (profileLoading) {
       return <StatusScene image={ENTRY_IMAGE} header={<Navigation tone="paper" floating />} title="Loading…" />;
     }
@@ -1164,7 +1204,7 @@ export default function FlavorQuiz() {
       ...(prelaunchGated || !hasLiamAccess ? [] : [{ label: 'Talk to Liam',         href: '/sommelier?entry=user_initiated' }]),
       { label: 'Your flavor profile',  href: '/profile' },
       ...(prelaunchGated ? [] : [{ label: 'Flavor intelligence',  href: '/flavor-intelligence' }]),
-      { label: 'Create a household party', href: '/profile?tab=family' },
+      { label: 'Family Household', href: '/profile?tab=family' },
     ];
 
     return (
@@ -1311,6 +1351,7 @@ export default function FlavorQuiz() {
   // Website 7A: option B's entry scene. The name is optional (Begin is always
   // enabled); the question count comes from the payload (D15).
   if (!hasStarted) {
+    if (isProxy && !proxy) return <StatusScene image={ENTRY_IMAGE} header={<Navigation tone="paper" floating />} title="Loading" />;
     return (
       <Scene image={ENTRY_IMAGE} label="Find my flavor" testId="quiz-entry-scene">
         <Navigation tone="paper" floating />
@@ -1319,7 +1360,7 @@ export default function FlavorQuiz() {
           name={userName}
           onName={setUserName}
           onBegin={() => setHasStarted(true)}
-          signedInLine={user && !user.isAnonymous ? signedInNameScreenLine(user.email) : null}
+          signedInLine={proxy ? proxy.header : user && !user.isAnonymous ? signedInNameScreenLine(user.email) : null}
           showSignIn={!user || user.isAnonymous}
         />
       </Scene>
@@ -1474,7 +1515,19 @@ export default function FlavorQuiz() {
       {/* ── Result screen ────────────────────────────────────────────────────── */}
       {isComplete && (
         <div>
-          {prelaunchGated ? (
+          {prelaunchGated && proxy ? (
+            <>
+            <QuizHeader />
+            <section style={{ background: 'var(--ab-paper)', minHeight: 'calc(100dvh - 52px)', display: 'flex', alignItems: 'center', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>
+              <div style={{ maxWidth: 480, margin: '0 auto', textAlign: 'left' }}>
+                <h2 style={{ fontSize: 'clamp(28px,3vw,42px)', fontWeight: 400, color: 'var(--ab-ink)', lineHeight: 1.25, margin: '0 0 14px', letterSpacing: '-0.01em' }}>
+                  {proxy.firstName}: {resultLabel}
+                </h2>
+                <ProxyShareBlock proxy={proxy} />
+              </div>
+            </section>
+            </>
+          ) : prelaunchGated ? (
             /* Pre-Launch Reveal-in-Inbox — sealed ending. No Section 1 reveal
                (no archetype name/wallpaper/color), no Sections 2-3: the email
                card (or, once unlocked, a confirmation) IS the entire screen.
@@ -1526,7 +1579,8 @@ export default function FlavorQuiz() {
 
               <div className="qz-after" id="qz-next" data-testid="quiz-result-after">
                 {/* Share row — available before gate unlock, hidden for Experimental (no share page) */}
-                {resultLabel && <ShareMatchRow archetypeName={resultLabel} shareSlug={shareSlug} />}
+                {proxy ? <div className="qz-col"><ProxyShareBlock proxy={proxy} /></div>
+                  : resultLabel && <ShareMatchRow archetypeName={resultLabel} shareSlug={shareSlug} />}
 
                 {emailGateUnlocked ? (
                   <>
@@ -1568,6 +1622,7 @@ export default function FlavorQuiz() {
                           prelaunch={prelaunchGated}
                           onDoorClick={handleResultsDoorClick}
                           hideQuizLink
+                          forMemberId={proxy?.memberId ?? null}
                         />
                       </>
                     )}
@@ -1575,7 +1630,7 @@ export default function FlavorQuiz() {
                     <div className="qz-col">
                       {/* Part 17 §F — same Worth Exploring + adjacent-section mechanism as the
                           returning-user screen above and Profile.tsx. */}
-                      {resultsArchetypeEnum && archetypesList.length > 0 && (
+                      {!isProxy && resultsArchetypeEnum && archetypesList.length > 0 && (
                         <div className="mt-10">
                           <WorthExploring
                             matchArchetypeId={resultsArchetypeEnum}
@@ -1678,5 +1733,27 @@ export default function FlavorQuiz() {
         />
       )}
     </>
+  );
+}
+
+// Family Household 2 (2026-11-07): the proxy result's Share. The sentence comes
+// from the API; Share uses the browser's share sheet, else copies the member's
+// join link. No email is sent (D31).
+function ProxyShareBlock({ proxy }: { proxy: { firstName: string; shareLine: string; joinToken: string | null } }) {
+  const [copied, setCopied] = useState(false);
+  const url = proxy.joinToken ? `${window.location.origin}/join-household?token=${proxy.joinToken}` : null;
+  return (
+    <div style={{ padding: '28px 0 8px', display: 'flex', flexDirection: 'column', gap: 16 }} data-testid="quiz-proxy-share">
+      {url && <p style={{ color: 'var(--ab-ink)', fontSize: 16, lineHeight: 1.5, margin: 0 }}>{proxy.shareLine}</p>}
+      <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+        {url && (
+          <button type="button" className="ab-caps qz-ulink" style={{ color: 'var(--ab-ink)', fontWeight: 400 }}
+            onClick={async () => { if ((await shareOrCopy(url, proxy.firstName, proxy.shareLine)) === 'copied') setCopied(true); }}>
+            {copied ? 'Link copied' : 'Share'}
+          </button>
+        )}
+        <Link to="/profile?tab=family" className="ab-caps qz-ulink" style={{ color: 'var(--ab-ink)', fontWeight: 400 }}>Family Household</Link>
+      </div>
+    </div>
   );
 }

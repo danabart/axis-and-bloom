@@ -4,6 +4,7 @@
 // backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_1_FOUNDATION_AND_JOIN_LINKS.md
 import { db } from '../db/client.js';
 import { householdParam } from './householdParameters.js';
+import { getDialTurnsByOthers } from './customerReads.js';
 
 /** The profile id behind a Firebase uid, or null (no /sync yet). */
 export async function profileIdForUid(uid: string): Promise<string | null> {
@@ -27,17 +28,38 @@ export async function roles(): Promise<HouseholdRoleView[]> {
   return r.rows;
 }
 
+interface StateLabel { code: string; label: string; customer_label: string }
+
+/**
+ * Family Household 2 (OT-104): every word the tab shows for a role or a state.
+ * `{actor}` in a quiz-state customer_label is filled by `mine` with the first
+ * name of whoever answered.
+ */
+export async function lookups(): Promise<{ roles: HouseholdRoleView[]; accountStates: StateLabel[]; quizStates: StateLabel[] }> {
+  const [roleRows, accountStates, quizStates] = await Promise.all([
+    roles(),
+    db.query<StateLabel>(`SELECT code, label, customer_label FROM household_account_state ORDER BY id`),
+    db.query<StateLabel>(`SELECT code, label, customer_label FROM household_quiz_state ORDER BY id`),
+  ]);
+  return { roles: roleRows, accountStates: accountStates.rows, quizStates: quizStates.rows };
+}
+
 interface MemberView {
   member_id: string; user_id: string; first_name: string | null; status_code: string; status_label: string;
   role_codes: string[]; can_administer: boolean; in_house_box: boolean; self_manages_cycle: boolean;
-  may_turn_dials: boolean; account_state: 'login' | 'managed'; archetype_name: string | null;
-  quiz_state: 'none' | 'own'; open_link_id: string | null; open_link_token: string | null;
+  may_turn_dials: boolean; account_state: 'login' | 'managed'; archetype_name: string | null; archetype_code: string | null;
+  quiz_state: 'none' | 'by_admin' | 'own'; quiz_taken_by_first_name: string | null;
+  dial_slot_id: number | null; dial_sort_order: number | null; dial_slot_name: string | null; claim_link_id: string | null;
+  open_link_id: string | null; open_link_token: string | null;
   open_link_created_at: string | null; joined_at: string; ended_at: string | null;
 }
 
-const MEMBER_SELECT = `member_id, user_id, first_name, status_code, status_label, role_codes, can_administer,
-  in_house_box, self_manages_cycle, may_turn_dials, account_state, archetype_name, quiz_state,
-  open_link_id, open_link_token, open_link_created_at, joined_at, ended_at`;
+const MEMBER_SELECT = `vm.member_id, vm.user_id, vm.first_name, vm.status_code, vm.status_label, vm.role_codes, vm.can_administer,
+  vm.in_house_box, vm.self_manages_cycle, vm.may_turn_dials, vm.account_state, vm.archetype_name, vm.archetype_code,
+  vm.quiz_state, vm.quiz_taken_by_first_name, vm.dial_slot_id, cds.sort_order AS dial_sort_order, cds.name AS dial_slot_name,
+  vm.claim_link_id, vm.open_link_id, vm.open_link_token, vm.open_link_created_at, vm.joined_at, vm.ended_at`;
+
+const fill = (label: string, actor: string | null) => label.replace('{actor}', actor ?? 'another member');
 
 /** The household the user is an active member of, with members, my roles, recent events and the limits the UI needs; null when none. */
 export async function mine(userId: string) {
@@ -46,39 +68,85 @@ export async function mine(userId: string) {
   );
   const mine = meRow.rows[0];
   if (!mine) return null;
-  const [household, members, events, maxMembers] = await Promise.all([
+  const [household, members, events, maxMembers, quizForEnabled, words] = await Promise.all([
     db.query(`SELECT household_id, household_name, admin_user_id, admin_first_name, pays_user_id, pays_first_name,
                      active_member_count, created_at
               FROM v_household WHERE household_id = $1`, [mine.household_id]),
     db.query<MemberView>(
-      `SELECT ${MEMBER_SELECT} FROM v_household_member
-       WHERE household_id = $1 AND status_code = 'active' ORDER BY can_administer DESC, joined_at`, [mine.household_id]
+      `SELECT ${MEMBER_SELECT} FROM v_household_member vm
+       LEFT JOIN coffee_dial_slot cds ON cds.id = vm.dial_slot_id
+       WHERE vm.household_id = $1 AND vm.status_code = 'active' ORDER BY vm.can_administer DESC, vm.joined_at`, [mine.household_id]
     ),
     db.query(`SELECT event_id, kind_code, kind_label, actor_first_name, member_first_name, created_at
               FROM v_household_event WHERE household_id = $1 ORDER BY created_at DESC LIMIT 30`, [mine.household_id]),
     householdParam('max_members'),
+    householdParam('quiz_for_member_enabled'),
+    lookups(),
   ]);
   const me = members.rows.find(m => m.member_id === mine.member_id)!;
   const isAdmin = Boolean(me?.can_administer);
+  const accountWord = new Map(words.accountStates.map(w => [w.code, w.customer_label]));
+  const quizWord = new Map(words.quizStates.map(w => [w.code, w.customer_label]));
   return {
     household: household.rows[0],
-    me: { memberId: me.member_id, roleCodes: me.role_codes, canAdminister: isAdmin },
+    me: { memberId: me.member_id, roleCodes: me.role_codes, canAdminister: isAdmin, mayTurnDials: me.may_turn_dials },
     // D10: members see each other's first name and archetype name, nothing deeper.
-    members: members.rows.map(m => ({
-      memberId: m.member_id,
-      firstName: m.first_name,
-      isMe: m.member_id === mine.member_id,
-      roleCodes: m.role_codes,
-      accountState: m.account_state,
-      archetypeName: m.archetype_name,
-      quizState: m.quiz_state,
-      joinedAt: m.joined_at,
-      ...(isAdmin ? {
-        openLink: m.open_link_id ? { invitationId: m.open_link_id, token: m.open_link_token, createdAt: m.open_link_created_at } : null,
-      } : {}),
-    })),
+    members: members.rows.map(m => {
+      const isMe = m.member_id === mine.member_id;
+      const mayQuizFor = isAdmin && !isMe && quizForEnabled === 1 && m.quiz_state !== 'own';
+      const mayTurnDialFor = Boolean(me.may_turn_dials) && !isMe && Boolean(m.archetype_code);
+      const name = m.first_name ?? '';
+      return {
+        memberId: m.member_id,
+        firstName: m.first_name,
+        isMe,
+        roleCodes: m.role_codes,
+        accountState: { code: m.account_state, label: accountWord.get(m.account_state) ?? m.account_state },
+        archetypeName: m.archetype_name,
+        archetypeCode: m.archetype_code,
+        quizState: { code: m.quiz_state, label: fill(quizWord.get(m.quiz_state) ?? m.quiz_state, m.quiz_taken_by_first_name) },
+        dial: m.dial_slot_id ? { slotId: m.dial_slot_id, sortOrder: m.dial_sort_order, name: m.dial_slot_name } : null,
+        joinedAt: m.joined_at,
+        mayQuizFor,
+        mayTurnDialFor,
+        // D25: the member themselves or an administrator; never a member who administers (transfer first).
+        mayUnlink: Boolean(m.claim_link_id) && (isAdmin || isMe) && !m.can_administer,
+        unlinkConfirm: m.claim_link_id
+          ? `Unlink ${name}'s sign-in? ${name} goes back to a profile you set up, with the quiz and dial it had; their own account leaves the household.`
+          : null,
+        ...(mayQuizFor ? {
+          proxyQuiz: {
+            header: `Profiling ${name}`,
+            shareLine: `Send ${name} the link so they can see their result and take over their profile.`,
+            joinToken: m.open_link_token,
+          },
+        } : {}),
+        ...(isAdmin ? {
+          openLink: m.open_link_id ? { invitationId: m.open_link_id, token: m.open_link_token, createdAt: m.open_link_created_at } : null,
+        } : {}),
+      };
+    }),
     events: events.rows,
     limits: { maxMembers },
+  };
+}
+
+/**
+ * D27: the signed-in member's log of dial turns made by someone else, across
+ * their linked profiles, newest first. `undoable` is true on the turn that is
+ * still the member's current position and has not been undone.
+ */
+export async function myLog(userId: string) {
+  const rows = await getDialTurnsByOthers(userId);
+  return {
+    entries: rows.map(e => ({
+      dialEventId: e.dial_event_id,
+      occurredAt: e.occurred_at,
+      line: `${e.actor_first_name ?? 'A household member'} turned the wheel for you and saved ${e.slot_name ?? 'a position'}.`,
+      undone: e.undone,
+      undoable: e.is_current && !e.undone,
+    })),
+    emptyText: 'When someone in your household turns your dial for you, it shows here, with Undo.',
   };
 }
 
@@ -123,7 +191,7 @@ export async function peekLink(token: string, viewerUserId: string | null) {
 
 export async function listHouseholds() {
   const r = await db.query(
-    `SELECT household_id, household_name, admin_first_name, pays_first_name, active_member_count, dissolved_at, created_at
+    `SELECT household_id, household_name, admin_first_name, pays_first_name, active_member_count, proxy_quiz_count, dissolved_at, created_at
      FROM v_household ORDER BY created_at DESC`
   );
   return r.rows;

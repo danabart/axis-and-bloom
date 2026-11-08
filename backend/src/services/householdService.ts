@@ -12,7 +12,9 @@
 import { randomBytes, randomUUID } from 'crypto';
 import { withTransaction, type Tx } from '../db/client.js';
 import { record } from './customerFacts.js';
+import { getHouseholdClaimLink } from './customerReads.js';
 import { householdParam } from './householdParameters.js';
+import { resolveSlot, currentSlot, savePosition } from './dialPositionService.js';
 
 import { MANAGED_UID_PREFIX } from './householdManaged.js';
 export { MANAGED_UID_PREFIX };
@@ -27,7 +29,8 @@ export class HouseholdError extends Error {
 type EventKind =
   | 'created' | 'member_added' | 'link_created' | 'link_revoked' | 'link_accepted' | 'link_declined'
   | 'member_claimed' | 'role_granted' | 'role_revoked' | 'admin_transferred' | 'member_left'
-  | 'member_removed' | 'dissolved';
+  | 'member_removed' | 'dissolved'
+  | 'quiz_taken_for_member' | 'dial_turned_for_member' | 'dial_turn_undone' | 'identity_unlinked';
 type EventSource = 'customer' | 'admin' | 'system' | 'cron';
 
 /** The one INSERT into household_event. An unknown code fails loudly on the NOT NULL kind/source. */
@@ -47,9 +50,9 @@ export async function recordEvent(tx: Tx, e: {
 
 interface MemberRow {
   member_id: string; household_id: string; user_id: string; first_name: string | null; status_code: string;
-  role_codes: string[]; can_administer: boolean; account_state: 'login' | 'managed';
+  role_codes: string[]; can_administer: boolean; may_turn_dials: boolean; account_state: 'login' | 'managed';
 }
-const MEMBER_COLS = `member_id, household_id, user_id, first_name, status_code, role_codes, can_administer, account_state`;
+const MEMBER_COLS = `member_id, household_id, user_id, first_name, status_code, role_codes, can_administer, may_turn_dials, account_state`;
 
 async function activeMemberOf(tx: Tx, userId: string): Promise<MemberRow | null> {
   const r = await tx.query<MemberRow>(
@@ -513,5 +516,168 @@ export async function dissolve(actorUserId: string): Promise<void> {
     await endMember(tx, me.member_id, 'left');
     await tx.query(`UPDATE household SET dissolved_at = timezone('utc', now()), updated_at = timezone('utc', now()) WHERE id = $1`, [household.id]);
     await recordEvent(tx, { householdId: household.id, memberId: me.member_id, kind: 'dissolved', source: 'customer', actorUserId });
+  });
+}
+
+// ── Family Household 2 (2026-11-07): quiz and dial by proxy, undo, unlink ────
+// backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_2_QUIZ_AND_DIAL_BY_PROXY.md
+// D9 / G2.19 as revised: the quiz is strict (once a member has a self-taken
+// quiz, nobody answers for them again), the dial is open (a member whose role
+// may_turn_dials may turn another member's dial; the move carries its actor
+// and the member can undo it with a move back, never a delete).
+
+export interface ProxyTarget { memberId: string; householdId: string; userId: string; firebaseUid: string; firstName: string | null }
+
+async function memberFirebaseUid(tx: Tx, userId: string): Promise<string> {
+  const r = await tx.query<{ firebase_uid: string }>(`SELECT firebase_uid FROM user_profile WHERE id = $1`, [userId]);
+  return r.rows[0].firebase_uid;
+}
+
+/** D9: may `actorUserId` take the quiz for `memberId`? Throws a HouseholdError with the reason when not. */
+export async function assertMayQuizFor(actorUserId: string, memberId: string): Promise<ProxyTarget> {
+  return run(async tx => {
+    const { me, household } = await actorContext(tx, actorUserId);
+    if (!me.can_administer) throw notAdmin();
+    const target = await targetIn(tx, memberId, household.id);
+    if (target.member_id === me.member_id) throw new HouseholdError(400, 'quiz_for_self', 'Take the quiz as yourself from the start page.');
+    if ((await householdParam('quiz_for_member_enabled')) !== 1) {
+      throw new HouseholdError(409, 'quiz_for_member_off', 'Taking the quiz for a member is switched off right now.');
+    }
+    const q = await tx.query<{ quiz_state: string; customer_label: string }>(
+      `SELECT vm.quiz_state, qs.customer_label FROM v_household_member vm
+       JOIN household_quiz_state qs ON qs.code = vm.quiz_state WHERE vm.member_id = $1`, [memberId]
+    );
+    if (q.rows[0]?.quiz_state === 'own') {
+      throw new HouseholdError(409, 'member_took_own_quiz', `${target.first_name ?? 'This member'}: ${q.rows[0].customer_label}.`);
+    }
+    return { memberId, householdId: household.id, userId: target.user_id, firebaseUid: await memberFirebaseUid(tx, target.user_id), firstName: target.first_name };
+  });
+}
+
+/** The household event for a proxy quiz (the session itself is written by quizSession.saveQuizSession). */
+export async function recordProxyQuiz(actorUserId: string, target: ProxyTarget, quizSessionId: string): Promise<void> {
+  await run(tx => recordEvent(tx, {
+    householdId: target.householdId, memberId: target.memberId, kind: 'quiz_taken_for_member', source: 'customer',
+    actorUserId, detail: { quiz_session_id: quizSessionId },
+  }));
+}
+
+/** D27: may `actorUserId` turn `memberId`'s dial? */
+async function dialTarget(tx: Tx, actorUserId: string, memberId: string): Promise<{ me: MemberRow; target: MemberRow; householdId: string }> {
+  const { me, household } = await actorContext(tx, actorUserId);
+  const target = await targetIn(tx, memberId, household.id);
+  if (target.member_id === me.member_id) throw new HouseholdError(400, 'dial_for_self', 'Turn your own dial from your profile.');
+  if (!me.may_turn_dials) throw new HouseholdError(403, 'may_not_turn_dials', 'Your role in the household does not turn other members’ dials.');
+  return { me, target, householdId: household.id };
+}
+
+/** The member's current position for an archetype (GET /api/users/dial-position?forMemberId=). */
+export async function memberDialPosition(actorUserId: string, memberId: string, archetype: string): Promise<number | null> {
+  return run(async tx => {
+    const { target } = await dialTarget(tx, actorUserId, memberId);
+    return (await currentSlot(tx, target.user_id, archetype)).sortOrder;
+  });
+}
+
+export interface TurnDialInput { archetype: string; dialSortOrder: number; coffeeId?: number | null }
+
+/**
+ * D27: turn a member's dial and save it, as one move: the position, the
+ * customer_dial_event (explicit_save, actor_user_id = the actor) and the
+ * dial_turned_for_member event with the slot it replaced (previous_slot_id),
+ * which is what Undo restores. The member's saved list is not touched.
+ */
+export async function turnDialFor(actorUserId: string, memberId: string, input: TurnDialInput): Promise<{ dialEventId: string; slotId: number; previousSlotId: number | null }> {
+  return run(async tx => {
+    const { target, householdId } = await dialTarget(tx, actorUserId, memberId);
+    const slotId = await resolveSlot(tx, input.archetype, input.dialSortOrder);
+    if (!slotId) throw new HouseholdError(400, 'unknown_slot', 'That dial position does not exist.');
+    const previousSlotId = (await currentSlot(tx, target.user_id, input.archetype)).slotId;
+    const { dialEventId } = await savePosition(tx, {
+      userId: target.user_id, archetype: input.archetype, slotId, trigger: 'explicit_save', source: 'household',
+      coffeeId: input.coffeeId ?? null, dialSortOrder: input.dialSortOrder, actorUserId, savedItem: false,
+    }, true);
+    await recordEvent(tx, {
+      householdId, memberId, kind: 'dial_turned_for_member', source: 'customer', actorUserId,
+      detail: { dial_event_id: dialEventId, archetype: input.archetype, slot_id: slotId, previous_slot_id: previousSlotId },
+    });
+    return { dialEventId: dialEventId!, slotId, previousSlotId };
+  });
+}
+
+/**
+ * The member undoes a turn someone else made (D27): a new move of their own
+ * back to the slot the turn replaced (NULL when there was none), logged as
+ * their own explicit_save (no actor, no saved-list entry) plus a
+ * dial_turn_undone event. Only the turn that is still the current position can
+ * be undone. Idempotent: a second undo returns the first one's result.
+ */
+export async function undoDialTurn(actorUserId: string, dialEventId: string): Promise<{ restoredSlotId: number | null; alreadyUndone: boolean }> {
+  return run(async tx => {
+    const { me, household } = await actorContext(tx, actorUserId);
+    const turn = await tx.query<{ household_id: string; detail: { archetype: string; slot_id: number; previous_slot_id: number | null } }>(
+      `SELECT e.household_id, e.detail FROM household_event e
+       JOIN household_event_kind k ON k.id = e.kind_id AND k.code = 'dial_turned_for_member'
+       JOIN household_member hm ON hm.id = e.member_id
+       WHERE e.detail ->> 'dial_event_id' = $1 AND hm.id = $2`, [dialEventId, me.member_id]
+    );
+    const t = turn.rows[0];
+    if (!t || t.household_id !== household.id) throw new HouseholdError(404, 'turn_not_found', 'We could not find that dial turn.');
+    const done = await tx.query<{ detail: { restored_slot_id: number | null } }>(
+      `SELECT e.detail FROM household_event e JOIN household_event_kind k ON k.id = e.kind_id AND k.code = 'dial_turn_undone'
+       WHERE e.detail ->> 'dial_event_id' = $1 LIMIT 1`, [dialEventId]
+    );
+    if (done.rows[0]) return { restoredSlotId: done.rows[0].detail.restored_slot_id ?? null, alreadyUndone: true };
+    const now = await currentSlot(tx, me.user_id, t.detail.archetype);
+    if (now.slotId !== t.detail.slot_id) {
+      throw new HouseholdError(409, 'turn_not_current', 'Your dial has moved since; turn it from your profile.');
+    }
+    const restored = t.detail.previous_slot_id ?? null;
+    const { dialEventId: undoEventId } = await savePosition(tx, {
+      userId: me.user_id, archetype: t.detail.archetype, slotId: restored, trigger: 'explicit_save', source: 'household',
+      actorUserId: null, savedItem: false,
+    }, true);
+    await recordEvent(tx, {
+      householdId: household.id, memberId: me.member_id, kind: 'dial_turn_undone', source: 'customer', actorUserId,
+      detail: { dial_event_id: dialEventId, restored_slot_id: restored, undo_dial_event_id: undoEventId, archetype: t.detail.archetype },
+    });
+    return { restoredSlotId: restored, alreadyUndone: false };
+  });
+}
+
+/**
+ * D25: undo a wrong claim. The member row moves back to the managed profile
+ * the link came from; the account is no longer in the household; the link
+ * gets a customer_identity_unlink row (never deleted). The member themselves
+ * or an administrator may do it; a member holding a role that administers is
+ * refused (the household would be left with an admin who cannot sign in).
+ * Idempotent: a second call changes nothing.
+ */
+export async function unlinkMember(actorUserId: string, memberId: string, reason: string | null = null): Promise<{ changed: boolean }> {
+  return run(async tx => {
+    const { me, household } = await actorContext(tx, actorUserId);
+    const target = await memberById(tx, memberId);
+    if (!target || target.household_id !== household.id) throw memberNotFound();
+    if (target.member_id !== me.member_id && !me.can_administer) throw notAdmin();
+    const l = await getHouseholdClaimLink(memberId, tx);
+    if (!l) throw new HouseholdError(409, 'not_claimed', 'This member has no claimed profile to unlink.');
+    if (l.unlinked) return { changed: false };
+    if (target.status_code !== 'active' || target.user_id !== l.to_user_id) {
+      throw new HouseholdError(409, 'not_claimed', 'This member has no claimed profile to unlink.');
+    }
+    if (target.can_administer) throw transferFirst();
+    await record.identityUnlink({
+      userId: l.from_user_id, linkId: l.id, actorUserId, reason,
+      source: 'onsite', sourceId: `identity_unlink:${l.id}`,
+    }, tx);
+    await tx.query(
+      `UPDATE household_member SET user_id = $2, updated_at = timezone('utc', now()) WHERE id = $1`,
+      [memberId, l.from_user_id]
+    );
+    await recordEvent(tx, {
+      householdId: household.id, memberId, kind: 'identity_unlinked', source: 'customer', actorUserId,
+      detail: { link_id: l.id, account_user_id: l.to_user_id },
+    });
+    return { changed: true };
   });
 }

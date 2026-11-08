@@ -522,8 +522,10 @@ export async function deleteBrewProfileField(field: string) {
   return res.json();
 }
 
-export async function getDialPosition(archetype: string): Promise<{ dialSortOrder: number | null }> {
-  const res = await fetch(`${BASE}/users/dial-position?archetype=${encodeURIComponent(archetype)}`, {
+// Family Household 2 (D27): forMemberId reads / saves a household member's dial (saves need trigger explicit_save).
+export async function getDialPosition(archetype: string, forMemberId?: string | null): Promise<{ dialSortOrder: number | null }> {
+  const member = forMemberId ? `&forMemberId=${encodeURIComponent(forMemberId)}` : '';
+  const res = await fetch(`${BASE}/users/dial-position?archetype=${encodeURIComponent(archetype)}${member}`, {
     headers: await getHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch dial position');
@@ -533,12 +535,13 @@ export async function getDialPosition(archetype: string): Promise<{ dialSortOrde
 export async function setDialPosition(
   archetype: string,
   dialSortOrder: number,
-  event?: { trigger: 'explicit_save' | 'add_to_cart'; source?: string | null; coffeeId?: number | null; platformName?: string | null }
+  event?: { trigger: 'explicit_save' | 'add_to_cart'; source?: string | null; coffeeId?: number | null; platformName?: string | null },
+  forMemberId?: string | null,
 ) {
   const res = await fetch(`${BASE}/users/dial-position`, {
     method: 'PATCH',
     headers: await getHeaders(),
-    body: JSON.stringify({ archetype, dialSortOrder, ...event }),
+    body: JSON.stringify({ archetype, dialSortOrder, ...event, ...(forMemberId ? { forMemberId } : {}) }),
   });
   if (!res.ok) throw new Error('Failed to save dial position');
   return res.json();

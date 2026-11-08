@@ -16,6 +16,9 @@ import { archetypeCode, archetypeLabel as catalogArchetypeLabel, archetypeCustom
 import { record } from '../services/customerFacts.js';
 import { getTimeline, getFeedbackCurrent, getBrewProfileCurrent } from '../services/customerReads.js';
 import { createHash, randomUUID } from 'node:crypto';
+import { resolveSlot, ownSortOrder, savePosition, DIAL_EVENT_TRIGGERS } from '../services/dialPositionService.js';
+import { memberDialPosition, turnDialFor, HouseholdError } from '../services/householdService.js';
+import { profileIdForUid } from '../services/householdReads.js';
 
 const router = Router();
 
@@ -528,22 +531,21 @@ router.get('/dial-position', requireAuth, async (req: AuthRequest, res) => {
   const archetype = req.query.archetype as string;
   if (!archetype) { res.status(400).json({ error: 'archetype is required' }); return; }
   try {
-    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
-    const profileId = profileResult.rows[0]?.id;
+    const profileId = await profileIdForUid(req.uid!);
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
-
+    // Family Household 2 (D27): ?forMemberId= reads a household member's position
+    // (v_customer_dial_current), for a member whose role may turn dials.
+    const forMemberId = req.query.forMemberId;
+    if (typeof forMemberId === 'string' && forMemberId) {
+      if (req.isAnonymous) { res.status(403).json({ error: 'anonymous_not_allowed' }); return; }
+      res.json({ dialSortOrder: await memberDialPosition(profileId, forMemberId, archetype) });
+      return;
+    }
     // Catalog Blueprint brief 5a dropped dial_sort_order from this table —
-    // slot_id (the sole position reference now) is joined back to
-    // coffee_dial_slot for its sort_order. API field name unchanged.
-    const result = await db.query(
-      `SELECT cds.sort_order AS dial_sort_order
-       FROM user_bloom_dial_current_position u
-       JOIN coffee_dial_slot cds ON cds.id = u.slot_id
-       WHERE u.user_id = $1 AND u.archetype = $2`,
-      [profileId, archetype]
-    );
-    res.json({ dialSortOrder: result.rows[0]?.dial_sort_order ?? null });
+    // slot_id is joined back to coffee_dial_slot for its sort_order. API field name unchanged.
+    res.json({ dialSortOrder: await ownSortOrder(profileId, archetype) });
   } catch (err) {
+    if (err instanceof HouseholdError) { res.status(err.status).json({ error: err.code, message: err.message }); return; }
     console.error('[GET /api/users/dial-position]', err);
     res.status(500).json({ error: 'Failed to fetch dial position' });
   }
@@ -552,17 +554,19 @@ router.get('/dial-position', requireAuth, async (req: AuthRequest, res) => {
 // Liam Dial Event Log — the only two intentional-movement kinds ever logged (plain
 // dial turns are exploration noise, deliberately not logged). Kept in sync with
 // ArchetypeSection.tsx's `source` prop values.
-const DIAL_EVENT_TRIGGERS = ['explicit_save', 'add_to_cart'] as const;
 const DIAL_EVENT_SOURCES = ['bloom', 'find_my_flavor_returning', 'find_my_flavor_results', 'profile'] as const;
 
 // ── PATCH /api/users/dial-position — upsert on (user_id, archetype) ───────────
 // Requests without `trigger` are the silent auto-save path (every dial turn) —
-// SQL upsert only, exactly as before. Requests with a valid `trigger` additionally
-// append a Firestore users/{uid}/dial_events doc recording the *intentional* moment
-// (explicit save or add-to-cart) — fire-and-forget, a logging failure must never
-// fail the request itself.
+// the position only. Requests with a valid `trigger` additionally record the
+// intentional moment as a customer_dial_event fact (explicit save or
+// add-to-cart) — a logging failure never fails the request itself.
+// Family Household 2 (2026-11-07, D27): `forMemberId` turns a household member's
+// dial. Member mode saves only on an explicit Save (trigger explicit_save): one
+// move, logged with the actor, undoable by the member; the member's saved list
+// is not touched. Writes live in services/dialPositionService.ts (G3.1).
 router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
-  const { archetype, dialSortOrder, trigger, source, coffeeId, platformName } = req.body ?? {};
+  const { archetype, dialSortOrder, trigger, coffeeId, platformName, forMemberId } = req.body ?? {};
   if (!archetype || !Number.isInteger(dialSortOrder)) {
     res.status(400).json({ error: 'archetype and dialSortOrder are required' }); return;
   }
@@ -570,68 +574,34 @@ router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
     res.status(400).json({ error: 'invalid trigger' }); return;
   }
   try {
-    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
-    const profileId = profileResult.rows[0]?.id;
+    const profileId = await profileIdForUid(req.uid!);
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
+    const resolvedCoffeeId = Number.isInteger(coffeeId) ? coffeeId : null;
+
+    if (forMemberId !== undefined && forMemberId !== null) {
+      if (req.isAnonymous || typeof forMemberId !== 'string') { res.status(403).json({ error: 'anonymous_not_allowed' }); return; }
+      if (trigger !== 'explicit_save') {
+        res.status(400).json({ error: 'explicit_save_required', message: "A member's dial is saved with Save." }); return;
+      }
+      const turned = await turnDialFor(profileId, forMemberId, { archetype, dialSortOrder, coffeeId: resolvedCoffeeId });
+      res.json({ ok: true, dialEventId: turned.dialEventId });
+      return;
+    }
 
     // Catalog Blueprint brief 5a dropped dial_sort_order from this table —
     // resolve (archetype, dialSortOrder) to the real slot_id before writing.
-    // Request/response body fields (archetype, dialSortOrder) unchanged.
-    const slotResult = await db.query(
-      `SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`,
-      [archetype, dialSortOrder]
-    );
-    const slotId = slotResult.rows[0]?.id;
+    const slotId = await resolveSlot(db, archetype, dialSortOrder);
     if (!slotId) { res.status(400).json({ error: 'Unknown archetype/dialSortOrder combination' }); return; }
-
-    await db.query(
-      `INSERT INTO user_bloom_dial_current_position (user_id, archetype, slot_id, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (user_id, archetype)
-       DO UPDATE SET slot_id = $3, updated_at = NOW()`,
-      [profileId, archetype, slotId]
-    );
-
-    if (trigger) {
-      // Profile Part 7 Task 1 — coffeeId is unified across both trigger kinds
-      // (previously add_to_cart-only); platformName is new, a display-name
-      // snapshot at save time (roaster-blind — see the flavor-memory route
-      // below). Neither field trigger-gated: whichever the caller sends is
-      // validated and stored, absent otherwise.
-      //
-      // Customer Blueprint C3, Part C — the Firestore users/{uid}/dial_events
-      // write is retired; customer_dial_event (C2) is the fact, sourced by a
-      // fresh id here instead of a Firestore doc id.
-      const resolvedCoffeeId = Number.isInteger(coffeeId) ? coffeeId : null;
-      const resolvedPlatformName = typeof platformName === 'string' && platformName.trim() ? platformName.trim() : null;
-      try {
-        await record.dialEvent({
-          userId: profileId, source: 'onsite', sourceId: randomUUID(),
-          eventType: trigger, slotId, coffeeId: resolvedCoffeeId, archetypeCode: archetype,
-        });
-      } catch (err) {
-        console.error('[customerFacts:dial-event]', err);
-      }
-
-      // Customer Blueprint C3, Part B4 — explicit_save additionally records
-      // current *state* (the saved list), separate from the fact above:
-      // add_to_cart is never a journal/saved-list entry, per the editorial rule.
-      if (trigger === 'explicit_save') {
-        try {
-          await db.query(
-            `INSERT INTO user_saved_item (user_id, kind, ref_id, title, payload)
-             VALUES ($1, 'dial_slot', $2, $3, $4)`,
-            [profileId, `${archetype}:${dialSortOrder}`, resolvedPlatformName,
-             JSON.stringify({ archetype, dialSortOrder, coffeeId: resolvedCoffeeId, platformName: resolvedPlatformName })]
-          );
-        } catch (err) {
-          console.error('[user_saved_item:dial_slot]', err);
-        }
-      }
-    }
-
+    // Profile Part 7 Task 1 — coffeeId and platformName (a display-name snapshot at
+    // save time) are stored on whichever trigger sends them.
+    const resolvedPlatformName = typeof platformName === 'string' && platformName.trim() ? platformName.trim() : null;
+    await savePosition(db, {
+      userId: profileId, archetype, slotId, trigger, coffeeId: resolvedCoffeeId, platformName: resolvedPlatformName,
+      dialSortOrder, savedItem: true,
+    });
     res.json({ ok: true });
   } catch (err) {
+    if (err instanceof HouseholdError) { res.status(err.status).json({ error: err.code, message: err.message }); return; }
     console.error('[PATCH /api/users/dial-position]', err);
     res.status(500).json({ error: 'Failed to save dial position' });
   }

@@ -6638,6 +6638,22 @@ Brief `backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_1_FOUNDATION_
 
 ---
 
+### 264. Family Household 2: quiz and dial by proxy (2026-11-07)
+
+Brief `backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_2_QUIZ_AND_DIAL_BY_PROXY.md` (design `DESIGN_HOUSEHOLD.md` D9, D25, D27, T3, T6); full record `backend/src/features/household/CLOSING_REPORT_2.md`.
+
+**Schema:** `quiz_session.taken_by_user_id` and `customer_dial_event.actor_user_id` (provenance, NULL = self); lookups `household_account_state`, `household_quiz_state` (the tab's badge words, OT-104); `v_customer_quiz_current` ranks a self-taken quiz first, then recency, and adds `taken_by_user_id` / `taken_by_first_name`; new `v_customer_dial_current` (the latest dial position across linked profiles, T3); `v_household_member` gains `quiz_state` none / by_admin / own with who answered, `dial_slot_id`, `claim_link_id`; `v_household.proxy_quiz_count`; event kind `dial_turn_undone`.
+
+**Backend:** the quiz door `POST /api/quiz/results` takes `forMemberId` (`householdService.assertMayQuizFor`: admin, same household, `quiz_for_member_enabled`, no self-taken quiz) and saves the session on the member with `taken_by_user_id`; only the member's lifecycle refresh runs. The dial door `PATCH/GET /api/users/dial-position` takes `forMemberId` (`householdService.turnDialFor`: `may_turn_dials`; Save only; one move with the actor and `previous_slot_id`; the member's saved list untouched); its SQL moved to `services/dialPositionService.ts`. `householdService.undoDialTurn` (the member's own move back to `previous_slot_id`, idempotent) and `unlinkMember` (D25 via `customerFacts.identityUnlink`; an administering member is refused). `GET /api/household/lookups` (replaced `/roles`), `GET /me/log`, `POST /me/log/:id/undo`, `POST /members/:id/unlink`. `quizSession.getLatestQuizResult` reads `v_customer_quiz_current` by canonical id. Reads of `customer_*` facts in `customerReads` (`getDialTurnsByOthers`, `getHouseholdClaimLink`).
+
+**Frontend:** `/find-my-flavor?for=<member>` (name prefilled, "Profiling <name>", no subscribe / email gate / ad events, member's dial with Save only, Share of the join link on the result, the gated result shows the member block); Family Household tab: badge words from the lookups, Take the quiz for, Open their dial (`BloomDialWidget` + Save), Unlink, My log with Undo; `forMemberId` threaded through `DialArchetypeSection` / `useDialSlot` / `lib/api`; admin Households: proxy quiz count.
+
+**Tests:** `services/householdProxy.test.ts` (10), `householdService.test.ts` event-kind count, `customerFacts.test.ts` export surface.
+
+**Verified:** see `CLOSING_REPORT_2.md`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

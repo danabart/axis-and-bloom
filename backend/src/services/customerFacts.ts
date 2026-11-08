@@ -87,6 +87,32 @@ async function identityLinkBackfill(input: IdentityLinkInput & BackfillFields, r
 }
 const identityLink = Object.assign(identityLinkFn, { backfill: identityLinkBackfill });
 
+// ── customer_identity_unlink (Family Household 2, D25) ────────────────────────
+// Undoing a customer_identity_link is a new row, never a delete of the link.
+// v_customer_identity skips a link that has one. Idempotent per link: callers
+// pass sourceId = `identity_unlink:<linkId>`.
+export interface IdentityUnlinkInput extends CommonFields {
+  userId: string; // = the link's from_user_id
+  linkId: string;
+  actorUserId?: string | null;
+  reason?: string | null;
+}
+async function identityUnlinkFn(input: IdentityUnlinkInput, tx?: Tx): Promise<FactResult> {
+  const runner = tx ?? db;
+  const catalogVersion = await resolveCatalogVersion(runner, input.catalogVersion);
+  return insertFact(runner, 'customer_identity_unlink',
+    ['user_id', 'source', 'source_id', 'catalog_version', 'link_id', 'actor_user_id', 'reason'],
+    [input.userId, input.source, input.sourceId, catalogVersion, input.linkId, input.actorUserId ?? null, input.reason ?? null]);
+}
+async function identityUnlinkBackfill(input: IdentityUnlinkInput & BackfillFields, runner: Runner): Promise<FactResult> {
+  await assertOwner(runner);
+  const catalogVersion = await resolveCatalogVersion(runner, input.catalogVersion);
+  return insertFact(runner, 'customer_identity_unlink',
+    ['user_id', 'occurred_at', 'recorded_at', 'source', 'source_id', 'catalog_version', 'link_id', 'actor_user_id', 'reason'],
+    [input.userId, input.occurredAt, input.recordedAt ?? input.occurredAt, input.source, input.sourceId, catalogVersion, input.linkId, input.actorUserId ?? null, input.reason ?? null]);
+}
+const identityUnlink = Object.assign(identityUnlinkFn, { backfill: identityUnlinkBackfill });
+
 // ── customer_feedback_event ───────────────────────────────────────────────────
 export interface FeedbackInput extends CommonFields {
   userId: string;
@@ -168,13 +194,15 @@ export interface DialEventInput extends CommonFields {
   slotId?: number | null;
   coffeeId?: number | null;
   archetypeCode?: string | null;
+  /** Family Household 2 (D27): the member who turned this dial for the profile's person; NULL/absent = self. */
+  actorUserId?: string | null;
 }
 async function dialEventFn(input: DialEventInput, tx?: Tx): Promise<FactResult> {
   const runner = tx ?? db;
   const catalogVersion = await resolveCatalogVersion(runner, input.catalogVersion);
   return insertFact(runner, 'customer_dial_event',
-    ['user_id', 'source', 'source_id', 'catalog_version', 'event_type', 'slot_id', 'coffee_id', 'archetype_code'],
-    [input.userId, input.source, input.sourceId, catalogVersion, input.eventType, input.slotId ?? null, input.coffeeId ?? null, input.archetypeCode ?? null]);
+    ['user_id', 'source', 'source_id', 'catalog_version', 'event_type', 'slot_id', 'coffee_id', 'archetype_code', 'actor_user_id'],
+    [input.userId, input.source, input.sourceId, catalogVersion, input.eventType, input.slotId ?? null, input.coffeeId ?? null, input.archetypeCode ?? null, input.actorUserId ?? null]);
 }
 async function dialEventBackfill(input: DialEventInput & BackfillFields, runner: Runner): Promise<FactResult> {
   await assertOwner(runner);
@@ -349,6 +377,7 @@ const catalogChange = Object.assign(catalogChangeFn, { backfill: catalogChangeBa
 // customerFacts.test.ts asserts this export surface by name. ─────────────────
 export const record = {
   identityLink,
+  identityUnlink,
   feedback,
   feedbackDescriptor,
   brewProfileChange,

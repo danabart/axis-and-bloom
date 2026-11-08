@@ -10,7 +10,7 @@ import EvidenceParametersCard from './EvidenceParametersCard';
 
 interface HouseholdRow {
   household_id: string; household_name: string | null; admin_first_name: string | null; pays_first_name: string | null;
-  active_member_count: number; dissolved_at: string | null; created_at: string;
+  active_member_count: number; proxy_quiz_count?: number; dissolved_at: string | null; created_at: string;
 }
 interface Detail {
   household: HouseholdRow;
@@ -47,24 +47,30 @@ export default function AdminHouseholds() {
   return (
     <div className="p-8 max-w-6xl flex flex-col gap-8">
       <h1 className="text-xl font-medium text-stone-800">Family Households</h1>
+      {rows && rows.length > 0 && (
+        <p className="text-sm text-stone-600" data-testid="admin-households-totals">
+          {rows.filter(h => !h.dissolved_at).length} open · {rows.reduce((n, h) => n + (h.dissolved_at ? 0 : h.active_member_count), 0)} members · {rows.reduce((n, h) => n + (h.proxy_quiz_count ?? 0), 0)} proxy quizzes
+        </p>
+      )}
       {error && <p className="text-sm text-red-700">{error}</p>}
 
       <div className="bg-white border border-stone-200 rounded" data-testid="admin-households">
         <table className="w-full text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-stone-500 border-b border-stone-200">
-            <tr><th className="p-3">Household</th><th className="p-3">Admin</th><th className="p-3">Pays</th><th className="p-3">Members</th><th className="p-3">Created</th><th className="p-3">State</th></tr>
+            <tr><th className="p-3">Household</th><th className="p-3">Admin</th><th className="p-3">Pays</th><th className="p-3">Members</th><th className="p-3">Proxy quizzes</th><th className="p-3">Created</th><th className="p-3">State</th></tr>
           </thead>
           <tbody>
             {rows === null ? (
-              <tr><td className="p-3 text-stone-400" colSpan={6}>Loading…</td></tr>
+              <tr><td className="p-3 text-stone-400" colSpan={7}>Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td className="p-3 text-stone-400" colSpan={6}>No households yet.</td></tr>
+              <tr><td className="p-3 text-stone-400" colSpan={7}>No households yet.</td></tr>
             ) : rows.map(h => (
               <tr key={h.household_id} className="border-b border-stone-100 hover:bg-stone-50 cursor-pointer" onClick={() => open(h.household_id)}>
                 <td className="p-3 text-stone-800">{h.household_name}</td>
                 <td className="p-3">{h.admin_first_name}</td>
                 <td className="p-3">{h.pays_first_name}</td>
                 <td className="p-3">{h.active_member_count}</td>
+                <td className="p-3">{h.proxy_quiz_count ?? 0}</td>
                 <td className="p-3 text-stone-500">{fmt(h.created_at)}</td>
                 <td className="p-3 text-stone-500">{h.dissolved_at ? `Closed ${fmt(h.dissolved_at)}` : 'Open'}</td>
               </tr>

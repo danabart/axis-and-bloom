@@ -69,13 +69,16 @@ export function arrivingSoonLine(archetypeLabel: string): string {
   return `A ${archetypeLabel} coffee for this turn of the dial. Its full tasting notes are arriving soon.`;
 }
 
-export function useDialSlot({ data, displaySortOrder, revealedKeys, source, onAddToCart, onDialSelect }: {
+export function useDialSlot({ data, displaySortOrder, revealedKeys, source, onAddToCart, onDialSelect, forMemberId = null }: {
   data: ArchetypeData;
   displaySortOrder: number;
   revealedKeys: Set<string>;
   source: DialSource;
   onAddToCart: (item: CartItem) => void;
   onDialSelect: (archetype: string, dialSortOrder: number) => void;
+  /** Family Household 2 (D27): set when this dial is a household member's; Save writes to their dial, with the
+   *  signed-in member as the actor, and add-to-cart never moves anyone's dial. */
+  forMemberId?: string | null;
 }) {
   const { user } = useAuth();
   const classic = classicOf(data);
@@ -109,7 +112,7 @@ export function useDialSlot({ data, displaySortOrder, revealedKeys, source, onAd
     if (!user) return;
     setDialPosition(data.archetype, currentSlot.dialSortOrder, {
       trigger: 'explicit_save', source, coffeeId: currentSlot.coffeeId, platformName: currentSlot.platformName,
-    })
+    }, ...(forMemberId ? [forMemberId] : []))
       .then(() => setSavedKey(currentKey))
       .catch(err => reportError('[DialArchetypeSection/explicit-save]', err));
   }
@@ -119,7 +122,7 @@ export function useDialSlot({ data, displaySortOrder, revealedKeys, source, onAd
     const item = dialCartItem(data, currentSlot, cardData.selectedPrice);
     if (!item) return;
     onAddToCart(item);
-    syncDialAddToCart(user, data.archetype, currentSlot.dialSortOrder, source, currentSlot.coffeeId);
+    if (!forMemberId) syncDialAddToCart(user, data.archetype, currentSlot.dialSortOrder, source, currentSlot.coffeeId);
   }
 
   /** The classic quick pick; `turnTo` moves this surface's dial to the classic as feedback. */
@@ -131,7 +134,7 @@ export function useDialSlot({ data, displaySortOrder, revealedKeys, source, onAd
     onAddToCart(item);
     turnTo?.(defaultSlot.dialSortOrder);
     onDialSelect(data.archetype, defaultSlot.dialSortOrder);
-    syncDialAddToCart(user, data.archetype, defaultSlot.dialSortOrder, source, defaultSlot.coffeeId);
+    if (!forMemberId) syncDialAddToCart(user, data.archetype, defaultSlot.dialSortOrder, source, defaultSlot.coffeeId);
   }
 
   // data.collectionOffer is the backend-computed preview (null when fewer than

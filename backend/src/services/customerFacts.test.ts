@@ -33,7 +33,7 @@ describe('customerFacts.record — export surface', () => {
     const keys = Object.keys(record).sort();
     expect(keys).toEqual([
       'bagClaim', 'brewProfileChange', 'catalogChange', 'dialEvent', 'feedback',
-      'feedbackDescriptor', 'identityLink', 'liamAction', 'liamQuestion', 'liamRecommendation', 'liamReply',
+      'feedbackDescriptor', 'identityLink', 'identityUnlink', 'liamAction', 'liamQuestion', 'liamRecommendation', 'liamReply',
     ]);
     for (const [name, fn] of Object.entries(record)) {
       expect(typeof fn).toBe('function');

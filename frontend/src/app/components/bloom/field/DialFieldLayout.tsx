@@ -58,7 +58,7 @@ export function DialFieldLayout(props: DialArchetypeSectionProps) {
   const liveSlot = slots[liveIdx];
   const displaySortOrder = liveSlot?.dialSortOrder ?? selectedSortOrder;
 
-  const ds = useDialSlot({ data, displaySortOrder, revealedKeys, source, onAddToCart, onDialSelect });
+  const ds = useDialSlot({ data, displaySortOrder, revealedKeys, source, onAddToCart, onDialSelect, forMemberId: props.forMemberId ?? null });
   const { currentSlot, cardData } = ds;
   const card: SlotCard | undefined = cards?.find(c => c.dialSortOrder === currentSlot.dialSortOrder);
   const hasCoffee = currentSlot.isActive && currentSlot.coffeeId != null;

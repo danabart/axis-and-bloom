@@ -8,7 +8,10 @@
 // Signed in, never anonymous:
 //   POST   /                          create {name}
 //   GET    /mine                      the caller's household (null when none)
-//   GET    /roles                     the role lookup with labels and flags
+//   GET    /lookups                   roles, account states and quiz states with their words (Household 2; replaced /roles)
+//   GET    /me/log                    dial turns others made for me (Household 2, D27)
+//   POST   /me/log/:dialEventId/undo  undo one of them (a move back, never a delete)
+//   POST   /members/:memberId/unlink  undo a claim (D25)
 //   POST   /members {firstName}       add a member by first name → join link
 //   POST   /members/:memberId/link    a new join link (when none is open)
 //   DELETE /links/:invitationId       close a join link
@@ -28,9 +31,9 @@ import { z } from 'zod';
 import { requireAuth, blockAnonymousAuth, optionalAuth, type AuthRequest } from '../middleware/auth.js';
 import {
   create, addMember, createLink, revokeLink, accept, decline, grantRole, revokeRole, transferAdmin,
-  leave, removeMember, dissolve, HouseholdError,
+  leave, removeMember, dissolve, undoDialTurn, unlinkMember, HouseholdError,
 } from '../services/householdService.js';
-import { mine, roles, peekLink, profileIdForUid } from '../services/householdReads.js';
+import { mine, lookups, myLog, peekLink, profileIdForUid } from '../services/householdReads.js';
 
 const router = Router();
 const signedIn = [requireAuth, blockAnonymousAuth];
@@ -74,8 +77,34 @@ router.get('/mine', ...signedIn, async (req: AuthRequest, res) => {
   } catch (err) { fail(res, err, 'mine'); }
 });
 
-router.get('/roles', ...signedIn, async (_req, res) => {
-  try { res.json(await roles()); } catch (err) { fail(res, err, 'roles'); }
+router.get('/lookups', ...signedIn, async (_req, res) => {
+  try { res.json(await lookups()); } catch (err) { fail(res, err, 'lookups'); }
+});
+
+router.get('/me/log', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const me = await caller(req, res); if (!me) return;
+    res.json(await myLog(me));
+  } catch (err) { fail(res, err, 'my-log'); }
+});
+
+router.post('/me/log/:dialEventId/undo', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const id = Uuid.safeParse(req.params.dialEventId);
+    if (!id.success) return badBody(res, 'Unknown dial turn.');
+    const me = await caller(req, res); if (!me) return;
+    res.json(await undoDialTurn(me, id.data));
+  } catch (err) { fail(res, err, 'undo-dial'); }
+});
+
+router.post('/members/:memberId/unlink', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const id = Uuid.safeParse(req.params.memberId);
+    if (!id.success) return badBody(res, 'Unknown member.');
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 200) || null : null;
+    const me = await caller(req, res); if (!me) return;
+    res.json(await unlinkMember(me, id.data, reason));
+  } catch (err) { fail(res, err, 'unlink'); }
 });
 
 router.get('/links/:token', optionalAuth, async (req: AuthRequest, res) => {

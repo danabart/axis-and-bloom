@@ -84,7 +84,7 @@ describe('seeds', () => {
     expect(await codes('household_member_status')).toEqual(['active', 'left', 'removed']);
     expect(await codes('household_invitation_status')).toEqual(['open', 'accepted', 'declined', 'revoked', 'legacy']);
     expect(await codes('household_event_source')).toEqual(['customer', 'admin', 'system', 'cron']);
-    expect((await codes('household_event_kind')).length).toBe(18);
+    expect((await codes('household_event_kind')).length).toBe(19); // + dial_turn_undone (Household 2)
     const ut = await db.query(`SELECT 1 FROM user_type WHERE name = 'household_managed'`);
     expect(ut.rowCount).toBe(1);
   });

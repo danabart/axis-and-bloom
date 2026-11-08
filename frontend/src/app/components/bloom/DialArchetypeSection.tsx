@@ -68,16 +68,19 @@ export interface DialArchetypeSectionProps {
   hideHints?: boolean;
   /** layout="field" only: hide the closing "Take the quiz" link (Website 7B: the quiz result page itself). */
   hideQuizLink?: boolean;
+  /** Family Household 2 (D27): the household member whose dial this is (the quiz result of a proxy quiz). */
+  forMemberId?: string | null;
 }
 
 function DialLayout({
   data, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onCompare,
   userArchetype, registerDialRef, source = null, hideProfileLink = false, embedded = false, onDoorClick,
   folded = false, ceremonyTag = 'YOUR SPOT', unfoldMode = 'inline', showBreakoutHeader = true, prelaunch = false,
-  onOpenChange, forceFold = false,
+  onOpenChange, forceFold = false, forMemberId = null,
 }: {
   data: ArchetypeData;
   index: number;
+  forMemberId?: string | null;
   selectedSortOrder: number;
   revealedKeys: Set<string>;
   onDialSelect: (archetype: string, dialSortOrder: number) => void;
@@ -232,7 +235,7 @@ function DialLayout({
   const {
     user, defaultSlot, classicAvailable, isPlaceholder, currentSlot, currentKey, isRevealed, cardData,
     isSaved, showReveal, handleExplicitSave, handleAddToCart, handleCollectionAdd, handleClassicAdd: classicAdd,
-  } = useDialSlot({ data, displaySortOrder, revealedKeys, source, onAddToCart, onDialSelect });
+  } = useDialSlot({ data, displaySortOrder, revealedKeys, source, onAddToCart, onDialSelect, forMemberId });
   const handleClassicAdd = () => classicAdd(n => dialRef.current?.rotateTo(n));
   const savedKey = isSaved ? currentKey : null;
   const rules = useCheckoutRules();

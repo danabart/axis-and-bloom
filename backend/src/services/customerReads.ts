@@ -607,3 +607,55 @@ export async function getLiamHistory(uid: string, limit: number, excludeSessionI
   );
   return r.rows.map(x => ({ sessionId: x.session_id, at: x.at, recommendedCoffeeIds: x.recommended ?? [], answers: x.answers ?? [] }));
 }
+
+// ── Family Household 2 (2026-11-07) ────────────────────────────────────────
+// The two household reads of customer_* facts (lint:customer rule 4 keeps every
+// such read in this file).
+
+export interface DialTurnByOther {
+  dial_event_id: string; occurred_at: string; archetype_code: string; slot_name: string | null;
+  actor_first_name: string | null; undone: boolean; is_current: boolean;
+}
+/**
+ * D27: dial turns someone else made for this person (actor_user_id set), across
+ * their linked profiles, newest first. `is_current`: the turn's slot is still
+ * the person's position for that archetype and no later dial event exists;
+ * `undone`: a dial_turn_undone household event names it.
+ */
+export async function getDialTurnsByOthers(userId: string, runner: Runner = db): Promise<DialTurnByOther[]> {
+  const r = await runner.query<DialTurnByOther>(
+    `WITH me AS (SELECT canonical_user_id FROM v_customer_identity WHERE user_id = $1)
+     SELECT cde.id AS dial_event_id, cde.occurred_at, cde.archetype_code::text AS archetype_code, cds.name AS slot_name,
+            actor.first_name AS actor_first_name,
+            EXISTS (SELECT 1 FROM household_event e JOIN household_event_kind k ON k.id = e.kind_id AND k.code = 'dial_turn_undone'
+                     WHERE e.detail ->> 'dial_event_id' = cde.id::text) AS undone,
+            (dc.slot_id IS NOT DISTINCT FROM cde.slot_id
+             AND NOT EXISTS (SELECT 1 FROM customer_dial_event later
+                               JOIN v_customer_identity lv ON lv.user_id = later.user_id
+                              WHERE lv.canonical_user_id = (SELECT canonical_user_id FROM me)
+                                AND later.archetype_code = cde.archetype_code AND later.occurred_at > cde.occurred_at)) AS is_current
+     FROM customer_dial_event cde
+     JOIN v_customer_identity vci ON vci.user_id = cde.user_id AND vci.canonical_user_id = (SELECT canonical_user_id FROM me)
+     LEFT JOIN coffee_dial_slot cds ON cds.id = cde.slot_id
+     LEFT JOIN user_profile actor ON actor.id = cde.actor_user_id
+     LEFT JOIN v_customer_dial_current dc ON dc.canonical_user_id = vci.canonical_user_id AND dc.archetype = cde.archetype_code
+     WHERE cde.actor_user_id IS NOT NULL
+     ORDER BY cde.occurred_at DESC
+     LIMIT 50`, [userId]
+  );
+  return r.rows;
+}
+
+/** D25: the household_claim link written when this member's join link was accepted (latest), and whether it is undone. */
+export async function getHouseholdClaimLink(memberId: string, runner: Runner = db): Promise<{ id: string; from_user_id: string; to_user_id: string; unlinked: boolean } | null> {
+  const r = await runner.query<{ id: string; from_user_id: string; to_user_id: string; unlinked: boolean }>(
+    `SELECT cil.id, cil.from_user_id, cil.to_user_id,
+            EXISTS (SELECT 1 FROM customer_identity_unlink u WHERE u.link_id = cil.id) AS unlinked
+     FROM customer_identity_link cil
+     JOIN household_invitation hi ON cil.source_id = 'household_invitation:' || hi.id::text
+     WHERE hi.member_id = $1 AND cil.how = 'household_claim'
+     ORDER BY cil.occurred_at DESC LIMIT 1`, [memberId]
+  );
+  return r.rows[0] ?? null;
+}
+

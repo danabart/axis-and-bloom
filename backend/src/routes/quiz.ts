@@ -9,6 +9,8 @@ import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { logFunnelEvent } from '../features/marketing/funnelEvents.js';
 import { saveQuizSession, recordScoredInterpretation, getLatestQuizResult, resolveBranchAnswer } from '../services/quizSession.js';
 import { archetypeUuid } from '../services/catalogReads.js';
+import { assertMayQuizFor, recordProxyQuiz, HouseholdError, type ProxyTarget } from '../services/householdService.js';
+import { profileIdForUid } from '../services/householdReads.js';
 
 const router = Router();
 
@@ -155,22 +157,43 @@ router.post('/event', funnelEventLimiter, async (req, res) => {
 // Saves a completed quiz session, linking the real archetype FK from the DB.
 router.post('/results', requireAuth, async (req: AuthRequest, res) => {
   const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, foodSignalAlignment, recommendationMode, answerIds, branchedFrom,
-    secondaryPath, pairConfidence, exploreArchetype, exploreReason, primaryMargin, interpretationVersion, branchAnswerId } = req.body;
+    secondaryPath, pairConfidence, exploreArchetype, exploreReason, primaryMargin, interpretationVersion, branchAnswerId, forMemberId } = req.body;
   if (!archetype || !scores || !answers) {
     res.status(400).json({ error: 'archetype, scores, and answers required' });
     return;
   }
 
   try {
-    // Upsert user_profile
-    const profileResult = await db.query(
+    // Family Household 2 (2026-11-07, D9): `forMemberId` makes this the proxy
+    // door — the admin answers for a household member. Same door, not a
+    // parallel route: the session lands on the member's profile with
+    // taken_by_user_id = the admin, and only the member's side effects run
+    // (no lifecycle refresh for the admin; the client skips the newsletter
+    // subscribe, the email gate and the ad events). Signed-in accounts only.
+    let proxy: { actorId: string; target: ProxyTarget } | null = null;
+    if (forMemberId !== undefined && forMemberId !== null) {
+      if (req.isAnonymous || typeof forMemberId !== 'string') {
+        res.status(403).json({ error: 'anonymous_not_allowed', message: 'Create a free account to continue' });
+        return;
+      }
+      const actorId = await profileIdForUid(req.uid!);
+      if (!actorId) { res.status(404).json({ error: 'profile_not_found', message: 'Finish setting up your account first.' }); return; }
+      try {
+        proxy = { actorId, target: await assertMayQuizFor(actorId, forMemberId) };
+      } catch (err) {
+        if (err instanceof HouseholdError) { res.status(err.status).json({ error: err.code, message: err.message }); return; }
+        throw err;
+      }
+    }
+
+    // Upsert user_profile (the taker's own; a proxy quiz writes to the member's profile instead)
+    const profileId = proxy ? proxy.target.userId : (await db.query(
       `INSERT INTO user_profile (firebase_uid)
        VALUES ($1)
        ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = NOW()
        RETURNING id`,
       [req.uid]
-    );
-    const profileId = profileResult.rows[0].id;
+    )).rows[0].id;
 
     // Interpretation v2.2 (Prompt 4B): the branch answer, accepted only if it belongs to the branch of the
     // server-scored winner; anything else is stored as no branch answer (logged, never fails the save). An older
@@ -194,7 +217,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       secondaryPath: secondaryPath ?? null, pairConfidence: pairConfidence ?? null,
       exploreArchetype: exploreArchetype ?? null, exploreReason: exploreReason ?? null,
       primaryMargin: primaryMargin ?? null, interpretationVersion: interpretationVersion ?? null,
-    }, branch?.id ?? null);
+    }, branch?.id ?? null, proxy?.actorId ?? null);
 
     // Interpretation v2.1 (brief 2): recompute server-side from answerIds and store the current `scored` row in
     // quiz_session_interpretation (the only table this writes). saveQuizSession commits through the shared pool
@@ -207,6 +230,14 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       }));
     } catch (err) {
       console.error('[quiz/interpretation]', err);
+    }
+
+    if (proxy) {
+      try { await recordProxyQuiz(proxy.actorId, proxy.target, sessionId); }
+      catch (err) { console.error('[quiz/proxy-event]', err); }
+      res.json({ id: sessionId, forMemberId: proxy.target.memberId });
+      refreshLifecycleState(proxy.target.firebaseUid).catch(err => console.error('[quiz/lifecycle]', err));
+      return;
     }
 
     res.json({ id: sessionId });

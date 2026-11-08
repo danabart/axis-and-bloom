@@ -308,7 +308,8 @@ INSERT INTO household_event_kind (code, label) VALUES
   ('quiz_taken_for_member',           'Quiz taken for a member'),
   ('dial_turned_for_member',          'Dial turned for a member'),
   ('subscription_cancelled_on_leave', 'House subscription cancelled on leave'),
-  ('handover_offered',                'House subscription handover offered')
+  ('handover_offered',                'House subscription handover offered'),
+  ('dial_turn_undone',                'Dial turn undone by the member')
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS household_event_source (
@@ -6128,6 +6129,41 @@ FROM terminal t;
 -- food_signal/experimental always come from context_data (never part of
 -- quiz_session_interpretation, unchanged from today's reads).
 
+-- ── Family Household 2 (2026-11-07): who answered, who turned ────────────────
+-- backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_2_QUIZ_AND_DIAL_BY_PROXY.md
+-- Provenance on two facts (G2.12): NULL = the profile's own person.
+-- quiz_session.taken_by_user_id is set only by the proxy door (POST
+-- /api/quiz/results with forMemberId); customer_dial_event.actor_user_id only
+-- by a member turning another member's dial (D27).
+ALTER TABLE quiz_session ADD COLUMN IF NOT EXISTS taken_by_user_id UUID REFERENCES user_profile(id);
+ALTER TABLE customer_dial_event ADD COLUMN IF NOT EXISTS actor_user_id UUID REFERENCES user_profile(id);
+
+-- Badge words for the Family Household tab (G2.7; OT-104). The code is
+-- derived in v_household_member; the words live here. {actor} in a
+-- customer_label is replaced with the actor's first name by householdReads.
+CREATE TABLE IF NOT EXISTS household_account_state (
+  id             SERIAL PRIMARY KEY,
+  code           TEXT UNIQUE NOT NULL,
+  label          TEXT NOT NULL,
+  customer_label TEXT NOT NULL
+);
+INSERT INTO household_account_state (code, label, customer_label) VALUES
+  ('login',   'Signs in with their own account', 'Has their own sign-in'),
+  ('managed', 'Profile set up by the admin',     'Set up by the admin')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS household_quiz_state (
+  id             SERIAL PRIMARY KEY,
+  code           TEXT UNIQUE NOT NULL,
+  label          TEXT NOT NULL,
+  customer_label TEXT NOT NULL
+);
+INSERT INTO household_quiz_state (code, label, customer_label) VALUES
+  ('none',     'No quiz yet',                         'No quiz yet'),
+  ('by_admin', 'Current quiz taken by another member', 'Quiz taken by {actor}'),
+  ('own',      'Took their own quiz',                 'Took their own quiz')
+ON CONFLICT (code) DO NOTHING;
+
 DROP VIEW IF EXISTS v_customer_quiz_current CASCADE;
 CREATE VIEW v_customer_quiz_current AS
 WITH sessions AS (
@@ -6158,7 +6194,9 @@ WITH sessions AS (
     -- (or no row) matches the shown archetype; never NULL.
     COALESCE(i.match_archetype, ca.name) AS match_archetype,
     i.intensity_lean,
-    ba.answer_code AS branch_answer_code
+    ba.answer_code AS branch_answer_code,
+    -- Family Household 2: who answered (NULL = the person themselves).
+    qs.taken_by_user_id
   FROM quiz_session qs
   JOIN v_customer_identity vci ON vci.user_id = qs.user_id
   LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
@@ -6173,7 +6211,8 @@ with_secondary_code AS (
 ),
 ranked AS (
   SELECT s.*,
-    ROW_NUMBER() OVER (PARTITION BY canonical_user_id ORDER BY completed_at DESC) AS rn_desc,
+    -- Family Household 2 (D9, G2.19): a self-taken quiz outranks any proxy quiz whatever the dates, then recency.
+    ROW_NUMBER() OVER (PARTITION BY canonical_user_id ORDER BY (taken_by_user_id IS NULL) DESC, completed_at DESC) AS rn_desc,
     COUNT(*) OVER (PARTITION BY canonical_user_id) AS quiz_count,
     LAG(archetype_name) OVER (PARTITION BY canonical_user_id ORDER BY completed_at ASC) AS prev_archetype_name
   FROM with_secondary_code s
@@ -6197,8 +6236,10 @@ SELECT
   r.food_signal_alignment, r.recommendation_mode, r.pair_confidence, r.explore_archetype, r.explore_reason,
   r.interpretation_version, r.interpretation_source, r.completed_at, r.interpretation_valid_from,
   ch.archetype_change_count, r.quiz_count, lt.archetype_changed_last_two_quizzes,
-  r.match_archetype, r.match_archetype_code, r.intensity_lean, r.branch_answer_code
+  r.match_archetype, r.match_archetype_code, r.intensity_lean, r.branch_answer_code,
+  r.taken_by_user_id, taker.first_name AS taken_by_first_name
 FROM ranked r
+LEFT JOIN user_profile taker ON taker.id = r.taken_by_user_id
 JOIN changes ch ON ch.canonical_user_id = r.canonical_user_id
 JOIN last_two lt ON lt.canonical_user_id = r.canonical_user_id
 WHERE r.rn_desc = 1;
@@ -6298,6 +6339,23 @@ WHERE NOT EXISTS (SELECT 1 FROM customer_feedback_event newer WHERE newer.supers
 -- Every reader of membership goes through these views (G2.5); the retired
 -- user_profile.household_id / is_household_admin are read by nothing.
 
+-- Family Household 2 (T3): the dial position per canonical customer and
+-- archetype, the latest user_bloom_dial_current_position across every profile
+-- v_customer_identity folds into that customer (updated_at decides).
+-- set_by_user_id is the profile row the position came from (not the actor:
+-- the actor of a move is customer_dial_event.actor_user_id).
+DROP VIEW IF EXISTS v_customer_dial_current CASCADE;
+CREATE VIEW v_customer_dial_current AS
+SELECT DISTINCT ON (vci.canonical_user_id, p.archetype)
+  vci.canonical_user_id,
+  p.archetype,
+  p.slot_id,
+  p.updated_at,
+  p.user_id AS set_by_user_id
+FROM user_bloom_dial_current_position p
+JOIN v_customer_identity vci ON vci.user_id = p.user_id
+ORDER BY vci.canonical_user_id, p.archetype, p.updated_at DESC NULLS LAST;
+
 DROP VIEW IF EXISTS v_household_member CASCADE;
 CREATE VIEW v_household_member AS
 SELECT
@@ -6328,10 +6386,27 @@ SELECT
   (SELECT qc.archetype_code FROM v_customer_quiz_current qc
      JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
     WHERE vci.user_id = hm.user_id) AS archetype_code,
-  -- 'by_admin' arrives with household brief 2 (quiz_session.taken_by_user_id).
-  CASE WHEN EXISTS (SELECT 1 FROM v_customer_quiz_current qc
-                      JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
-                     WHERE vci.user_id = hm.user_id) THEN 'own' ELSE 'none' END AS quiz_state,
+  -- Family Household 2: a code of household_quiz_state. The current quiz
+  -- (self-taken first) decides: none, by_admin (someone else answered), own.
+  COALESCE((SELECT CASE WHEN qc.taken_by_user_id IS NULL THEN 'own' ELSE 'by_admin' END
+              FROM v_customer_quiz_current qc
+              JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
+             WHERE vci.user_id = hm.user_id), 'none') AS quiz_state,
+  (SELECT qc.taken_by_first_name FROM v_customer_quiz_current qc
+     JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
+    WHERE vci.user_id = hm.user_id) AS quiz_taken_by_first_name,
+  -- The member's dial position for their current archetype (T3).
+  (SELECT dc.slot_id FROM v_customer_dial_current dc
+     JOIN v_customer_identity vci ON vci.canonical_user_id = dc.canonical_user_id
+     JOIN v_customer_quiz_current qc ON qc.canonical_user_id = dc.canonical_user_id AND qc.archetype_code = dc.archetype
+    WHERE vci.user_id = hm.user_id) AS dial_slot_id,
+  -- The household_claim link that moved this member onto its account (NULL when none, or undone).
+  (SELECT cil.id FROM customer_identity_link cil
+    WHERE cil.to_user_id = hm.user_id AND cil.how = 'household_claim'
+      AND NOT EXISTS (SELECT 1 FROM customer_identity_unlink u WHERE u.link_id = cil.id)
+      AND EXISTS (SELECT 1 FROM household_invitation hi
+                   WHERE hi.member_id = hm.id AND cil.source_id = 'household_invitation:' || hi.id::text)
+    ORDER BY cil.occurred_at DESC LIMIT 1) AS claim_link_id,
   link.id AS open_link_id,
   link.token AS open_link_token,
   link.created_at AS open_link_created_at,
@@ -6377,6 +6452,12 @@ SELECT
   h.primary_billing_user_id AS pays_user_id,
   payer.first_name AS pays_first_name,
   COALESCE(mc.active_member_count, 0) AS active_member_count,
+  -- Family Household 2 (T6, D19): quizzes answered by someone else for a member of this household.
+  (SELECT COUNT(DISTINCT qs.id)::int FROM quiz_session qs
+     JOIN v_customer_identity vci ON vci.user_id = qs.user_id
+     JOIN household_member hm ON hm.household_id = h.id
+     JOIN v_customer_identity mvi ON mvi.user_id = hm.user_id AND mvi.canonical_user_id = vci.canonical_user_id
+    WHERE qs.taken_by_user_id IS NOT NULL) AS proxy_quiz_count,
   h.dissolved_at,
   h.created_at,
   h.updated_at

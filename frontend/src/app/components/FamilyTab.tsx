@@ -1,32 +1,44 @@
 // Family Household 1, C3 (2026-11-07) — the Family Household tab on the
-// website handoff tokens. Reads GET /api/household/mine and /roles; every role
-// name and state label comes from the API (G4.2). The admin adds a member by
-// first name and shares that member's join link through their own channel
-// (Share where the browser has a share sheet, else Copy); Axis & Bloom sends
-// no email (D31). Take the quiz for, Open their dial and Build the house box
-// arrive with household briefs 2 and 3.
+// website handoff tokens. Reads GET /api/household/mine and /lookups; every role
+// name and state word comes from the API (G4.2; badge words since Household 2,
+// OT-104). The admin adds a member by first name and shares that member's join
+// link through their own channel (Share where the browser has a share sheet,
+// else Copy); Axis & Bloom sends no email (D31).
+// Family Household 2 (2026-11-07): Take the quiz for (D9), Open their dial
+// (D27: saved with Save, logged with the actor), Unlink (D25), My log with Undo.
+// Build the house box arrives with household brief 3.
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { reportError } from '../lib/errorReporter';
 import { shareOrCopy, copyLink } from '../lib/share';
+import { getArchetypes, getDialPosition, setDialPosition } from '../lib/api';
+import { BloomDialWidget } from './BloomDialWidget';
+import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
+import { fieldLook } from './bloom/dial/archetypeConfig';
+import type { ArchetypeData } from './bloom/types';
 
 interface RoleView {
   code: string; customer_label: string; sort_order: number;
   can_administer: boolean; admin_may_set: boolean; member_may_self_set: boolean;
 }
+interface Word { code: string; label: string }
 interface MemberView {
   memberId: string; firstName: string | null; isMe: boolean; roleCodes: string[];
-  accountState: 'login' | 'managed'; archetypeName: string | null; quizState: 'none' | 'own'; joinedAt: string;
+  accountState: Word; quizState: Word; archetypeName: string | null; archetypeCode: string | null;
+  dial: { slotId: number; sortOrder: number | null; name: string | null } | null;
+  joinedAt: string; mayQuizFor: boolean; mayTurnDialFor: boolean; mayUnlink: boolean; unlinkConfirm: string | null;
   openLink?: { invitationId: string; token: string; createdAt: string } | null;
 }
 interface EventView { event_id: string; kind_code: string; kind_label: string; actor_first_name: string | null; member_first_name: string | null; created_at: string }
 interface Mine {
   household: { household_id: string; household_name: string | null; pays_first_name: string | null; active_member_count: number };
-  me: { memberId: string; roleCodes: string[]; canAdminister: boolean };
+  me: { memberId: string; roleCodes: string[]; canAdminister: boolean; mayTurnDials: boolean };
   members: MemberView[];
   events: EventView[];
   limits: { maxMembers: number };
 }
+interface LogView { entries: Array<{ dialEventId: string; occurredAt: string; line: string; undone: boolean; undoable: boolean }>; emptyText: string }
 
 const caps = 'text-[10px] uppercase tracking-[var(--ab-caps)] text-[var(--ab-ink)]';
 const linkBtn = `${caps} border-b border-[var(--ab-ink-hairline)] pb-0.5 hover:text-[var(--ab-mark-b)] hover:border-[var(--ab-mark-b)] transition-colors disabled:opacity-30 w-fit`;
@@ -38,16 +50,71 @@ const joinUrl = (token: string) => `${window.location.origin}/join-household?tok
 
 class ApiError extends Error {}
 
+/** D27: a member's dial, turned and saved by another member. The same BloomDialWidget The Bloom uses; Save is the only write. */
+function MemberDial({ member, onSaved }: { member: MemberView; onSaved: (note: string) => void }) {
+  const [data, setData] = useState<ArchetypeData | null>(null);
+  const [sortOrder, setSortOrder] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const all = await getArchetypes();
+        const d = all.find(a => a.archetype === member.archetypeCode) ?? null;
+        const pos = d ? await getDialPosition(d.archetype, member.memberId) : null;
+        if (!live) return;
+        setData(d);
+        setSortOrder(pos?.dialSortOrder ?? (d ? computeDefaultSortOrder(d) : null));
+      } catch (err) { reportError('[FamilyTab/member-dial-load]', err); if (live) setError('We could not load the dial.'); }
+    })();
+    return () => { live = false; };
+  }, [member.memberId, member.archetypeCode]);
+
+  if (error) return <p className="text-xs text-[var(--ab-mark-a)]">{error}</p>;
+  if (!data || sortOrder === null) return <p className={`${caps} opacity-50`}>Loading…</p>;
+  const slot = data.slots.find(s => s.dialSortOrder === sortOrder) ?? null;
+  async function save() {
+    if (!data || sortOrder === null) return;
+    setSaving(true); setError('');
+    try {
+      await setDialPosition(data.archetype, sortOrder, { trigger: 'explicit_save', source: 'profile', coffeeId: slot?.coffeeId ?? null, platformName: slot?.platformName ?? null }, member.memberId);
+      onSaved(`${member.firstName}'s dial is set to ${slot?.positionLabel ?? 'the new position'}.`);
+    } catch (err) { reportError('[FamilyTab/member-dial-save]', err); setError('That did not go through. Please try again in a moment.'); }
+    finally { setSaving(false); }
+  }
+  return (
+    <div className="flex flex-col items-start gap-3 pt-2" data-testid="member-dial">
+      <div className="w-full max-w-[320px]">
+        <BloomDialWidget
+          color={fieldLook(data.archetype)?.color ?? 'var(--ab-ink)'}
+          archetypeLabel={data.archetypeLabel}
+          positions={data.slots.map(s => ({ dialSortOrder: s.dialSortOrder, label: s.positionLabel, description: s.description, isActive: s.isActive }))}
+          dimensionLabel={data.dimensionPlatformName ?? data.dimensionName}
+          defaultSortOrder={computeDefaultSortOrder(data)}
+          initialSortOrder={sortOrder}
+          onSelect={setSortOrder}
+        />
+      </div>
+      <p className="text-xs text-[var(--ab-ink)]/70">{slot?.positionLabel}</p>
+      <button type="button" className={linkBtn} disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
+    </div>
+  );
+}
+
 export default function FamilyTab() {
   const { user } = useAuth();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<Mine | null>(null);
   const [roles, setRoles] = useState<RoleView[]>([]);
+  const [log, setLog] = useState<LogView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<string>(() => (location.state as { notice?: string } | null)?.notice ?? '');
   const [hhName, setHhName] = useState('');
   const [firstName, setFirstName] = useState('');
+  const [dialFor, setDialFor] = useState<string | null>(null);
 
   const api = useCallback(async (method: string, path: string, body?: unknown) => {
     const token = await user!.getIdToken();
@@ -62,9 +129,10 @@ export default function FamilyTab() {
   }, [user]);
 
   const refresh = useCallback(async () => {
-    const [mine, roleList] = await Promise.all([api('GET', '/mine'), api('GET', '/roles')]);
+    const [mine, words] = await Promise.all([api('GET', '/mine'), api('GET', '/lookups')]);
     setData(mine);
-    setRoles(roleList);
+    setRoles(words.roles);
+    setLog(mine ? await api('GET', '/me/log') : null);
   }, [api]);
 
   useEffect(() => {
@@ -146,42 +214,58 @@ export default function FamilyTab() {
                 {m.firstName}{m.isMe && <span className="text-[var(--ab-ink)]/50"> (you)</span>}
               </p>
               <span className="text-[9px] uppercase tracking-[var(--ab-caps)] text-[var(--ab-ink)]/50" data-testid="account-state">
-                {m.accountState === 'login' ? 'Has their own sign-in' : 'Set up by the admin'}
+                {m.accountState.label}
               </span>
             </div>
-            <p className="text-xs text-[var(--ab-ink)]/60">
-              {m.roleCodes.map(roleLabel).join(' · ')}
-              {' · '}
-              {m.archetypeName ?? 'No quiz yet'}
+            <p className="text-xs text-[var(--ab-ink)]/60" data-testid="member-line">
+              {[m.roleCodes.map(roleLabel).join(' · '), m.archetypeName, m.dial?.name, m.quizState.label].filter(Boolean).join(' · ')}
             </p>
 
-            {isAdmin && !m.isMe && (
-              <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
-                {m.accountState === 'managed' && m.openLink && (
-                  <>
-                    <button type="button" className={quietBtn} disabled={busy} onClick={() => share(m)}>Share link</button>
-                    <button type="button" className={quietBtn} disabled={busy} onClick={() => copy(m)}>Copy link</button>
-                    <button type="button" className={quietBtn} disabled={busy}
-                      onClick={() => act('revoke-link', () => api('DELETE', `/links/${m.openLink!.invitationId}`), `${m.firstName}'s link is closed.`)}>
-                      Revoke link
-                    </button>
-                  </>
-                )}
-                {m.accountState === 'managed' && !m.openLink && (
+            <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
+              {m.mayQuizFor && (
+                <Link to={`/find-my-flavor?for=${m.memberId}`} className={quietBtn} data-testid="quiz-for">Take the quiz for {m.firstName}</Link>
+              )}
+              {m.mayTurnDialFor && (
+                <button type="button" className={quietBtn} disabled={busy} data-testid="open-dial"
+                  onClick={() => setDialFor(dialFor === m.memberId ? null : m.memberId)}>
+                  {dialFor === m.memberId ? 'Close their dial' : 'Open their dial'}
+                </button>
+              )}
+              {isAdmin && !m.isMe && m.accountState.code === 'managed' && m.openLink && (
+                <>
+                  <button type="button" className={quietBtn} disabled={busy} onClick={() => share(m)}>Share link</button>
+                  <button type="button" className={quietBtn} disabled={busy} onClick={() => copy(m)}>Copy link</button>
                   <button type="button" className={quietBtn} disabled={busy}
-                    onClick={() => act('create-link', () => api('POST', `/members/${m.memberId}/link`), `A new link for ${m.firstName} is ready.`)}>
-                    New join link
+                    onClick={() => act('revoke-link', () => api('DELETE', `/links/${m.openLink!.invitationId}`), `${m.firstName}'s link is closed.`)}>
+                    Revoke link
                   </button>
-                )}
-                {m.accountState === 'login' && !m.roleCodes.includes('admin') && myRoles.has('admin') && (
-                  <button type="button" className={quietBtn} disabled={busy}
-                    onClick={() => {
-                      if (!window.confirm(`Hand the ${roleLabel('admin')} role to ${m.firstName}? ${m.firstName} will manage the household and pay for the house box.`)) return;
-                      act('transfer', () => api('POST', '/transfer', { toMemberId: m.memberId }), `${m.firstName} is the ${roleLabel('admin')} now.`);
-                    }}>
-                    Make admin
-                  </button>
-                )}
+                </>
+              )}
+              {isAdmin && !m.isMe && m.accountState.code === 'managed' && !m.openLink && (
+                <button type="button" className={quietBtn} disabled={busy}
+                  onClick={() => act('create-link', () => api('POST', `/members/${m.memberId}/link`), `A new link for ${m.firstName} is ready.`)}>
+                  New join link
+                </button>
+              )}
+              {isAdmin && !m.isMe && m.accountState.code === 'login' && !m.roleCodes.includes('admin') && myRoles.has('admin') && (
+                <button type="button" className={quietBtn} disabled={busy}
+                  onClick={() => {
+                    if (!window.confirm(`Hand the ${roleLabel('admin')} role to ${m.firstName}? ${m.firstName} will manage the household and pay for the house box.`)) return;
+                    act('transfer', () => api('POST', '/transfer', { toMemberId: m.memberId }), `${m.firstName} is the ${roleLabel('admin')} now.`);
+                  }}>
+                  Make admin
+                </button>
+              )}
+              {m.mayUnlink && m.unlinkConfirm && (
+                <button type="button" className={quietBtn} disabled={busy} data-testid="unlink"
+                  onClick={() => {
+                    if (!window.confirm(m.unlinkConfirm!)) return;
+                    act('unlink', () => api('POST', `/members/${m.memberId}/unlink`, {}), `${m.firstName}'s sign-in is unlinked.`);
+                  }}>
+                  Unlink
+                </button>
+              )}
+              {isAdmin && !m.isMe && (
                 <button type="button" className={quietBtn} disabled={busy}
                   onClick={() => {
                     if (!window.confirm(`Remove ${m.firstName} from the household?`)) return;
@@ -189,7 +273,10 @@ export default function FamilyTab() {
                   }}>
                   Remove
                 </button>
-              </div>
+              )}
+            </div>
+            {dialFor === m.memberId && (
+              <MemberDial member={m} onSaved={note => { setDialFor(null); refresh().catch(err => reportError('[FamilyTab/refresh]', err)); setNotice(note); }} />
             )}
           </div>
         ))}
@@ -210,6 +297,27 @@ export default function FamilyTab() {
               </label>
             );
           })}
+        </div>
+      )}
+
+      {log && (
+        <div className="flex flex-col gap-2" data-testid="household-my-log">
+          <p className={label}>My log</p>
+          {log.entries.length === 0 ? (
+            <p className="text-xs text-[var(--ab-ink)]/60">{log.emptyText}</p>
+          ) : log.entries.map(e => (
+            <div key={e.dialEventId} className="flex items-baseline justify-between gap-4">
+              <p className={`text-xs text-[var(--ab-ink)]/70 ${e.undone ? 'line-through opacity-60' : ''}`}>
+                <span className="text-[var(--ab-ink)]/40">{new Date(e.occurredAt).toLocaleDateString()}</span>{'  '}{e.line}
+              </p>
+              {e.undoable && (
+                <button type="button" className={quietBtn} disabled={busy} data-testid="undo-dial"
+                  onClick={() => act('undo-dial', () => api('POST', `/me/log/${e.dialEventId}/undo`, {}), 'Your dial is back where it was.')}>
+                  Undo
+                </button>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

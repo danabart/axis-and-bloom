@@ -277,3 +277,12 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **Managed profiles are safe:** the stale-guest purge never touches a `household_managed` profile; a `managed:` uid never authenticates.
 - [ ] **Readers use `v_household_member`:** checkout recipient check, Liam access, homepage next delivery, user signals, Liam's member count. Nothing reads `user_profile.household_id`.
 - [ ] **Privacy page** shows the Family Household paragraph.
+
+## Family Household 2: quiz and dial by proxy (2026-11-07)
+
+- [ ] **Quiz for a member:** `/find-my-flavor?for=<member>` names the member, saves the session on the member with the admin as `taken_by_user_id`; the admin's own result, newsletter row and inbox are untouched; no ad events fire.
+- [ ] **The quiz is strict:** once the member has a self-taken quiz, Take the quiz for disappears and the door answers 409 with "Took their own quiz".
+- [ ] **The dial is open:** Open their dial saves only on Save, as one move with the actor; the member's log shows it with Undo; Undo restores the slot the turn replaced; the saved list stays the member's own.
+- [ ] **Unlink:** the member row returns to the managed profile with its proxy quiz; the account leaves the household; an admin member cannot be unlinked.
+- [ ] **A claimed member sees the same quiz as the tab** (`/api/quiz/results/latest` reads `v_customer_quiz_current`).
+- [ ] **Badge words** come from `household_account_state` / `household_quiz_state`.

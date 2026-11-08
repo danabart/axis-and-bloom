@@ -24,15 +24,18 @@ export async function saveQuizSession(
   contextData: Record<string, unknown>,
   // Interpretation v2.2 (Prompt 4B): the branch answer the person chose, already validated by
   // resolveBranchAnswer(). Set in this INSERT only; never updated, never backfilled, not copied into context_data.
-  branchAnswerId: string | null = null
+  branchAnswerId: string | null = null,
+  // Family Household 2 (2026-11-07, G2.12): who answered, when not the profile's own person (a proxy quiz). Set in
+  // this INSERT only; NULL = self.
+  takenByUserId: string | null = null
 ): Promise<{ sessionId: string; archetypeId: string | null }> {
   const archetypeId = await archetypeUuid(archetypeName);
 
   const sessionResult = await db.query(
-    `INSERT INTO quiz_session (user_id, resulting_archetype_id, context_data, branch_answer_id)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO quiz_session (user_id, resulting_archetype_id, context_data, branch_answer_id, taken_by_user_id)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
-    [profileId, archetypeId, JSON.stringify(contextData), branchAnswerId]
+    [profileId, archetypeId, JSON.stringify(contextData), branchAnswerId, takenByUserId]
   );
 
   return { sessionId: sessionResult.rows[0].id, archetypeId };
@@ -277,11 +280,15 @@ export async function getLatestQuizResult(client: Runner, firebaseUid: string): 
   const result = await client.query(
     `SELECT qs.*, ar.name AS archetype_name, ${CURRENT_INTERPRETATION_COLUMNS}
      FROM quiz_session qs
-     JOIN user_profile up ON up.id = qs.user_id
      LEFT JOIN coffee_archetype ar ON ar.id = qs.resulting_archetype_id
      ${CURRENT_INTERPRETATION_JOIN}
-     WHERE up.firebase_uid = $1
-     ORDER BY qs.completed_at DESC
+     -- Family Household 2 (2026-11-07): the customer's current quiz as v_customer_quiz_current decides it (across
+     -- linked profiles, a self-taken quiz before a proxy one, then recency), so a member who claimed a profile sees
+     -- the same result as the Family Household tab.
+     WHERE qs.id = (SELECT qc.quiz_session_id FROM v_customer_quiz_current qc
+                      JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
+                      JOIN user_profile up ON up.id = vci.user_id
+                     WHERE up.firebase_uid = $1)
      LIMIT 1`,
     [firebaseUid]
   );
