@@ -2,7 +2,7 @@
 
 Brief: `CLAUDE_CODE_PROMPT_HOUSEHOLD_3_ORDER_FOR_THE_HOUSE.md` · Design: `DESIGN_HOUSEHOLD.md` · Stripe test mode · Started 2026-11-07.
 
-Status: Task 0 accepted (Dana, 2026-11-07); Parts A–D built and tested, local acceptance (Stripe test mode) passed, committed and deployed (below). **STOP 2: Part E's production steps wait for Dana.** Task 0's production reads ran inside `BEGIN READ ONLY … ROLLBACK` (`backend/tmp/household3_task0.ts`, gitignored).
+Status: Task 0 accepted (Dana, 2026-11-07); Parts A–D built and tested, local acceptance (Stripe test mode) passed, committed and deployed (below); **Part E passed on production with Dana (2026-11-08)**. Task 0's production reads ran inside `BEGIN READ ONLY … ROLLBACK` (`backend/tmp/household3_task0.ts`, gitignored).
 
 ---
 
@@ -143,7 +143,23 @@ CATALOG.md checked (G2.4): the recipient of a line and of an item are columns th
 
 ## Part E — production (with Dana)
 
-**Not run yet (STOP 2).**
+**Passed 2026-11-08** (Stripe test mode, pre-launch gate up). Dana built the house box in her Family Household tab, added Classic Balanced for herself (her Earthy slot has nothing sellable at 12 oz on prod, as the pre-check said), ticked the subscription and paid with the test card: **$52.20**, 2 bags, every 4 weeks, next delivery 2026-12-06. My checks were read-only (`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`, `backend/tmp/hh3_prod_e.ts`, `hh3_prod_mail.ts`, gitignored); nothing was written.
+
+- **Order** `a0d3829b…`: `household_id` = Dana's household `22cbcdf2…`, `is_subscription` true, subtotal $52.20, shipping $0, `subscription_id` `b0b6b130…`.
+- **Lines:** Clean Fruit 12 oz for camila (`intended_for_user_id` = camila) and Classic Balanced 12 oz for Dana-Admin (`intended_for_user_id` = Dana); each $26.10 after $2.90 off (the 10 % two-bag tier on $29.00).
+- **Subscription** `b0b6b130…`: `household_id` set (a bag is for someone else, decision 2), active, 4 weeks, next delivery 2026-12-06, `last_order_id` = the order.
+- **Items** (`v_subscription_item`): Dana's bag, archetype `balanced_sweet`, slot 4, no recipient (drinker = subscriber); camila's bag, archetype NULL, slot 7, Clean Fruit, recipient camila. Both live (`ended_at` NULL).
+- **`v_household`:** pays Dana-Admin, `house_subscription_id` = `b0b6b130…`, active (OT-103's reading).
+- **Attribution:** camila's line `intended`, Dana's line `buyer`.
+- **`v_household_numbers`:** 1 household, 2 active members, 1 proxy quiz, 1 managed profile, 0 claims, **1 house order, 2.00 bags per house order**.
+- **Mail:** `order_confirmation` and `admin_new_order` once each; no member notice, correctly, since camila is a managed profile (D31, decision 5).
+- **The test subscription stays active** (Dana's call); she may cancel it from the subscription panel.
+
+### Findings (Dana, during Part E)
+
+1. **The cart lives in memory only** (OT-112): it empties on a reload and on the pre-launch bounce, so a built house box is lost if the page reloads before checkout.
+2. **The order-confirmation headline leads with another member's bag** (OT-113): with camila's bag first, the confirmation page names her coffee as the headline instead of the buyer's (the finalizer takes `order.lines[0]` as the primary coffee, `orderFinalizer.ts:44`).
+3. **"Bank" appears as a payment method in the sandbox Checkout form** (OT-114): the embedded Checkout offers US bank account besides card in test mode.
 
 ## Deviations from the brief (and why)
 
@@ -156,4 +172,4 @@ CATALOG.md checked (G2.4): the recipient of a line and of an item are columns th
 
 ## Open tasks
 
-OT-103 and OT-108 done. Added: OT-110 (integrity check 12 vs an Undo onto "no position"), OT-111 (decision 1 covers drinker reasons only).
+OT-103 and OT-108 done. Added: OT-110 (integrity check 12 vs an Undo onto "no position"), OT-111 (decision 1 covers drinker reasons only), and from Part E OT-112 (cart in memory only), OT-113 (confirmation headline leads with another member's bag), OT-114 (Bank in the sandbox payment form).
