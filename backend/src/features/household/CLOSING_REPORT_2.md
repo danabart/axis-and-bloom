@@ -119,6 +119,15 @@ CATALOG.md checked (G2.4): no column records who answered a quiz or who turned a
 - Tom undoes (restored NULL: Tom had no earlier position) and undoes again (`alreadyUndone: true`); his dial reads null; the log entry is undone. Tom takes his own quiz: the card reads "Took their own quiz", `mayQuizFor` false, and the admin's proxy attempt answers 409 "Tom: Took their own quiz.". Admin list: `proxy_quiz_count` 1.
 - Admin unlinks Tom: Tom's `mine` is null; the card is back to "Set up by the admin", "Quiz taken by Dana", and Take the quiz for is offered again. Events: created, member_added, link_created, quiz_taken_for_member, dial_turned_for_member, link_accepted, member_claimed, dial_turn_undone, identity_unlinked.
 
+## Deploy and smoke (production, 2026-11-07)
+
+- Commit `5fec8d6` pushed; Deploy run `42437646594` green (backend + frontend); revision `axis-bloom-backend-00842-2bw`.
+- Startup log: `DB schema verified`, `[db-comments] applied 1756 statements`, no ERROR line; the integrity findings are the same ones as before this deploy (quiz-integrity #10 = OT-33, sommelier-integrity #3, evidence-integrity #2 and #6, data-catalog #6); customer-integrity reports nothing. Data-catalog #4 reported `CATALOG.md` stale as expected; regenerated from prod (168 tables, 83 views, 1,505 columns, hash `2cfca3bd…`) and committed with this report.
+- Production, read-only after the deploy: the two columns exist; the lookups read "Has their own sign-in" / "Set up by the admin" and "No quiz yet" / "Quiz taken by {actor}" / "Took their own quiz"; `v_household_member` for the household: Dana-Admin login, own quiz, Earthy, dial slot 15 (now resolved through `v_customer_dial_current`); camila managed, no quiz, no dial; `proxy_quiz_count` 0; `v_customer_dial_current` 41 rows (one per position, as before); no proxy sessions yet. The member view took 175 ms for the household (2 members).
+- API signed out: `GET /api/household/lookups`, `/me/log`, `POST /me/log/:id/undo`, `POST /members/:id/unlink`, `GET` and `PATCH /api/users/dial-position` (with `forMemberId`), `POST /api/quiz/results` → 401; the retired `GET /api/household/roles` → 404.
+- Frontend bundle `assets/index-hCISE2Ce.js` carries `/lookups`, `/me/log`, the proxy share block, "Profiling", "Open their dial", "Take the quiz for" and `forMemberId`.
+- Not done by me: the signed-in check on production (Cloudflare challenges headless browsers on www). That is Dana's step by the brief: take the quiz for camila, open camila's dial, check the tab and the admin numbers.
+
 ## Deviations from the brief (and why)
 
 - Undo source, undo event, member-mode saving, saved list, admin unlink: Dana's answers 1–5 (above).
