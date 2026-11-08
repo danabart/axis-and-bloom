@@ -6,10 +6,13 @@
 // else Copy); Axis & Bloom sends no email (D31).
 // Family Household 2 (2026-11-07): Take the quiz for (D9), Open their dial
 // (D27: saved with Save, logged with the actor), Unlink (D25), My log with Undo.
-// Build the house box arrives with household brief 3.
+// Family Household 3 (2026-11-07): Build the house box (B7), the house
+// subscription with Add a bag / Drop (D12), the handover offer (D22), and
+// Leave / Close asking first when it would cancel the house subscription.
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import { reportError } from '../lib/errorReporter';
 import { shareOrCopy, copyLink } from '../lib/share';
 import { getArchetypes, getDialPosition, setDialPosition } from '../lib/api';
@@ -28,6 +31,7 @@ interface MemberView {
   accountState: Word; quizState: Word; archetypeName: string | null; archetypeCode: string | null;
   dial: { slotId: number; sortOrder: number | null; name: string | null } | null;
   joinedAt: string; mayQuizFor: boolean; mayTurnDialFor: boolean; mayUnlink: boolean; unlinkConfirm: string | null;
+  inHouseBox?: boolean; inHouseSubscription?: boolean; ownPlanActive?: boolean;
   openLink?: { invitationId: string; token: string; createdAt: string } | null;
 }
 interface EventView { event_id: string; kind_code: string; kind_label: string; actor_first_name: string | null; member_first_name: string | null; created_at: string }
@@ -37,6 +41,17 @@ interface Mine {
   members: MemberView[];
   events: EventView[];
   limits: { maxMembers: number };
+  houseSubscription: {
+    id: string; paysFirstName: string | null; statusLabel: string | null; frequencyWeeks: number | null; nextDeliveryDate: string | null;
+    bagCount: number; canEdit: boolean; weightOz: number;
+    items: Array<{ itemId: string; name: string | null; weightOz: number; quantity: number; forFirstName: string | null; followsMember: boolean }>;
+    addableFor: Array<{ userId: string; firstName: string | null }>;
+  } | null;
+  handoverOffer: { pct: number; expiresAt: string; line: string } | null;
+}
+interface HouseBoxMember {
+  memberId: string; userId: string; firstName: string | null; isMe: boolean; needsQuiz: boolean; ownPlanActive: boolean; unavailable: string | null;
+  line: { kind: 'dial'; archetype: string; archetypeLabel: string; dialSortOrder: number; weightOz: number; platformName: string; retailPriceCents: number; qty: number; intendedForUserId: string; intendedForName: string | null } | null;
 }
 interface LogView { entries: Array<{ dialEventId: string; occurredAt: string; line: string; undone: boolean; undoable: boolean }>; emptyText: string }
 
@@ -48,7 +63,9 @@ const label = 'block text-[10px] uppercase tracking-[var(--ab-caps)] text-[var(-
 
 const joinUrl = (token: string) => `${window.location.origin}/join-household?token=${token}`;
 
-class ApiError extends Error {}
+class ApiError extends Error {
+  constructor(message: string, public code?: string) { super(message); }
+}
 
 /** D27: a member's dial, turned and saved by another member. The same BloomDialWidget The Bloom uses; Save is the only write. */
 function MemberDial({ member, onSaved }: { member: MemberView; onSaved: (note: string) => void }) {
@@ -115,6 +132,9 @@ export default function FamilyTab() {
   const [hhName, setHhName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [dialFor, setDialFor] = useState<string | null>(null);
+  const [houseBox, setHouseBox] = useState<HouseBoxMember[] | null>(null);
+  const [addFor, setAddFor] = useState('');
+  const { addToCart } = useCart();
 
   const api = useCallback(async (method: string, path: string, body?: unknown) => {
     const token = await user!.getIdToken();
@@ -124,7 +144,19 @@ export default function FamilyTab() {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const json = await r.json().catch(() => null);
-    if (!r.ok) throw new ApiError(json?.message ?? 'That did not go through. Please try again in a moment.');
+    if (!r.ok) throw new ApiError(json?.message ?? 'That did not go through. Please try again in a moment.', json?.error);
+    return json;
+  }, [user]);
+
+  // Family Household 3: the subscription item doors live under /api/subscriptions (subscriptionService is their writer).
+  const subsApi = useCallback(async (method: string, path: string, body?: unknown) => {
+    const token = await user!.getIdToken();
+    const r = await fetch(`/api/subscriptions${path}`, {
+      method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const json = await r.json().catch(() => null);
+    if (!r.ok) throw new ApiError(json?.message ?? 'That did not go through. Please try again in a moment.', json?.error);
     return json;
   }, [user]);
 
@@ -167,6 +199,34 @@ export default function FamilyTab() {
   }
 
   const roleLabel = (code: string) => roles.find(r => r.code === code)?.customer_label ?? code;
+
+  /** D22: Leave / Close; when it would cancel the house subscription, the API's sentence asks first. */
+  async function leaveOrClose(path: '/leave' | '/dissolve', firstQuestion: string) {
+    if (!window.confirm(firstQuestion)) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      try {
+        await api('POST', path, {});
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.code !== 'confirm_cancel') throw err;
+        if (!window.confirm(err.message)) return;
+        await api('POST', path, { confirm: true });
+      }
+      await refresh();
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.message);
+      else { reportError(`[FamilyTab${path}]`, err); setError('That did not go through. Please try again in a moment.'); }
+    } finally { setBusy(false); }
+  }
+
+  async function buildHouseBox() {
+    await act('house-box', async () => {
+      const r = await api('GET', '/house-box');
+      const members = r.members as HouseBoxMember[];
+      for (const m of members) if (m.line) addToCart(m.line);
+      setHouseBox(members);
+    });
+  }
 
   if (loading) return <p className={`${caps} opacity-50 py-8`}>Loading…</p>;
 
@@ -282,6 +342,75 @@ export default function FamilyTab() {
         ))}
       </div>
 
+      {data.handoverOffer && (
+        <div className="flex flex-col gap-2 p-4 border border-[var(--ab-ink-hairline)]" data-testid="household-handover-offer">
+          <p className="text-sm text-[var(--ab-ink)]">{data.handoverOffer.line}</p>
+          <Link to="/bloom" className={linkBtn}>Choose your coffee</Link>
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="flex flex-col gap-3" data-testid="household-house-box">
+          <p className={label}>The house box</p>
+          <button type="button" className={linkBtn} disabled={busy} onClick={buildHouseBox} data-testid="build-house-box">Build the house box</button>
+          {houseBox && (
+            <div className="flex flex-col gap-1.5">
+              {houseBox.map(m => (
+                <p key={m.memberId} className="text-xs text-[var(--ab-ink)]/80" data-testid="house-box-member">
+                  <span className="text-[var(--ab-ink)]">{m.firstName}</span>{': '}
+                  {m.line ? `${m.line.qty} × ${m.line.platformName} · ${m.line.archetypeLabel}` : m.unavailable ?? ''}
+                  {m.needsQuiz && (
+                    <> <Link to={`/find-my-flavor?for=${m.memberId}`} className={quietBtn}>Take the quiz for {m.firstName}</Link></>
+                  )}
+                  {m.ownPlanActive && <span className="text-[var(--ab-ink)]/50"> · {roleLabel('own_plan')}</span>}
+                </p>
+              ))}
+              <Link to="/cart" className={linkBtn}>Go to cart</Link>
+            </div>
+          )}
+        </div>
+      )}
+
+      {data.houseSubscription && (
+        <div className="flex flex-col gap-2" data-testid="household-house-subscription">
+          <p className={label}>House subscription</p>
+          <p className="text-sm text-[var(--ab-ink)]/80">
+            {[data.houseSubscription.statusLabel, data.houseSubscription.frequencyWeeks ? `every ${data.houseSubscription.frequencyWeeks} weeks` : null,
+              data.houseSubscription.nextDeliveryDate ? `next ${new Date(data.houseSubscription.nextDeliveryDate + 'T12:00:00').toLocaleDateString()}` : null,
+              data.houseSubscription.paysFirstName ? `${data.houseSubscription.paysFirstName} pays` : null].filter(Boolean).join(' · ')}
+          </p>
+          {data.houseSubscription.items.map(i => (
+            <div key={i.itemId} className="flex items-baseline justify-between gap-4" data-testid="house-subscription-item">
+              <p className="text-xs text-[var(--ab-ink)]/80">
+                {i.quantity} × {i.followsMember ? `${i.weightOz} oz, matched to ${i.forFirstName}` : `${i.name ?? 'Coffee'} · ${i.weightOz} oz`}
+                {i.forFirstName && !i.followsMember ? ` · for ${i.forFirstName}` : ''}
+              </p>
+              {data.houseSubscription!.canEdit && data.houseSubscription!.items.length > 1 && (
+                <button type="button" className={quietBtn} disabled={busy}
+                  onClick={() => act('drop-item', () => subsApi('DELETE', `/${data.houseSubscription!.id}/items/${i.itemId}`), 'Dropped from the next delivery.')}>
+                  Drop
+                </button>
+              )}
+            </div>
+          ))}
+          {data.houseSubscription.canEdit && data.houseSubscription.addableFor.length > 0 && (
+            <div className="flex items-center gap-3 pt-1">
+              <select value={addFor} onChange={e => setAddFor(e.target.value)} className="bg-transparent border-b text-xs text-[var(--ab-ink)] border-[var(--ab-ink-hairline)]" data-testid="add-bag-for">
+                <option value="">Add a bag for…</option>
+                {data.houseSubscription.addableFor.map(m => <option key={m.userId} value={m.userId}>{m.firstName}</option>)}
+              </select>
+              <button type="button" className={quietBtn} disabled={busy || !addFor}
+                onClick={() => act('add-item', async () => {
+                  await subsApi('POST', `/${data.houseSubscription!.id}/items`, { intendedForUserId: addFor, weightOz: data.houseSubscription!.weightOz, quantity: 1 });
+                  setAddFor('');
+                }, 'Added from the next delivery.')}>
+                Add
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {selfRoles.length > 0 && (
         <div className="flex flex-col gap-3" data-testid="household-my-plan">
           <p className={label}>My plan</p>
@@ -360,12 +489,12 @@ export default function FamilyTab() {
       <div className="border-t border-[var(--ab-ink-hairline)] pt-8">
         {isAdmin && alone ? (
           <button type="button" className={linkBtn} disabled={busy}
-            onClick={() => { if (window.confirm('Close this Family Household?')) act('dissolve', () => api('POST', '/dissolve')); }}>
+            onClick={() => leaveOrClose('/dissolve', 'Close this Family Household?')}>
             Close household
           </button>
         ) : (
           <button type="button" className={linkBtn} disabled={busy}
-            onClick={() => { if (window.confirm('Leave this Family Household?')) act('leave', () => api('POST', '/leave')); }}>
+            onClick={() => leaveOrClose('/leave', 'Leave this Family Household?')}>
             Leave household
           </button>
         )}

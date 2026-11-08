@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
-import { listHouseholds, household } from '../services/householdReads.js';
+import { listHouseholds, household, numbers } from '../services/householdReads.js';
 import { getParameters, setParameter, HouseholdParameterError } from '../services/householdParameters.js';
 
 const router = Router();
@@ -28,6 +28,14 @@ router.get('/households/:id', async (req, res) => {
   } catch (err) {
     console.error('[admin/household/household]', err);
     res.status(500).json({ error: 'Failed to read the household' });
+  }
+});
+
+// Family Household 3 (D19): the numbers card.
+router.get('/numbers', async (_req, res) => {
+  try { res.json(await numbers()); } catch (err) {
+    console.error('[admin/household/numbers]', err);
+    res.status(500).json({ error: 'Failed to read the household numbers' });
   }
 });
 

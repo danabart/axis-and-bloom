@@ -41,6 +41,8 @@ vi.mock('./beatEngine.js', () => ({
 vi.mock('../routes/sommelier.js', () => ({ getBrewProfile: (...a: unknown[]) => steps.getBrewProfile(...(a as [])) }));
 vi.mock('./fulfillment/index.js', () => ({ dispatchFulfillment: (...a: unknown[]) => steps.dispatchFulfillment(...(a as [])) }));
 vi.mock('./orderEmails.js', () => ({ sendOrderConfirmationEmail: (...a: unknown[]) => steps.sendOrderConfirmationEmail(...(a as [])) }));
+// Family Household 3: the member notices step (its own tests are householdOrder.test.ts).
+vi.mock('./householdEmails.js', () => ({ sendHouseholdBagOrderedEmails: async () => [] }));
 
 const { finalizePaidOrder } = await import('./orderFinalizer.js');
 

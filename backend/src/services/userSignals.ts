@@ -243,9 +243,9 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
       `SELECT 1
        FROM subscription s
        JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
-       -- Family Household 1 (2026-11-07): house subscriptions through v_household_member.
+       -- Family Household 1 (2026-11-07): house subscriptions through v_household_membership.
        JOIN user_profile up ON (up.id = s.user_id OR EXISTS (
-              SELECT 1 FROM v_household_member vm
+              SELECT 1 FROM v_household_membership vm
               WHERE vm.user_id = up.id AND vm.status_code = 'active' AND vm.household_id = s.household_id))
        WHERE up.firebase_uid = $1
        LIMIT 1`,
@@ -282,12 +282,12 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
   let householdType: 'solo' | 'family' = 'solo';
   try {
     const profileResult = await db.query(
-      // Family Household 1 (2026-11-07): household size from v_household_member (active members).
+      // Family Household 1 (2026-11-07): household size from v_household_membership (active members).
       `SELECT up.date_of_birth, vm.household_id,
-              (SELECT COUNT(*) FROM v_household_member vm2
+              (SELECT COUNT(*) FROM v_household_membership vm2
                 WHERE vm2.household_id = vm.household_id AND vm2.status_code = 'active') AS household_size
        FROM user_profile up
-       LEFT JOIN v_household_member vm ON vm.user_id = up.id AND vm.status_code = 'active'
+       LEFT JOIN v_household_membership vm ON vm.user_id = up.id AND vm.status_code = 'active'
        WHERE up.firebase_uid = $1`,
       [uid]
     );

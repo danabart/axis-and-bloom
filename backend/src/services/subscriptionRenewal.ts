@@ -36,6 +36,23 @@ import {
 } from './subscriptionService.js';
 import { sendSubscriptionUpcomingEmail, sendPaymentTroubleEmail, sendAdminSubscriptionAttentionEmail } from './subscriptionEmails.js';
 import type { RenewalLineMetadata } from './checkoutService.js';
+import { sendItemsSkippedEmail } from './householdEmails.js';
+
+/**
+ * Family Household 3 (D11, Dana's decision 1): the box shipped without the
+ * bags whose drinker could not be resolved (no quiz yet, no longer in the
+ * household box). Their bags were not charged; the subscription records it and
+ * the payer hears once per cycle, naming the members.
+ */
+async function noteSkippedItems(sub: SubRow, cycleDate: string, reasons: string[]): Promise<void> {
+  await recordSubscriptionEvent({ subscriptionId: sub.id, kind: 'renewal_items_skipped', note: reasons.join('; '), source: 'cron' })
+    .catch(err => console.error('[subscription-daily] skipped-items event failed', sub.id, err));
+  const payer = (await db.query<{ firebase_uid: string; first_name: string | null }>(
+    `SELECT firebase_uid, first_name FROM user_profile WHERE id = $1`, [sub.user_id]
+  )).rows[0];
+  await sendItemsSkippedEmail({ subscriptionId: sub.id, cycleDate, payerFirebaseUid: payer?.firebase_uid ?? null, payerFirstName: payer?.first_name ?? null, reasons })
+    .catch(err => console.error('[subscription-daily] skipped-items email failed', sub.id, err));
+}
 
 export type ChargeOutcome = 'charged' | 'declined' | 'skipped_paused' | 'skipped_skip' | 'already_attempted' | 'unresolved' | 'error';
 
@@ -121,6 +138,8 @@ async function invoiceCycle(sub: SubRow, claim: ChargeClaim, lines: ShipmentLine
     const metadata: RenewalLineMetadata = {
       kind: 'coffee', coffee_sku_id: l.coffeeSkuId, coffee_id: String(l.coffeeId), display_name: l.displayName,
       weight_oz: String(l.weightOz), unit_price_cents: String(l.unitPriceCents), discount_cents: String(l.discountCents),
+      // Family Household 3: the member this bag is for travels to the renewal order (createSubscriptionOrder).
+      ...(l.intendedForUserId ? { intended_for_user_id: l.intendedForUserId } : {}),
     };
     await s.invoiceItems.create({
       customer, invoice: invoice.id, currency: 'usd',
@@ -172,6 +191,7 @@ export async function chargeDueSubscription(sub: SubRow, today: string): Promise
   const attempt: { invoiceId?: string } = {};
   try {
     const invoice = await invoiceCycle(sub, claim, shipment.lines, shipment.shippingCents, attempt);
+    if (shipment.skipped?.length) await noteSkippedItems(sub, claim.cycleDate, shipment.skipped.map(u => u.reason));
     return { outcome: 'charged', invoiceId: invoice.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

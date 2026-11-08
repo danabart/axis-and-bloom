@@ -35,7 +35,8 @@ export type SubscriptionStatus = 'pending' | 'active' | 'past_due' | 'paused' | 
 export type SubscriptionEventKind =
   | 'started' | 'renewal_charged' | 'renewal_failed' | 'renewal_skipped_paused' | 'renewal_skipped_skip'
   | 'paused' | 'resumed' | 'skip_requested' | 'frequency_changed' | 'canceled' | 'lapsed'
-  | 'payment_method_updated' | 'invoice_voided';
+  | 'payment_method_updated' | 'invoice_voided'
+  | 'item_added' | 'item_removed' | 'renewal_items_skipped'; // Family Household 3
 export type SubscriptionEventSource = 'checkout' | 'cron' | 'webhook' | 'admin' | 'customer';
 
 export interface SubscriptionEventInput {
@@ -120,6 +121,8 @@ interface CheckoutLineRow {
   source: 'dial' | 'direct' | 'collection';
   archetype: string | null;
   dial_sort_order: number | null;
+  /** Family Household 3: who the bag is for (the buyer's own lines carry the buyer). */
+  intended_for_user_id?: string | null;
 }
 
 /**
@@ -134,32 +137,39 @@ export async function createPaidSubscriptionFromCheckout(
   tx: Runner,
   cs: CheckoutSessionRow,
   lines: CheckoutLineRow[],
-  paid: { paymentMethodId: string | null; today?: string }
+  paid: { paymentMethodId: string | null; today?: string; householdId?: string | null }
 ): Promise<string> {
   const weeks = cs.subscription_intent?.frequencyWeeks;
   if (!weeks) throw new Error(`checkout_session ${cs.id} has no subscription intent`);
   const today = paid.today ?? todayEastern();
-  const archetype = lines.find(l => l.archetype && l.source !== 'direct')?.archetype ?? null;
+  // Family Household 3 (T2): a bag for another member stores no archetype; it follows that member.
+  const forOther = (l: CheckoutLineRow) => Boolean(l.intended_for_user_id && l.intended_for_user_id !== cs.user_id);
+  const archetype = lines.find(l => !forOther(l) && l.archetype && l.source !== 'direct')?.archetype ?? null;
+  // Dana's decision 2: the subscription carries the household only when a bag is for someone else
+  // (a house subscription); a member's own plan stays personal (D30, T12).
+  const householdId = lines.some(forOther) ? (paid.householdId ?? null) : null;
 
   const s = await tx.query<{ id: string }>(
     `INSERT INTO subscription
        (user_id, kind, status, frequency_weeks, frequency_days, archetype, origin_checkout_session_id,
-        stripe_payment_method_id, next_delivery_date)
-     VALUES ($1, 'paid', 'active', $2::int, $2::int * 7, $3, $4, $5, $6::date + $2::int * 7)
+        stripe_payment_method_id, next_delivery_date, household_id)
+     VALUES ($1, 'paid', 'active', $2::int, $2::int * 7, $3, $4, $5, $6::date + $2::int * 7, $7)
      RETURNING id`,
-    [cs.user_id, weeks, archetype, cs.id, paid.paymentMethodId, today]
+    [cs.user_id, weeks, archetype, cs.id, paid.paymentMethodId, today, householdId]
   );
   const subscriptionId = s.rows[0].id;
 
   for (const l of lines) {
+    const other = forOther(l);
     const lineArchetype = l.source === 'direct' ? null : l.archetype;
     const slot = lineArchetype && l.dial_sort_order != null
       ? (await tx.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`, [lineArchetype, l.dial_sort_order])).rows[0]
       : undefined;
     await tx.query(
-      `INSERT INTO subscription_item (subscription_id, archetype, signup_slot_id, signup_coffee_id, weight_oz, quantity, display_name_at_signup)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [subscriptionId, lineArchetype, slot?.id ?? null, l.coffee_id, l.weight_oz, l.quantity, l.display_name]
+      `INSERT INTO subscription_item (subscription_id, archetype, signup_slot_id, signup_coffee_id, weight_oz, quantity, display_name_at_signup, intended_for_user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [subscriptionId, other ? null : lineArchetype, slot?.id ?? null, l.coffee_id, l.weight_oz, l.quantity, l.display_name,
+       other ? l.intended_for_user_id : null]
     );
   }
 
@@ -725,6 +735,11 @@ export interface MySubscription {
   nextCoffees: Array<{ displayName: string; weightOz: number | null; quantity: number }>;
   /** True when at least one item follows the Bloom Dial. */
   followsDial: boolean;
+  /** Family Household 3: the live items and whom each is for (null drinker = the subscriber). */
+  items: Array<{ itemId: string; name: string | null; weightOz: number; quantity: number; drinkerFirstName: string | null; forMember: boolean }>;
+  /** Family Household 3: the next delivery's lines with their drinker (resolved), and the bags sitting this one out. */
+  nextFor: Array<{ displayName: string; drinkerFirstName: string | null }>;
+  skipped: string[];
   bagCount: number;
   discountPct: number;
   lastOrderId: string | null;
@@ -751,11 +766,20 @@ export async function getSubscriptionsForCustomer(uid: string): Promise<MySubscr
     const bagCount = Number(r.bag_count);
     let nextCoffees: MySubscription['nextCoffees'] = (r.signup_names ?? []).filter(Boolean).map(n => ({ displayName: n, weightOz: null, quantity: 1 }));
     let followsDial = false;
+    const items = (await db.query<{ item_id: string; signup_name: string | null; weight_oz: string; quantity: number; drinker_first_name: string | null; intended_for_user_id: string | null }>(
+      `SELECT item_id, signup_name, weight_oz, quantity, drinker_first_name, intended_for_user_id
+       FROM v_subscription_item WHERE subscription_id = $1 AND ended_at IS NULL ORDER BY created_at, item_id`, [r.subscription_id]
+    )).rows;
+    const drinkerOf = new Map(items.map(i => [i.item_id, i.intended_for_user_id ? i.drinker_first_name : null]));
+    let nextFor: MySubscription['nextFor'] = [];
+    let skipped: string[] = [];
     if (r.counts_as_subscriber) {
       const shipment = await resolveSubscriptionShipment(r.subscription_id).catch(() => null);
       if (shipment?.status === 'resolved') {
         nextCoffees = shipment.lines.map(l => ({ displayName: l.displayName, weightOz: l.weightOz, quantity: l.quantity }));
         followsDial = shipment.lines.some(l => l.archetype !== null);
+        nextFor = shipment.lines.map(l => ({ displayName: l.displayName, drinkerFirstName: drinkerOf.get(l.itemId) ?? null }));
+        skipped = shipment.skipped.map(u => u.reason);
       }
     }
     const ended = r.status === 'canceled' || r.status === 'lapsed';
@@ -772,8 +796,99 @@ export async function getSubscriptionsForCustomer(uid: string): Promise<MySubscr
         pause: r.status === 'active' || r.status === 'paused', resume: r.status === 'paused', cancel: !ended, updateCard: !ended,
       },
       nextCoffees, followsDial,
+      items: items.map(i => ({
+        itemId: i.item_id, name: i.signup_name, weightOz: Number(i.weight_oz), quantity: i.quantity,
+        drinkerFirstName: i.intended_for_user_id ? i.drinker_first_name : null, forMember: Boolean(i.intended_for_user_id),
+      })),
+      nextFor, skipped,
       bagCount, discountPct: await subscriptionDiscountPct(bagCount), lastOrderId: r.last_order_id,
     });
   }
   return out;
+}
+
+// ── Family Household 3 (2026-11-07, D12, T11): house subscription items ─────
+// The admin of the house (or the subscriber) adds a bag for an in-box member
+// or drops one. An item is never deleted: a drop sets ended_at (G2.11). Every
+// change is a subscription_event; it applies from the next renewal (no
+// proration); the tier follows the bag count at renewal as today.
+
+/** Who may add or drop items: the subscriber, or an administrator of the household the subscription serves. */
+export async function subscriptionItemsEditableBy(uid: string, subscriptionId: string): Promise<{ actorId: string } | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(subscriptionId)) return null;
+  const r = await db.query<{ actor_id: string }>(
+    `SELECT up.id AS actor_id
+     FROM subscription s
+     JOIN user_profile up ON up.firebase_uid = $2
+     WHERE s.id = $1 AND s.kind = 'paid'
+       AND (s.user_id = up.id
+            OR EXISTS (SELECT 1 FROM v_household_membership vm
+                        WHERE vm.user_id = up.id AND vm.status_code = 'active' AND vm.can_administer
+                          AND vm.household_id = COALESCE(s.household_id,
+                                (SELECT sm.household_id FROM v_household_membership sm WHERE sm.user_id = s.user_id AND sm.status_code = 'active'))))`,
+    [subscriptionId, uid]
+  );
+  return r.rows[0] ? { actorId: r.rows[0].actor_id } : null;
+}
+
+export interface AddItemInput { intendedForUserId: string; weightOz: number; quantity: number }
+
+export async function addItem(subscriptionId: string, input: AddItemInput, source: SubscriptionEventSource = 'customer'): Promise<{ itemId: string; eventId: number | null }> {
+  return withTransaction(async tx => {
+    const row = await lockPaid(tx, subscriptionId);
+    requireOpen(row);
+    if (!Number.isInteger(input.quantity) || input.quantity < 1) throw new SelfServiceError(400, 'invalid_quantity', 'Choose how many bags.');
+    const sized = await tx.query(`SELECT 1 FROM coffee_slot_price WHERE weight_oz = $1 LIMIT 1`, [input.weightOz]);
+    if (!sized.rows.length) throw new SelfServiceError(400, 'invalid_weight', 'Choose one of the bag sizes on offer.');
+    if (input.intendedForUserId === row.user_id) {
+      throw new SelfServiceError(400, 'for_subscriber', 'This adds a bag for a household member; change your own bags from your cart.');
+    }
+    const h = await tx.query<{ household_id: string; first_name: string | null }>(
+      `SELECT r.household_id, r.first_name FROM v_household_membership r
+       JOIN v_household_membership sub ON sub.household_id = r.household_id AND sub.user_id = $2 AND sub.status_code = 'active'
+       WHERE r.user_id = $1 AND r.status_code = 'active' AND r.in_house_box`, [input.intendedForUserId, row.user_id]
+    );
+    const target = h.rows[0];
+    if (!target) throw new SelfServiceError(400, 'not_in_house_box', 'Bags go to members in the household box.');
+    const item = await tx.query<{ id: string }>(
+      `INSERT INTO subscription_item (subscription_id, archetype, signup_slot_id, signup_coffee_id, weight_oz, quantity, display_name_at_signup, intended_for_user_id)
+       VALUES ($1, NULL, NULL, NULL, $2, $3, NULL, $4) RETURNING id`,
+      [subscriptionId, input.weightOz, input.quantity, input.intendedForUserId]
+    );
+    // Decision 2: a bag for someone else makes it a house subscription.
+    await tx.query(`UPDATE subscription SET household_id = $2, updated_at = now() WHERE id = $1 AND household_id IS NULL`, [subscriptionId, target.household_id]);
+    const eventId = await recordSubscriptionEvent({
+      subscriptionId, kind: 'item_added', source,
+      note: `item ${item.rows[0].id} for ${target.first_name ?? input.intendedForUserId}: ${input.quantity} x ${input.weightOz} oz, from the next renewal`,
+    }, tx);
+    return { itemId: item.rows[0].id, eventId };
+  });
+}
+
+export async function removeItem(subscriptionId: string, itemId: string, source: SubscriptionEventSource = 'customer'): Promise<{ changed: boolean; eventId: number | null }> {
+  return withTransaction(async tx => {
+    const row = await lockPaid(tx, subscriptionId);
+    requireOpen(row);
+    const item = (await tx.query<{ id: string; ended_at: string | null; drinker_first_name: string | null }>(
+      `SELECT item_id AS id, ended_at, drinker_first_name FROM v_subscription_item WHERE item_id = $1 AND subscription_id = $2`, [itemId, subscriptionId]
+    )).rows[0];
+    if (!item) throw new SelfServiceError(404, 'item_not_found', 'We could not find that bag.');
+    if (item.ended_at) return { changed: false, eventId: null };
+    const live = (await tx.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM subscription_item WHERE subscription_id = $1 AND ended_at IS NULL`, [subscriptionId]
+    )).rows[0].n;
+    if (live <= 1) throw new SelfServiceError(409, 'last_item', 'This is the last bag; cancel the subscription instead.');
+    await tx.query(`UPDATE subscription_item SET ended_at = now() WHERE id = $1`, [itemId]);
+    // Decision 2: no bag left for anyone else → a personal subscription again.
+    await tx.query(
+      `UPDATE subscription SET household_id = NULL, updated_at = now()
+       WHERE id = $1 AND household_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM subscription_item i WHERE i.subscription_id = $1 AND i.ended_at IS NULL
+                            AND i.intended_for_user_id IS NOT NULL AND i.intended_for_user_id <> subscription.user_id)`, [subscriptionId]
+    );
+    const eventId = await recordSubscriptionEvent({
+      subscriptionId, kind: 'item_removed', source, note: `item ${itemId} (${item.drinker_first_name ?? 'subscriber'}) ended from the next renewal`,
+    }, tx);
+    return { changed: true, eventId };
+  });
 }

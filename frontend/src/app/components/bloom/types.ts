@@ -117,7 +117,10 @@ export interface CollectionCartItem {
   qty: number;
 }
 
-export type CartItem = DialCartItem | DirectCartItem | CollectionCartItem;
+/** Family Household 3 (C1): who a line is for; absent/null = the buyer. A line per person (the merge key includes it). */
+export interface CartRecipient { intendedForUserId?: string | null; intendedForName?: string | null }
+
+export type CartItem = (DialCartItem | DirectCartItem | CollectionCartItem) & CartRecipient;
 
 export interface OtherCategoryPrice {
   weightOz: number;

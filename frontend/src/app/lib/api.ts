@@ -91,12 +91,17 @@ export interface CartQuote {
   bagCount: number;
   subtotalCents: number;
   shippingCents: number;
-  subscription: { frequencyWeeks: number; discountPct: number; discountCents: number; subtotalCents: number } | null;
+  subscription: {
+    frequencyWeeks: number; discountPct: number; discountCents: number; subtotalCents: number;
+    /** Family Household 3 (D22): the handover perk on this first box, with its words. */
+    offer?: { pct: number; cents: number; label: string; expiresAt: string } | null;
+  } | null;
 }
 
 /** POST /api/checkout/quote: the cart's numbers from the server, and the subscription price when one is chosen. */
 export async function quoteCheckout(body: { items: CheckoutItem[]; subscription?: SubscriptionChoice | null }): Promise<CartQuote> {
-  const res = await fetch(`${BASE}/checkout/quote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  // Family Household 3: signed in, the quote can include the buyer's handover offer.
+  const res = await fetch(`${BASE}/checkout/quote`, { method: 'POST', headers: await getHeaders(), body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new CheckoutApiError(res.status, data.error ?? 'quote_failed', data.message ?? 'Could not price the cart.');
   return data;
@@ -246,6 +251,9 @@ export interface MySubscription {
   nextDeliveryDate: string | null;
   nextCoffees: Array<{ displayName: string; weightOz: number | null; quantity: number }>;
   followsDial: boolean;
+  /** Family Household 3 (C3): the next delivery's lines with whom each is for, and the bags sitting this one out. */
+  nextFor?: Array<{ displayName: string; drinkerFirstName: string | null }>;
+  skipped?: string[];
   bagCount: number;
   discountPct: number;
   lastOrderId: string | null;

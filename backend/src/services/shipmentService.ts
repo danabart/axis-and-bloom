@@ -8,6 +8,7 @@
 import { db, withTransaction } from '../db/client.js';
 import { recordOrderEvent } from './checkoutService.js';
 import { sendShippingNotificationEmail } from './orderEmails.js';
+import { sendHouseholdBagShippedEmails } from './householdEmails.js';
 
 export class ShipmentError extends Error {
   constructor(public status: 400 | 404 | 409, public code: string, message: string) { super(message); }
@@ -70,6 +71,9 @@ export async function markShipped(orderId: string, input: MarkShippedInput): Pro
     emailStatus = await sendShippingNotificationEmail(orderId, result.shipmentId)
       .then(r => r.status)
       .catch(err => { console.error('[shipmentService] shipping email failed', orderId, err instanceof Error ? err.message : err); return 'failed'; });
+    // Family Household 3 (D13): each member with a sign-in hears their bag shipped (buyer skipped, T8).
+    await sendHouseholdBagShippedEmails(orderId)
+      .catch(err => console.error('[shipmentService] household member emails failed', orderId, err instanceof Error ? err.message : err));
   }
   return { ...result, emailStatus };
 }

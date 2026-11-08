@@ -2,7 +2,7 @@
 // household_member, household_member_role, household_invitation and
 // household_event (G2.5, G2.6). Every function runs in one transaction, locks
 // the household row first (so member counts and "last admin" checks cannot
-// race), checks the actor's rights from v_household_member, and writes one
+// race), checks the actor's rights from v_household_membership, and writes one
 // household_event per state change through recordEvent. Nothing here ever
 // DELETEs a row (T5): dissolve is dissolved_at, leave/remove end the member
 // row, revoke closes the link. Identity links go through
@@ -15,6 +15,8 @@ import { record } from './customerFacts.js';
 import { getHouseholdClaimLink } from './customerReads.js';
 import { householdParam } from './householdParameters.js';
 import { resolveSlot, currentSlot, savePosition } from './dialPositionService.js';
+import { cancel as cancelSubscription } from './subscriptionService.js';
+import { sendHandoverEmail } from './householdEmails.js';
 
 import { MANAGED_UID_PREFIX } from './householdManaged.js';
 export { MANAGED_UID_PREFIX };
@@ -30,7 +32,8 @@ type EventKind =
   | 'created' | 'member_added' | 'link_created' | 'link_revoked' | 'link_accepted' | 'link_declined'
   | 'member_claimed' | 'role_granted' | 'role_revoked' | 'admin_transferred' | 'member_left'
   | 'member_removed' | 'dissolved'
-  | 'quiz_taken_for_member' | 'dial_turned_for_member' | 'dial_turn_undone' | 'identity_unlinked';
+  | 'quiz_taken_for_member' | 'dial_turned_for_member' | 'dial_turn_undone' | 'identity_unlinked'
+  | 'subscription_cancelled_on_leave' | 'handover_offered' | 'handover_redeemed';
 type EventSource = 'customer' | 'admin' | 'system' | 'cron';
 
 /** The one INSERT into household_event. An unknown code fails loudly on the NOT NULL kind/source. */
@@ -56,13 +59,13 @@ const MEMBER_COLS = `member_id, household_id, user_id, first_name, status_code, 
 
 async function activeMemberOf(tx: Tx, userId: string): Promise<MemberRow | null> {
   const r = await tx.query<MemberRow>(
-    `SELECT ${MEMBER_COLS} FROM v_household_member WHERE user_id = $1 AND status_code = 'active'`, [userId]
+    `SELECT ${MEMBER_COLS} FROM v_household_membership WHERE user_id = $1 AND status_code = 'active'`, [userId]
   );
   return r.rows[0] ?? null;
 }
 
 async function memberById(tx: Tx, memberId: string): Promise<MemberRow | null> {
-  const r = await tx.query<MemberRow>(`SELECT ${MEMBER_COLS} FROM v_household_member WHERE member_id = $1`, [memberId]);
+  const r = await tx.query<MemberRow>(`SELECT ${MEMBER_COLS} FROM v_household_membership WHERE member_id = $1`, [memberId]);
   return r.rows[0] ?? null;
 }
 
@@ -96,27 +99,35 @@ async function activeCount(tx: Tx, householdId: string): Promise<number> {
 /** Active members of the household, other than `exceptMemberId`, holding a role that administers. */
 async function otherAdmins(tx: Tx, householdId: string, exceptMemberId: string): Promise<MemberRow[]> {
   const r = await tx.query<MemberRow>(
-    `SELECT ${MEMBER_COLS} FROM v_household_member
+    `SELECT ${MEMBER_COLS} FROM v_household_membership
      WHERE household_id = $1 AND status_code = 'active' AND can_administer AND member_id <> $2
      ORDER BY joined_at`, [householdId, exceptMemberId]
   );
   return r.rows;
 }
 
-async function hasActiveHouseSubscription(tx: Tx, householdId: string): Promise<boolean> {
-  const r = await tx.query(
-    `SELECT 1 FROM subscription s
-     JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
-     WHERE s.household_id = $1 LIMIT 1`, [householdId]
+/**
+ * Family Household 3 (D22): the active house subscription of this household
+ * held by this profile, or null. A personal plan has no household_id (Dana's
+ * decision 2), so it is never found here.
+ */
+interface HeldSubscription { id: string; frequency_weeks: number | null; bag_count: number }
+async function houseSubscriptionHeldBy(runner: { query: Tx['query'] }, userId: string, householdId: string): Promise<HeldSubscription | null> {
+  const r = await runner.query<HeldSubscription>(
+    `SELECT subscription_id AS id, frequency_weeks, bag_count::int AS bag_count FROM v_subscription_status
+     WHERE household_id = $1 AND user_id = $2 AND kind = 'paid' AND counts_as_subscriber
+     ORDER BY created_at DESC LIMIT 1`, [householdId, userId]
   );
-  return r.rows.length > 0;
+  return r.rows[0] ?? null;
 }
 
 const notInHousehold = () => new HouseholdError(404, 'not_in_household', 'You are not in a Family Household yet.');
 const notAdmin = () => new HouseholdError(403, 'not_household_admin', 'Only the household admin can do that.');
 const memberNotFound = () => new HouseholdError(404, 'member_not_found', 'We could not find that member.');
 const transferFirst = () => new HouseholdError(409, 'transfer_first', 'Hand the admin role to another member before you leave the household.');
-const subscriptionActive = () => new HouseholdError(409, 'subscription_active', 'The house subscription is still active. Cancel it first, then you can leave or close the household.');
+const confirmCancel = (held: HeldSubscription) => new HouseholdError(409, 'confirm_cancel',
+  `You hold the house subscription (${held.bag_count} ${held.bag_count === 1 ? 'bag' : 'bags'}${held.frequency_weeks ? ` every ${held.frequency_weeks} weeks` : ''}). Leaving cancels it, and everyone else in the household gets an offer to start it on their side.`,
+  { subscriptionId: held.id });
 
 /** The actor's active membership, locked household and all. Throws when the actor is in no household. */
 async function actorContext(tx: Tx, actorUserId: string): Promise<{ me: MemberRow; household: HouseholdRow }> {
@@ -309,15 +320,19 @@ const linkClosed = (l: LockedLink) => new HouseholdError(410, 'link_closed', 'Th
 
 /**
  * End `member`'s membership (status left). An admin may leave only when another
- * admin stays or nobody else does; a house subscription that is still active
- * blocks it (cancel-on-leave arrives with household brief 3). The last member
- * out closes the household.
+ * admin stays or nobody else does. The last member out closes the
+ * household. (Family Household 3: the house subscription no longer blocks a
+ * leave; the subscriber's leave cancels it first, see `leave`.)
  */
-async function leaveInTx(tx: Tx, member: MemberRow, actorUserId: string, detail: Record<string, unknown> = {}): Promise<void> {
+async function assertMayLeave(tx: Tx, member: MemberRow): Promise<{ others: number; remainingAdmins: MemberRow[] }> {
   const others = (await activeCount(tx, member.household_id)) - 1;
   const remainingAdmins = await otherAdmins(tx, member.household_id, member.member_id);
   if (member.can_administer && others > 0 && remainingAdmins.length === 0) throw transferFirst();
-  if (await hasActiveHouseSubscription(tx, member.household_id)) throw subscriptionActive();
+  return { others, remainingAdmins };
+}
+
+async function leaveInTx(tx: Tx, member: MemberRow, actorUserId: string, detail: Record<string, unknown> = {}): Promise<void> {
+  const { others, remainingAdmins } = await assertMayLeave(tx, member);
   await endMember(tx, member.member_id, 'left');
   await recordEvent(tx, { householdId: member.household_id, memberId: member.member_id, kind: 'member_left', source: 'customer', actorUserId, detail });
   if (others === 0) {
@@ -360,6 +375,9 @@ export async function accept(token: string, acceptingUserId: string): Promise<Ac
     let leftHouseholdId: string | null = null;
     if (current) {
       await lockHousehold(tx, current.household_id);
+      if (await houseSubscriptionHeldBy(tx, acceptingUserId, current.household_id)) {
+        throw new HouseholdError(409, 'house_subscription_held', 'You hold your current household\u2019s subscription. Leave that household first (it offers the box to the others), then open this link again.');
+      }
       await leaveInTx(tx, current, acceptingUserId, { reason: 'joined_another_household', joined_household_id: household.id });
       leftHouseholdId = current.household_id;
     }
@@ -481,11 +499,92 @@ export async function transferAdmin(actorUserId: string, toMemberId: string): Pr
 
 // ── leave, remove, dissolve ──────────────────────────────────────────────────
 
-export async function leave(actorUserId: string): Promise<void> {
-  return run(async tx => {
-    const { me } = await actorContext(tx, actorUserId);
-    await leaveInTx(tx, me, actorUserId);
+export interface LeaveResult { cancelledSubscriptionId: string | null; handoverOffers: number }
+
+/**
+ * D22: the member leaves. When they hold the household's active house
+ * subscription, the request must carry confirm: true (otherwise 409
+ * confirm_cancel, with the sentence the tab shows); the subscription is then
+ * cancelled through subscriptionService.cancel (its own transaction and the
+ * subscriber's cancellation email), the membership ends, and every other
+ * active member with a sign-in gets a handover offer (event + email) that
+ * adds household_handover_discount_pct to their first subscription box inside
+ * household_handover_window_days. The leave rules are checked before anything
+ * is cancelled.
+ */
+export async function leave(actorUserId: string, opts: { confirm?: boolean } = {}): Promise<LeaveResult> {
+  const pre = await run(async tx => {
+    const { me, household } = await actorContext(tx, actorUserId);
+    await assertMayLeave(tx, me);
+    return { householdId: household.id, held: await houseSubscriptionHeldBy(tx, actorUserId, household.id) };
   });
+  if (pre.held && !opts.confirm) throw confirmCancel(pre.held);
+  if (pre.held) await cancelSubscription(pre.held.id, 'customer');
+
+  const offers = await run(async tx => {
+    const { me, household } = await actorContext(tx, actorUserId);
+    const made: Array<Parameters<typeof sendHandoverEmail>[0]> = [];
+    if (pre.held) {
+      await recordEvent(tx, {
+        householdId: household.id, memberId: me.member_id, kind: 'subscription_cancelled_on_leave', source: 'customer', actorUserId,
+        detail: { subscription_id: pre.held.id },
+      });
+      made.push(...await makeHandoverOffers(tx, household, me, pre.held.id, actorUserId));
+    }
+    await leaveInTx(tx, me, actorUserId);
+    return made;
+  });
+  for (const o of offers) {
+    await sendHandoverEmail(o).catch(err => console.error('[householdService] handover email failed', o.eventId, err instanceof Error ? err.message : err));
+  }
+  return { cancelledSubscriptionId: pre.held?.id ?? null, handoverOffers: offers.length };
+}
+
+/** D22: one handover_offered event per other active member with a sign-in; the emails go after the commit. */
+async function makeHandoverOffers(tx: Tx, household: HouseholdRow, me: MemberRow, subscriptionId: string, actorUserId: string) {
+  const pct = await householdParam('household_handover_discount_pct');
+  const days = await householdParam('household_handover_window_days');
+  const expires = (await tx.query<{ at: string }>(`SELECT (timezone('utc', now()) + make_interval(days => $1::int))::text AS at`, [days])).rows[0].at;
+  const box = (await tx.query<{ signup_name: string | null; drinker_first_name: string | null; intended_for_user_id: string | null; quantity: number }>(
+    `SELECT signup_name, drinker_first_name, intended_for_user_id, quantity FROM v_subscription_item
+     WHERE subscription_id = $1 AND ended_at IS NULL ORDER BY created_at, item_id`, [subscriptionId]
+  )).rows.map(i => `${i.quantity} × ${i.signup_name ?? 'Coffee'}${i.intended_for_user_id && i.drinker_first_name ? ` for ${i.drinker_first_name}` : ''}`);
+  const others = await tx.query<{ member_id: string; user_id: string; first_name: string | null; firebase_uid: string }>(
+    `SELECT vm.member_id, vm.user_id, vm.first_name, up.firebase_uid FROM v_household_membership vm
+     JOIN user_profile up ON up.id = vm.user_id
+     WHERE vm.household_id = $1 AND vm.status_code = 'active' AND vm.account_state = 'login' AND vm.member_id <> $2
+     ORDER BY vm.joined_at`, [household.id, me.member_id]
+  );
+  const made: Array<Parameters<typeof sendHandoverEmail>[0]> = [];
+  for (const o of others.rows) {
+    const ev = await tx.query<{ id: string }>(
+      `INSERT INTO household_event (household_id, member_id, kind_id, source_id, actor_user_id, detail)
+       VALUES ($1, $2, (SELECT id FROM household_event_kind WHERE code = 'handover_offered'),
+               (SELECT id FROM household_event_source WHERE code = 'customer'), $3, $4::jsonb) RETURNING id`,
+      [household.id, o.member_id, actorUserId,
+       JSON.stringify({ member_id: o.member_id, member_user_id: o.user_id, expires_at: expires, subscription_id: subscriptionId, pct })]
+    );
+    made.push({ eventId: ev.rows[0].id, memberId: o.member_id, firebaseUid: o.firebase_uid, firstName: o.first_name,
+      householdName: household.household_name, boxLines: box, pct, expiresAt: expires });
+  }
+  return made;
+}
+
+/** D22, CTO call 2: a subscription checkout priced with a handover offer completed; the offer is used (once). */
+export async function recordHandoverRedeemed(tx: Tx, offerEventId: string, done: { orderId: string; subscriptionId: string; userId: string }): Promise<boolean> {
+  const offer = (await tx.query<{ household_id: string; member_id: string | null }>(
+    `SELECT household_id, member_id FROM household_event WHERE id = $1`, [offerEventId]
+  )).rows[0];
+  if (!offer) return false;
+  const used = await tx.query(
+    `SELECT 1 FROM v_household_event WHERE kind_code = 'handover_redeemed' AND detail ->> 'offer_event_id' = $1`, [offerEventId]
+  );
+  if (used.rows.length) return false;
+  await recordEvent(tx, {
+    householdId: offer.household_id, memberId: offer.member_id, kind: 'handover_redeemed', source: 'customer', actorUserId: done.userId,
+    detail: { offer_event_id: offerEventId, order_id: done.orderId, subscription_id: done.subscriptionId },
+  });
+  return true;
 }
 
 export async function removeMember(actorUserId: string, memberId: string): Promise<void> {
@@ -494,6 +593,11 @@ export async function removeMember(actorUserId: string, memberId: string): Promi
     if (!me.can_administer) throw notAdmin();
     const target = await targetIn(tx, memberId, household.id);
     if (target.member_id === me.member_id) throw new HouseholdError(400, 'remove_self', 'Use Leave to step out of the household yourself.');
+    // Dana's decision 3: the member who holds the house subscription leaves themselves (D22) or keeps it.
+    if (await houseSubscriptionHeldBy(tx, target.user_id, household.id)) {
+      throw new HouseholdError(409, 'holds_house_subscription',
+        `${target.first_name ?? 'This member'} holds the house subscription. They can Leave, which cancels it and offers it to the household, or keep it running as it is.`);
+    }
     await endMember(tx, target.member_id, 'removed');
     const closed = await closeOpenLink(tx, target.member_id);
     if (closed) await recordEvent(tx, { householdId: household.id, memberId: target.member_id, kind: 'link_revoked', source: 'customer', actorUserId, detail: { invitation_id: closed, reason: 'member_removed' } });
@@ -505,18 +609,31 @@ export async function removeMember(actorUserId: string, memberId: string): Promi
   });
 }
 
-export async function dissolve(actorUserId: string): Promise<void> {
-  return run(async tx => {
+/** D22: close the household (only member left); a house subscription the admin holds is cancelled first, with confirm. */
+export async function dissolve(actorUserId: string, opts: { confirm?: boolean } = {}): Promise<LeaveResult> {
+  const pre = await run(async tx => {
     const { me, household } = await actorContext(tx, actorUserId);
     if (!me.can_administer) throw notAdmin();
     if ((await activeCount(tx, household.id)) > 1) {
       throw new HouseholdError(409, 'members_remain', 'Close the household once you are its only member.');
     }
-    if (await hasActiveHouseSubscription(tx, household.id)) throw subscriptionActive();
+    return { held: await houseSubscriptionHeldBy(tx, actorUserId, household.id) };
+  });
+  if (pre.held && !opts.confirm) throw confirmCancel(pre.held);
+  if (pre.held) await cancelSubscription(pre.held.id, 'customer');
+  await run(async tx => {
+    const { me, household } = await actorContext(tx, actorUserId);
+    if (pre.held) {
+      await recordEvent(tx, {
+        householdId: household.id, memberId: me.member_id, kind: 'subscription_cancelled_on_leave', source: 'customer', actorUserId,
+        detail: { subscription_id: pre.held.id, reason: 'dissolved' },
+      });
+    }
     await endMember(tx, me.member_id, 'left');
     await tx.query(`UPDATE household SET dissolved_at = timezone('utc', now()), updated_at = timezone('utc', now()) WHERE id = $1`, [household.id]);
     await recordEvent(tx, { householdId: household.id, memberId: me.member_id, kind: 'dissolved', source: 'customer', actorUserId });
   });
+  return { cancelledSubscriptionId: pre.held?.id ?? null, handoverOffers: 0 };
 }
 
 // ── Family Household 2 (2026-11-07): quiz and dial by proxy, undo, unlink ────

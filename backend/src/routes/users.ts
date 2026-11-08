@@ -404,9 +404,9 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
         `SELECT s.next_delivery_date::text AS next_delivery_date
          FROM subscription s
          JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
-         -- Family Household 1 (2026-11-07): house subscriptions through v_household_member.
+         -- Family Household 1 (2026-11-07): house subscriptions through v_household_membership.
          JOIN user_profile up ON (up.id = s.user_id OR EXISTS (
-                SELECT 1 FROM v_household_member vm
+                SELECT 1 FROM v_household_membership vm
                 WHERE vm.user_id = up.id AND vm.status_code = 'active' AND vm.household_id = s.household_id))
          WHERE up.firebase_uid = $1
          ORDER BY s.next_delivery_date NULLS LAST

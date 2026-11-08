@@ -20,6 +20,7 @@ import { getBrewProfile } from '../routes/sommelier.js';
 import { getOrderSummary, isFinalized, recordOrderEvent } from './checkoutService.js';
 import { dispatchFulfillment } from './fulfillment/index.js';
 import { sendOrderConfirmationEmail } from './orderEmails.js';
+import { sendHouseholdBagOrderedEmails } from './householdEmails.js';
 
 export interface FinalizeResult {
   orderId: string;
@@ -92,6 +93,8 @@ export async function finalizePaidOrder(orderId: string): Promise<FinalizeResult
   // confirmation email.
   await step('fulfillment', () => dispatchFulfillment(orderId));
   await step('confirmation_email', () => sendOrderConfirmationEmail(orderId));
+  // Family Household 3 (D13): members with a sign-in hear their coffee is ordered (buyer skipped, T8).
+  await step('household_member_emails', () => sendHouseholdBagOrderedEmails(orderId));
 
   return { orderId, alreadyFinalized: false, orderPlacedLine, failedSteps };
 }

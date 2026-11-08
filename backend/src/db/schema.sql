@@ -309,7 +309,8 @@ INSERT INTO household_event_kind (code, label) VALUES
   ('dial_turned_for_member',          'Dial turned for a member'),
   ('subscription_cancelled_on_leave', 'House subscription cancelled on leave'),
   ('handover_offered',                'House subscription handover offered'),
-  ('dial_turn_undone',                'Dial turn undone by the member')
+  ('dial_turn_undone',                'Dial turn undone by the member'),
+  ('handover_redeemed',               'House subscription handover offer used')
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS household_event_source (
@@ -382,7 +383,8 @@ SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
   ('quiz_for_member_enabled',        1,  NULL, '1 = an admin may take the quiz for a member without a self-taken quiz (household brief 2), 0 = off. Range: integer 0 <= value <= 1.'),
   ('house_box_bags_per_member',      1,  NULL, 'Bags per in-box member that Build the house box adds (household brief 3). Range: integer 1 <= value <= 4.'),
   ('household_handover_discount_pct', 5, NULL, 'Extra subscription discount, in percent, offered to members when the admin leaves with the house subscription (D22, household brief 3). Range: 0 <= value <= 50.'),
-  ('household_handover_window_days', 7,  NULL, 'Days after the cancellation event during which the handover discount applies (D22, household brief 3). Range: integer 1 <= value <= 60.')
+  ('household_handover_window_days', 7,  NULL, 'Days after the cancellation event during which the handover discount applies (D22, household brief 3). Range: integer 1 <= value <= 60.'),
+  ('house_box_weight_oz',           12,  NULL, 'Bag size, in ounces, that Build the house box puts in the cart (household brief 3); must be a size the pricing tables sell. Range: integer 4 <= value <= 80.')
 ) AS v(key, value_numeric, value_text, note)
 WHERE NOT EXISTS (SELECT 1 FROM household_parameter p WHERE p.key = v.key);
 
@@ -6356,8 +6358,12 @@ FROM user_bloom_dial_current_position p
 JOIN v_customer_identity vci ON vci.user_id = p.user_id
 ORDER BY vci.canonical_user_id, p.archetype, p.updated_at DESC NULLS LAST;
 
-DROP VIEW IF EXISTS v_household_member CASCADE;
-CREATE VIEW v_household_member AS
+-- Family Household 3 (2026-11-07, OT-108): the lean membership read. No identity
+-- walk, no quiz or dial: the hot readers (Liam access, checkout recipients,
+-- user signals, the bag attribution claim join) read this one; the tab's
+-- palate columns live in v_household_member, after the subscription block.
+DROP VIEW IF EXISTS v_household_membership CASCADE;
+CREATE VIEW v_household_membership AS
 SELECT
   hm.id AS member_id,
   hm.household_id,
@@ -6375,31 +6381,6 @@ SELECT
   COALESCE(r.admin_may_set, false)       AS admin_may_set,
   COALESCE(r.member_may_self_set, false) AS member_may_self_set,
   CASE WHEN ut.name = 'household_managed' THEN 'managed' ELSE 'login' END AS account_state,
-  -- The identity walk and the quiz read are scalar subqueries on purpose: a
-  -- reader that only asks for membership (liamAccess, userSignals, the
-  -- checkout recipient check) never selects these columns, so the planner
-  -- drops them and never walks v_customer_identity for every profile.
-  (SELECT vci.canonical_user_id FROM v_customer_identity vci WHERE vci.user_id = hm.user_id) AS canonical_user_id,
-  (SELECT qc.archetype_name FROM v_customer_quiz_current qc
-     JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
-    WHERE vci.user_id = hm.user_id) AS archetype_name,
-  (SELECT qc.archetype_code FROM v_customer_quiz_current qc
-     JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
-    WHERE vci.user_id = hm.user_id) AS archetype_code,
-  -- Family Household 2: a code of household_quiz_state. The current quiz
-  -- (self-taken first) decides: none, by_admin (someone else answered), own.
-  COALESCE((SELECT CASE WHEN qc.taken_by_user_id IS NULL THEN 'own' ELSE 'by_admin' END
-              FROM v_customer_quiz_current qc
-              JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
-             WHERE vci.user_id = hm.user_id), 'none') AS quiz_state,
-  (SELECT qc.taken_by_first_name FROM v_customer_quiz_current qc
-     JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
-    WHERE vci.user_id = hm.user_id) AS quiz_taken_by_first_name,
-  -- The member's dial position for their current archetype (T3).
-  (SELECT dc.slot_id FROM v_customer_dial_current dc
-     JOIN v_customer_identity vci ON vci.canonical_user_id = dc.canonical_user_id
-     JOIN v_customer_quiz_current qc ON qc.canonical_user_id = dc.canonical_user_id AND qc.archetype_code = dc.archetype
-    WHERE vci.user_id = hm.user_id) AS dial_slot_id,
   -- The household_claim link that moved this member onto its account (NULL when none, or undone).
   (SELECT cil.id FROM customer_identity_link cil
     WHERE cil.to_user_id = hm.user_id AND cil.how = 'household_claim'
@@ -6442,39 +6423,6 @@ LEFT JOIN LATERAL (
   ORDER BY hi.created_at DESC LIMIT 1
 ) link ON true;
 
-DROP VIEW IF EXISTS v_household CASCADE;
-CREATE VIEW v_household AS
-SELECT
-  h.id AS household_id,
-  h.household_name,
-  adm.user_id AS admin_user_id,
-  adm.first_name AS admin_first_name,
-  h.primary_billing_user_id AS pays_user_id,
-  payer.first_name AS pays_first_name,
-  COALESCE(mc.active_member_count, 0) AS active_member_count,
-  -- Family Household 2 (T6, D19): quizzes answered by someone else for a member of this household.
-  (SELECT COUNT(DISTINCT qs.id)::int FROM quiz_session qs
-     JOIN v_customer_identity vci ON vci.user_id = qs.user_id
-     JOIN household_member hm ON hm.household_id = h.id
-     JOIN v_customer_identity mvi ON mvi.user_id = hm.user_id AND mvi.canonical_user_id = vci.canonical_user_id
-    WHERE qs.taken_by_user_id IS NOT NULL) AS proxy_quiz_count,
-  h.dissolved_at,
-  h.created_at,
-  h.updated_at
-FROM household h
-LEFT JOIN user_profile payer ON payer.id = h.primary_billing_user_id
-LEFT JOIN LATERAL (
-  SELECT vm.user_id, vm.first_name FROM v_household_member vm
-  WHERE vm.household_id = h.id AND vm.status_code = 'active' AND vm.can_administer
-  ORDER BY vm.joined_at LIMIT 1
-) adm ON true
-LEFT JOIN LATERAL (
-  SELECT COUNT(*)::int AS active_member_count
-  FROM household_member hm
-  JOIN household_member_status s ON s.id = hm.status_id AND s.code = 'active'
-  WHERE hm.household_id = h.id
-) mc ON true;
-
 DROP VIEW IF EXISTS v_household_invitation CASCADE;
 CREATE VIEW v_household_invitation AS
 SELECT
@@ -6495,7 +6443,7 @@ SELECT
 FROM household_invitation hi
 JOIN household h ON h.id = hi.household_id
 LEFT JOIN household_invitation_status s ON s.id = hi.status_id
-LEFT JOIN v_household_member vm ON vm.member_id = hi.member_id;
+LEFT JOIN v_household_membership vm ON vm.member_id = hi.member_id;
 
 DROP VIEW IF EXISTS v_household_event CASCADE;
 CREATE VIEW v_household_event AS
@@ -6516,7 +6464,7 @@ FROM household_event e
 JOIN household_event_kind k ON k.id = e.kind_id
 JOIN household_event_source src ON src.id = e.source_id
 LEFT JOIN user_profile actor ON actor.id = e.actor_user_id
-LEFT JOIN v_household_member vm ON vm.member_id = e.member_id;
+LEFT JOIN v_household_membership vm ON vm.member_id = e.member_id;
 
 -- D7 drinker-attribution rule. "Company-gift subscription context" (Part A2's
 -- own wording) is read here as: the order's buyer has a company_gift_id on
@@ -6533,15 +6481,21 @@ SELECT
   o.id AS order_id,
   rb.coffee_id,
   COALESCE(oli.order_kind, 'manual') AS order_kind,
+  -- Family Household 3 (D24): a bag-claim scan by an active member of the
+  -- order's household beats the line's recipient (self-done beats declared),
+  -- then the recipient, then the buyer. Codes unchanged.
+  -- A line whose recipient is the buyer is the buyer's own bag ('buyer'); 'intended' is a bag named for someone else.
   CASE
+    WHEN claim.user_id IS NOT NULL THEN claim.user_id
     WHEN oli.intended_for_user_id IS NOT NULL THEN oli.intended_for_user_id
     WHEN o.household_id IS NULL AND buyer.company_gift_id IS NULL THEN o.user_id
-    ELSE claim.user_id
+    ELSE NULL
   END AS drinker_user_id,
   CASE
-    WHEN oli.intended_for_user_id IS NOT NULL THEN 'intended'
-    WHEN o.household_id IS NULL AND buyer.company_gift_id IS NULL THEN 'buyer'
     WHEN claim.user_id IS NOT NULL THEN 'claim'
+    WHEN oli.intended_for_user_id IS NOT NULL AND oli.intended_for_user_id <> o.user_id THEN 'intended'
+    WHEN oli.intended_for_user_id = o.user_id THEN 'buyer'
+    WHEN o.household_id IS NULL AND buyer.company_gift_id IS NULL THEN 'buyer'
     ELSE 'unattributed'
   END AS attribution
 FROM order_line_item oli
@@ -6555,7 +6509,7 @@ LEFT JOIN LATERAL (
     AND o.household_id IS NOT NULL
     -- Family Household 1 (2026-11-07): membership from v_household_member,
     -- not the retired user_profile.household_id. CASE order unchanged (D24 is brief 3).
-    AND EXISTS (SELECT 1 FROM v_household_member vm
+    AND EXISTS (SELECT 1 FROM v_household_membership vm
                 WHERE vm.user_id = cbc.user_id AND vm.household_id = o.household_id AND vm.status_code = 'active')
   ORDER BY cbc.occurred_at ASC
   LIMIT 1
@@ -9724,6 +9678,21 @@ CREATE TABLE IF NOT EXISTS subscription_item (
   CHECK (archetype IS NOT NULL OR signup_coffee_id IS NOT NULL)
 );
 CREATE INDEX IF NOT EXISTS idx_subscription_item_subscription ON subscription_item (subscription_id);
+-- Family Household 3 (2026-11-07): who drinks the item (NULL = the subscriber)
+-- and its retirement (a dropped item is ended, never deleted, G2.11). A
+-- recipient item stores no archetype: each renewal follows the member's own
+-- current quiz and dial (T2), so the CHECK accepts a recipient alone.
+ALTER TABLE subscription_item ADD COLUMN IF NOT EXISTS intended_for_user_id UUID REFERENCES user_profile(id);
+ALTER TABLE subscription_item ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'subscription_item_check' AND conrelid = 'subscription_item'::regclass) THEN
+    ALTER TABLE subscription_item DROP CONSTRAINT subscription_item_check;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'subscription_item_what_ships' AND conrelid = 'subscription_item'::regclass) THEN
+    ALTER TABLE subscription_item ADD CONSTRAINT subscription_item_what_ships
+      CHECK (archetype IS NOT NULL OR signup_coffee_id IS NOT NULL OR intended_for_user_id IS NOT NULL);
+  END IF;
+END $$;
 
 -- 4. History: insert-only, like order_event.
 CREATE TABLE IF NOT EXISTS subscription_event_kind (
@@ -9744,7 +9713,10 @@ INSERT INTO subscription_event_kind (code, label) VALUES
   ('canceled',               'Canceled'),
   ('lapsed',                 'Lapsed'),
   ('payment_method_updated', 'Payment method updated'),
-  ('invoice_voided',         'Renewal invoice voided (by our lapse, or in the Dashboard)')
+  ('invoice_voided',         'Renewal invoice voided (by our lapse, or in the Dashboard)'),
+  ('item_added',             'Item added (Family Household: a bag for a member)'),
+  ('item_removed',           'Item dropped (ended, from the next renewal)'),
+  ('renewal_items_skipped',  'Renewal shipped without some bags: their drinker could not be resolved')
 ON CONFLICT (code) DO NOTHING;
 
 -- Who wrote an event: a lookup, not a CHECK list (DEVELOPMENT_GUARDRAILS G2.7).
@@ -9983,7 +9955,8 @@ SELECT s.id AS subscription_id,
        COALESCE(it.bag_count, 0) AS bag_count,
        it.signup_names,
        cx.created_at AS canceled_at,
-       (s.stripe_payment_method_id IS NOT NULL) AS has_payment_method
+       (s.stripe_payment_method_id IS NOT NULL) AS has_payment_method,
+       s.household_id
 FROM subscription s
 LEFT JOIN subscription_status st ON st.code = s.status
 LEFT JOIN LATERAL (
@@ -9992,7 +9965,7 @@ LEFT JOIN LATERAL (
          ARRAY_AGG(COALESCE(ds.name, i.display_name_at_signup) ORDER BY i.created_at, i.id) AS signup_names
   FROM subscription_item i
   LEFT JOIN coffee_dial_slot ds ON ds.id = i.signup_slot_id
-  WHERE i.subscription_id = s.id
+  WHERE i.subscription_id = s.id AND i.ended_at IS NULL
 ) it ON true
 LEFT JOIN LATERAL (
   SELECT e.created_at FROM subscription_event e
@@ -10002,6 +9975,165 @@ LEFT JOIN LATERAL (
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END COMMERCE 3 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN FAMILY HOUSEHOLD 3 block (2026-11-07): order for the house
+-- backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_3_ORDER_FOR_THE_HOUSE.md
+-- After the subscription tables (the household views read subscription_item's
+-- new columns) and before the A2 grant loops. v_customer_identity's CASCADE
+-- drop earlier in this file removes these views each boot; this block
+-- recreates them in the same pass.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- The handover offer a subscription checkout redeems (D22, CTO call 2):
+-- the household_event that made the offer; set at session creation, read
+-- when the session completes (one redemption per offer).
+ALTER TABLE checkout_session ADD COLUMN IF NOT EXISTS handover_offer_event_id UUID REFERENCES household_event(id);
+
+-- Every live and ended item with its drinker (NULL recipient = the subscriber).
+DROP VIEW IF EXISTS v_subscription_item CASCADE;
+CREATE VIEW v_subscription_item AS
+SELECT
+  i.id AS item_id,
+  i.subscription_id,
+  s.user_id AS subscriber_user_id,
+  s.household_id,
+  i.archetype,
+  i.signup_slot_id,
+  i.signup_coffee_id,
+  i.weight_oz,
+  i.quantity,
+  COALESCE(ds.name, i.display_name_at_signup) AS signup_name,
+  i.intended_for_user_id,
+  COALESCE(i.intended_for_user_id, s.user_id) AS drinker_user_id,
+  drinker.first_name AS drinker_first_name,
+  i.created_at,
+  i.ended_at
+FROM subscription_item i
+JOIN subscription s ON s.id = i.subscription_id
+LEFT JOIN coffee_dial_slot ds ON ds.id = i.signup_slot_id
+LEFT JOIN user_profile drinker ON drinker.id = COALESCE(i.intended_for_user_id, s.user_id);
+
+-- The tab's member read (OT-108): the lean membership row plus identity,
+-- current quiz and dial, each joined once per query rather than walked once
+-- per member.
+DROP VIEW IF EXISTS v_household_member CASCADE;
+CREATE VIEW v_household_member AS
+SELECT
+  m.member_id, m.household_id, m.user_id, m.first_name, m.status_code, m.status_label, m.role_codes,
+  m.can_administer, m.in_house_box, m.self_manages_cycle, m.may_turn_dials, m.admin_may_set, m.member_may_self_set,
+  m.account_state,
+  vci.canonical_user_id,
+  qc.archetype_name,
+  qc.archetype_code,
+  -- A code of household_quiz_state: the current quiz (self-taken first) decides.
+  CASE WHEN qc.quiz_session_id IS NULL THEN 'none' WHEN qc.taken_by_user_id IS NULL THEN 'own' ELSE 'by_admin' END AS quiz_state,
+  qc.taken_by_first_name AS quiz_taken_by_first_name,
+  dc.slot_id AS dial_slot_id,
+  m.claim_link_id,
+  m.open_link_id, m.open_link_token, m.open_link_created_at,
+  -- Family Household 3: a live item of the household's active house
+  -- subscription is for this member (a recipient item naming them or the
+  -- managed profile they claimed; or, for the subscriber, their own items).
+  EXISTS (
+    SELECT 1 FROM subscription s
+    JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
+    JOIN subscription_item i ON i.subscription_id = s.id AND i.ended_at IS NULL
+    WHERE s.household_id = m.household_id
+      AND (i.intended_for_user_id = m.user_id
+           OR (i.intended_for_user_id IS NULL AND s.user_id = m.user_id)
+           OR EXISTS (SELECT 1 FROM customer_identity_link cil
+                       WHERE cil.from_user_id = i.intended_for_user_id AND cil.to_user_id = m.user_id
+                         AND NOT EXISTS (SELECT 1 FROM customer_identity_unlink u WHERE u.link_id = cil.id)))
+  ) AS in_house_subscription,
+  -- D30: the member's own (personal) paid subscription is running.
+  EXISTS (
+    SELECT 1 FROM subscription s
+    JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
+    WHERE s.user_id = m.user_id AND s.kind = 'paid' AND s.household_id IS NULL
+  ) AS own_plan_active,
+  m.joined_at, m.ended_at, m.created_at
+FROM v_household_membership m
+LEFT JOIN v_customer_identity vci ON vci.user_id = m.user_id
+LEFT JOIN v_customer_quiz_current qc ON qc.canonical_user_id = vci.canonical_user_id
+LEFT JOIN v_customer_dial_current dc ON dc.canonical_user_id = vci.canonical_user_id AND dc.archetype = qc.archetype_code;
+
+DROP VIEW IF EXISTS v_household CASCADE;
+CREATE VIEW v_household AS
+SELECT
+  h.id AS household_id,
+  h.household_name,
+  adm.user_id AS admin_user_id,
+  adm.first_name AS admin_first_name,
+  -- OT-103 (D21): who pays is the active house subscription's subscriber;
+  -- without one, the admin pointer.
+  COALESCE(hs.user_id, h.primary_billing_user_id) AS pays_user_id,
+  COALESCE(hs_payer.first_name, payer.first_name) AS pays_first_name,
+  hs.id AS house_subscription_id,
+  hs.status AS house_subscription_status,
+  COALESCE(mc.active_member_count, 0) AS active_member_count,
+  -- Family Household 2 (T6, D19): quizzes answered for a member of this household by someone else.
+  (SELECT COUNT(DISTINCT qs.id)::int FROM quiz_session qs
+     JOIN v_customer_identity vci ON vci.user_id = qs.user_id
+     JOIN household_member hm ON hm.household_id = h.id
+     JOIN v_customer_identity mvi ON mvi.user_id = hm.user_id AND mvi.canonical_user_id = vci.canonical_user_id
+    WHERE qs.taken_by_user_id IS NOT NULL) AS proxy_quiz_count,
+  h.dissolved_at,
+  h.created_at,
+  h.updated_at
+FROM household h
+LEFT JOIN user_profile payer ON payer.id = h.primary_billing_user_id
+LEFT JOIN LATERAL (
+  SELECT s.id, s.user_id, s.status FROM subscription s
+  JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
+  WHERE s.household_id = h.id AND s.kind = 'paid'
+  ORDER BY s.created_at DESC LIMIT 1
+) hs ON true
+LEFT JOIN user_profile hs_payer ON hs_payer.id = hs.user_id
+LEFT JOIN LATERAL (
+  SELECT vm.user_id, vm.first_name FROM v_household_membership vm
+  WHERE vm.household_id = h.id AND vm.status_code = 'active' AND vm.can_administer
+  ORDER BY vm.joined_at LIMIT 1
+) adm ON true
+LEFT JOIN LATERAL (
+  SELECT COUNT(*)::int AS active_member_count
+  FROM household_member hm
+  JOIN household_member_status s ON s.id = hm.status_id AND s.code = 'active'
+  WHERE hm.household_id = h.id
+) mc ON true;
+
+-- D19: the admin numbers card, one row.
+DROP VIEW IF EXISTS v_household_numbers CASCADE;
+CREATE VIEW v_household_numbers AS
+WITH open_h AS (SELECT id FROM household WHERE dissolved_at IS NULL),
+     active AS (
+       SELECT hm.household_id FROM household_member hm
+       JOIN household_member_status s ON s.id = hm.status_id AND s.code = 'active'
+       JOIN open_h ON open_h.id = hm.household_id
+     ),
+     house_orders AS (
+       SELECT o.id, SUM(oli.quantity) AS bags
+       FROM "order" o JOIN order_line_item oli ON oli.order_id = o.id
+       WHERE o.household_id IS NOT NULL
+       GROUP BY o.id
+     )
+SELECT
+  (SELECT COUNT(*)::int FROM open_h) AS households,
+  (SELECT COUNT(*)::int FROM active) AS active_members,
+  (SELECT ROUND(COUNT(*)::numeric / NULLIF((SELECT COUNT(*) FROM open_h), 0), 2) FROM active) AS avg_members_per_household,
+  (SELECT COUNT(*)::int FROM quiz_session WHERE taken_by_user_id IS NOT NULL) AS proxy_quizzes,
+  (SELECT COUNT(*)::int FROM user_profile up JOIN user_type ut ON ut.id = up.user_type_id AND ut.name = 'household_managed') AS managed_profiles,
+  (SELECT COUNT(*)::int FROM customer_identity_link cil
+    WHERE cil.how = 'household_claim' AND NOT EXISTS (SELECT 1 FROM customer_identity_unlink u WHERE u.link_id = cil.id)) AS claims,
+  (SELECT ROUND((SELECT COUNT(*) FROM customer_identity_link cil
+                  WHERE cil.how = 'household_claim' AND NOT EXISTS (SELECT 1 FROM customer_identity_unlink u WHERE u.link_id = cil.id))::numeric
+                / NULLIF((SELECT COUNT(*) FROM user_profile up JOIN user_type ut ON ut.id = up.user_type_id AND ut.name = 'household_managed'), 0), 2)) AS claim_rate,
+  (SELECT COUNT(*)::int FROM house_orders) AS house_orders,
+  (SELECT ROUND(AVG(bags), 2) FROM house_orders) AS bags_per_house_order;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END FAMILY HOUSEHOLD 3 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- ═══════════════════════════════════════════════════════════════════════════

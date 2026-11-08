@@ -17,6 +17,12 @@ interface Detail {
   members: Array<{ member_id: string; first_name: string | null; status_label: string; role_codes: string[]; account_state: string; archetype_name: string | null; joined_at: string; ended_at: string | null }>;
   links: Array<{ invitation_id: string; member_first_name: string | null; status_code: string | null; status_label: string | null; created_at: string }>;
   events: Array<{ event_id: string; kind_label: string; source_label: string; actor_first_name: string | null; member_first_name: string | null; created_at: string }>;
+  houseItems?: Array<{ item_id: string; signup_name: string | null; weight_oz: string; quantity: number; drinker_first_name: string | null; intended_for_user_id: string | null }>;
+}
+// Family Household 3 (D19): v_household_numbers, one row.
+interface Numbers {
+  households: number; active_members: number; avg_members_per_household: string | null; proxy_quizzes: number;
+  managed_profiles: number; claims: number; claim_rate: string | null; house_orders: number; bags_per_house_order: string | null;
 }
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '');
@@ -25,6 +31,7 @@ export default function AdminHouseholds() {
   const { user } = useAuth();
   const [rows, setRows] = useState<HouseholdRow[] | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [nums, setNums] = useState<Numbers | null>(null);
   const [error, setError] = useState('');
 
   async function get<T>(path: string): Promise<T> {
@@ -36,6 +43,7 @@ export default function AdminHouseholds() {
   useEffect(() => {
     if (!user) return;
     get<HouseholdRow[]>('/households').then(setRows).catch(err => { reportError('[AdminHouseholds/list]', err); setError('Could not load households.'); });
+    get<Numbers>('/numbers').then(setNums).catch(err => reportError('[AdminHouseholds/numbers]', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -53,6 +61,26 @@ export default function AdminHouseholds() {
         </p>
       )}
       {error && <p className="text-sm text-red-700">{error}</p>}
+
+      {nums && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="admin-household-numbers">
+          {([
+            ['Households', nums.households],
+            ['Members', nums.active_members],
+            ['Members per household', nums.avg_members_per_household ?? '–'],
+            ['Proxy quizzes', nums.proxy_quizzes],
+            ['Claimed profiles', `${nums.claims} of ${nums.managed_profiles}`],
+            ['Claim rate', nums.claim_rate === null ? '–' : `${Math.round(Number(nums.claim_rate) * 100)}%`],
+            ['House orders', nums.house_orders],
+            ['Bags per house order', nums.bags_per_house_order ?? '–'],
+          ] as Array<[string, string | number]>).map(([k, v]) => (
+            <div key={k} className="bg-white border border-stone-200 rounded p-3">
+              <p className="text-xs uppercase tracking-wide text-stone-500">{k}</p>
+              <p className="text-lg text-stone-800">{v}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="bg-white border border-stone-200 rounded" data-testid="admin-households">
         <table className="w-full text-sm">
@@ -94,6 +122,16 @@ export default function AdminHouseholds() {
               </p>
             ))}
           </section>
+          {detail.houseItems && detail.houseItems.length > 0 && (
+            <section>
+              <h3 className="text-xs uppercase tracking-wide text-stone-500 mb-2">House subscription</h3>
+              {detail.houseItems.map(i => (
+                <p key={i.item_id} className="text-sm text-stone-700 py-0.5">
+                  {i.quantity} × {Number(i.weight_oz)} oz · {i.intended_for_user_id ? `follows ${i.drinker_first_name}` : `${i.signup_name ?? 'coffee'} for ${i.drinker_first_name ?? 'the subscriber'}`}
+                </p>
+              ))}
+            </section>
+          )}
           <section>
             <h3 className="text-xs uppercase tracking-wide text-stone-500 mb-2">Join links</h3>
             {detail.links.length === 0 ? <p className="text-sm text-stone-400">None.</p> : detail.links.map(l => (

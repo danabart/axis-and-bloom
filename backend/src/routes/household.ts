@@ -12,6 +12,9 @@
 //   GET    /me/log                    dial turns others made for me (Household 2, D27)
 //   POST   /me/log/:dialEventId/undo  undo one of them (a move back, never a delete)
 //   POST   /members/:memberId/unlink  undo a claim (D25)
+//   GET    /house-box                 Build the house box (Household 3, B7): one line per in-box member
+//   GET    /recipients                the cart's "For" choices (Household 3, C1)
+//   POST   /leave {confirm}, /dissolve {confirm}: 409 confirm_cancel when it would cancel the house subscription (D22)
 //   POST   /members {firstName}       add a member by first name → join link
 //   POST   /members/:memberId/link    a new join link (when none is open)
 //   DELETE /links/:invitationId       close a join link
@@ -33,7 +36,7 @@ import {
   create, addMember, createLink, revokeLink, accept, decline, grantRole, revokeRole, transferAdmin,
   leave, removeMember, dissolve, undoDialTurn, unlinkMember, HouseholdError,
 } from '../services/householdService.js';
-import { mine, lookups, myLog, peekLink, profileIdForUid } from '../services/householdReads.js';
+import { mine, lookups, myLog, peekLink, profileIdForUid, houseBox, recipients } from '../services/householdReads.js';
 
 const router = Router();
 const signedIn = [requireAuth, blockAnonymousAuth];
@@ -206,9 +209,25 @@ router.post('/transfer', ...signedIn, async (req: AuthRequest, res) => {
 router.post('/leave', ...signedIn, async (req: AuthRequest, res) => {
   try {
     const me = await caller(req, res); if (!me) return;
-    await leave(me);
-    res.json({ ok: true });
+    res.json({ ok: true, ...await leave(me, { confirm: req.body?.confirm === true }) });
   } catch (err) { fail(res, err, 'leave'); }
+});
+
+router.get('/house-box', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const me = await caller(req, res); if (!me) return;
+    const box = await houseBox(me);
+    if (!box) { res.status(404).json({ error: 'not_in_household', message: 'You are not in a Family Household yet.' }); return; }
+    if (!box.canAdminister) { res.status(403).json({ error: 'not_household_admin', message: 'Only the household admin can do that.' }); return; }
+    res.json({ members: box.members });
+  } catch (err) { fail(res, err, 'house-box'); }
+});
+
+router.get('/recipients', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const me = await caller(req, res); if (!me) return;
+    res.json(await recipients(me));
+  } catch (err) { fail(res, err, 'recipients'); }
 });
 
 router.delete('/members/:memberId', ...signedIn, async (req: AuthRequest, res) => {
@@ -224,8 +243,7 @@ router.delete('/members/:memberId', ...signedIn, async (req: AuthRequest, res) =
 router.post('/dissolve', ...signedIn, async (req: AuthRequest, res) => {
   try {
     const me = await caller(req, res); if (!me) return;
-    await dissolve(me);
-    res.json({ ok: true });
+    res.json({ ok: true, ...await dissolve(me, { confirm: req.body?.confirm === true }) });
   } catch (err) { fail(res, err, 'dissolve'); }
 });
 

@@ -286,3 +286,14 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **Unlink:** the member row returns to the managed profile with its proxy quiz; the account leaves the household; an admin member cannot be unlinked.
 - [ ] **A claimed member sees the same quiz as the tab** (`/api/quiz/results/latest` reads `v_customer_quiz_current`).
 - [ ] **Badge words** come from `household_account_state` / `household_quiz_state`.
+
+## Family Household 3: order for the house (2026-11-07)
+
+- [ ] **For whom per line:** a household member's cart shows "For" on each line (in-box members, the buyer first); the same coffee for two people is two lines; a line for someone outside the box is refused.
+- [ ] **House orders carry the household;** a house subscription (a bag for someone else) carries it; a member's own plan does not and stays untouched by Leave.
+- [ ] **Renewal per drinker:** each bag follows its drinker's current quiz and dial; the subscriber's dial never moves a member's bag; a member with no quiz or out of the box is skipped by name and the rest ships at its own tier; the payer gets one email per cycle.
+- [ ] **Member mail:** members with a sign-in get "ordered" and "on its way" for their bag; managed members and the buyer get none.
+- [ ] **Leave / Close with the house subscription:** the tab asks first (the API's sentence), then cancels it; members with a sign-in get the handover email and an offer; the first box they subscribe inside the window takes tier + the perk once; renewals at the tier.
+- [ ] **The holder of the house subscription cannot be removed** by another admin.
+- [ ] **Build the house box** adds one bag per in-box member with a quiz; others show Take the quiz for; own plans are marked.
+- [ ] **Attribution:** a member's bag-claim scan beats the line's recipient (D24); the buyer's own bag reads `buyer`.

@@ -401,9 +401,9 @@ export async function getCustomerIdentity(uid: string, runner: Runner = db): Pro
     `SELECT (SELECT up.first_name FROM user_profile up WHERE up.id = $1) AS first_name,
             (SELECT MIN(up.created_at) FROM user_profile up JOIN v_customer_identity vci ON vci.user_id = up.id
               WHERE vci.canonical_user_id = $1) AS member_since,
-            -- Family Household 1 (2026-11-07): other active members, from v_household_member.
-            (SELECT COUNT(*) FROM v_household_member other
-              JOIN v_household_member me ON me.household_id = other.household_id
+            -- Family Household 1 (2026-11-07): other active members, from v_household_membership.
+            (SELECT COUNT(*) FROM v_household_membership other
+              JOIN v_household_membership me ON me.household_id = other.household_id
                AND me.user_id = $1 AND me.status_code = 'active'
               WHERE other.status_code = 'active' AND other.user_id <> $1) AS household_members`,
     [canonicalId]

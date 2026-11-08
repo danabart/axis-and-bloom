@@ -39,9 +39,9 @@ export async function hasLiamAccess(uid: string, runner: Runner = db): Promise<L
          EXISTS (
            SELECT 1 FROM subscription s
            JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
-           -- Family Household 1 (2026-11-07): a house subscription counts for its active members (v_household_member).
+           -- Family Household 1 (2026-11-07): a house subscription counts for its active members (v_household_membership).
            WHERE (s.user_id = up.id OR EXISTS (
-                    SELECT 1 FROM v_household_member vm
+                    SELECT 1 FROM v_household_membership vm
                     WHERE vm.user_id = up.id AND vm.status_code = 'active' AND vm.household_id = s.household_id))
              AND (s.sponsored_expires_at IS NULL OR s.sponsored_expires_at > now())
          ) AS is_subscriber

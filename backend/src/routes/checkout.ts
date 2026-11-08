@@ -6,7 +6,7 @@
 //   GET  /session/:id/status       ownership-checked, from our tables only, so the return page reflects the webhook's work
 import { Router, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
+import { requireAuth, blockAnonymousAuth, optionalAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
 import { commerceParam } from '../services/commerceParameters.js';
 import { createCheckoutSession, getSessionStatus, subscriptionFrequencies, quoteCart, CheckoutError } from '../services/checkoutService.js';
@@ -46,10 +46,12 @@ router.get('/rules', async (_req, res) => {
 
 // Commerce 2, C1: public (the cart drawer shows it signed out too), read-only.
 const quoteLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, keyGenerator: getRealClientIp, standardHeaders: true, legacyHeaders: false });
-router.post('/quote', quoteLimiter, async (req, res) => {
+// Family Household 3 (D22): signed in, the subscription quote shows an open handover offer as its own line.
+router.post('/quote', quoteLimiter, optionalAuth, async (req: AuthRequest, res) => {
   try {
     const { items, subscription } = req.body ?? {};
-    res.json(await quoteCart(items, subscription && typeof subscription === 'object' ? { frequencyWeeks: Number(subscription.frequencyWeeks) } : null));
+    res.json(await quoteCart(items, subscription && typeof subscription === 'object' ? { frequencyWeeks: Number(subscription.frequencyWeeks) } : null,
+      req.uid && !req.isAnonymous ? req.uid : null));
   } catch (err) { sendError(res, err, 'quote'); }
 });
 

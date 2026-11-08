@@ -84,7 +84,7 @@ describe('seeds', () => {
     expect(await codes('household_member_status')).toEqual(['active', 'left', 'removed']);
     expect(await codes('household_invitation_status')).toEqual(['open', 'accepted', 'declined', 'revoked', 'legacy']);
     expect(await codes('household_event_source')).toEqual(['customer', 'admin', 'system', 'cron']);
-    expect((await codes('household_event_kind')).length).toBe(19); // + dial_turn_undone (Household 2)
+    expect((await codes('household_event_kind')).length).toBe(20); // + dial_turn_undone (Household 2), handover_redeemed (Household 3)
     const ut = await db.query(`SELECT 1 FROM user_type WHERE name = 'household_managed'`);
     expect(ut.rowCount).toBe(1);
   });
@@ -294,11 +294,11 @@ describe('leave, remove, dissolve', () => {
     expect(kinds).toEqual(expect.arrayContaining(['member_removed', 'link_revoked', 'dissolved']));
   });
 
-  it('an active house subscription blocks leave and dissolve (cancel-on-leave is brief 3)', async () => {
+  it('an active house subscription held by the leaver asks for confirmation first (D22, Household 3)', async () => {
     const h = await newHousehold('sub');
-    await db.query(`INSERT INTO subscription (user_id, household_id, status) VALUES ($1, $2, 'active')`, [h.adminId, h.householdId]);
-    await expectHouseholdError(hs.dissolve(h.adminId), 409, 'subscription_active');
-    await expectHouseholdError(hs.leave(h.adminId), 409, 'subscription_active');
+    await db.query(`INSERT INTO subscription (user_id, household_id, status, kind) VALUES ($1, $2, 'active', 'paid')`, [h.adminId, h.householdId]);
+    await expectHouseholdError(hs.dissolve(h.adminId), 409, 'confirm_cancel');
+    await expectHouseholdError(hs.leave(h.adminId), 409, 'confirm_cancel');
   });
 });
 
@@ -308,7 +308,7 @@ describe('readers moved to v_household_member', () => {
     const spouse = await profile('readers-spouse');
     const link = await hs.addMember(h.adminId, 'Spouse');
     await hs.accept(link.token, spouse.id);
-    expect(await resolveIntendedFor(h.adminId, [{ intendedForUserId: spouse.id }])).toBe(spouse.id);
+    expect((await resolveIntendedFor(h.adminId, [{ intendedForUserId: spouse.id }])).perItem).toEqual([spouse.id]);
     await db.query(`INSERT INTO subscription (user_id, household_id, status) VALUES ($1, $2, 'active')`, [h.adminId, h.householdId]);
     expect(await hasLiamAccess(spouse.uid)).toEqual({ allowed: true, reason: 'subscriber' });
     // The spouse leaves: the household subscription no longer counts for them.

@@ -57,6 +57,8 @@ export interface ResolvedLine {
   source: 'dial' | 'direct' | 'collection';
   archetype: string | null;
   dialSortOrder: number | null;
+  /** Family Household 3: the index of the cart item this line came from (a Collection item yields several lines), so each line takes its item's recipient. */
+  itemIndex?: number;
 }
 
 export interface ResolvedCart {
@@ -101,7 +103,8 @@ export async function resolveCart(items: CartItemInput[]): Promise<ResolvedCart>
   if (!Array.isArray(items) || !items.length) throw new CartError(400, 'empty_cart', 'items required');
   const lines: ResolvedLine[] = [];
 
-  for (const item of items) {
+  for (const [itemIndex, item] of items.entries()) {
+    const firstLine = lines.length;
     const quantity = quantityOf(item);
 
     if (item.archetype && item.dialSortOrder !== undefined && item.weightOz && !item.collection) {
@@ -178,6 +181,7 @@ export async function resolveCart(items: CartItemInput[]): Promise<ResolvedCart>
     } else {
       throw new CartError(400, 'invalid_item', 'Each item needs a dial position, a coffee, a collection or a SKU');
     }
+    for (let k = firstLine; k < lines.length; k++) lines[k].itemIndex = itemIndex;
   }
 
   const subtotalCents = lines.reduce((s, l) => s + l.unitPriceCents * l.quantity, 0);

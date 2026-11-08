@@ -13,6 +13,8 @@ interface CartContextType {
   removeFromCart: (index: number) => void;
   /** Website 8: the /cart stepper. Sets line `index` to `qty`; 0 or less removes it. */
   setQuantity: (index: number, qty: number) => void;
+  /** Family Household 3 (C1): who line `index` is for (null = the buyer). */
+  setRecipient: (index: number, userId: string | null, name: string | null) => void;
   /** Commerce 1: opens /checkout (no API call; payment happens there). */
   checkout: () => void;
   /** Empties the cart (the return page, once the order is confirmed). */
@@ -53,6 +55,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // per archetype, qty adjusts the whole set, never splits into individual coffees.
   function isSameLine(a: CartItem, b: CartItem): boolean {
     if (a.kind !== b.kind) return false;
+    // Family Household 3: the same coffee for two people is two lines.
+    if ((a.intendedForUserId ?? null) !== (b.intendedForUserId ?? null)) return false;
     if (a.kind === 'dial' && b.kind === 'dial') {
       return a.archetype === b.archetype && a.dialSortOrder === b.dialSortOrder && a.weightOz === b.weightOz;
     }
@@ -89,6 +93,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCart(prev => prev.map((item, i) => (i === index ? { ...item, qty } : item)));
   }
 
+  function setRecipient(index: number, userId: string | null, name: string | null) {
+    setCart(prev => prev.map((item, i) => (i === index ? { ...item, intendedForUserId: userId, intendedForName: name } : item)));
+  }
+
   function checkout() {
     setCartOpen(false);
     navigate('/checkout');
@@ -100,7 +108,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <CartContext.Provider value={{ cart, cartOpen, toggleCartOpen, closeCart, addToCart, removeFromCart, setQuantity, checkout, clear, subscription, setSubscription }}>
+    <CartContext.Provider value={{ cart, cartOpen, toggleCartOpen, closeCart, addToCart, removeFromCart, setQuantity, setRecipient, checkout, clear, subscription, setSubscription }}>
       {children}
     </CartContext.Provider>
   );
@@ -121,12 +129,14 @@ export function useCart() {
  */
 export function toCheckoutItems(cart: CartItem[]) {
   return cart.map(item => {
+    // Family Household 3 (C1): each line names its drinker; the server checks it is the buyer or an in-box member.
+    const forWhom = item.intendedForUserId ? { intendedForUserId: item.intendedForUserId } : {};
     if (item.kind === 'dial') {
-      return { archetype: item.archetype, dialSortOrder: item.dialSortOrder, weightOz: item.weightOz, quantity: item.qty, priceCents: item.retailPriceCents };
+      return { archetype: item.archetype, dialSortOrder: item.dialSortOrder, weightOz: item.weightOz, quantity: item.qty, priceCents: item.retailPriceCents, ...forWhom };
     }
     if (item.kind === 'collection') {
-      return { collection: true as const, archetype: item.archetype, quantity: item.qty, priceCents: item.retailPriceCents };
+      return { collection: true as const, archetype: item.archetype, quantity: item.qty, priceCents: item.retailPriceCents, ...forWhom };
     }
-    return { coffeeId: item.coffeeId, weightOz: item.weightOz, quantity: item.qty, priceCents: item.retailPriceCents };
+    return { coffeeId: item.coffeeId, weightOz: item.weightOz, quantity: item.qty, priceCents: item.retailPriceCents, ...forWhom };
   });
 }

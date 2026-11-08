@@ -6654,6 +6654,22 @@ Brief `backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_2_QUIZ_AND_DI
 
 ---
 
+### 265. Family Household 3: order for the house (2026-11-07)
+
+Brief `backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_3_ORDER_FOR_THE_HOUSE.md` (design D11, D12, D13, D21, D22, D24, D30, D34, T2, T3, T8, T11, T12); full record `backend/src/features/household/CLOSING_REPORT_3.md`. Stripe test mode.
+
+**Schema:** `subscription_item.intended_for_user_id` and `ended_at` (a dropped bag is ended, never deleted); CHECK `subscription_item_what_ships` (archetype, signup coffee or recipient, T2); `subscription_event_kind` `item_added`, `item_removed`, `renewal_items_skipped`; `household_event_kind` `handover_redeemed`; `household_parameter` `house_box_weight_oz` 12; `checkout_session.handover_offer_event_id`; `v_subscription_status` counts live items and carries `household_id`; new `v_subscription_item`, `v_household_membership` (lean membership read, OT-108), `v_household_numbers` (D19); `v_household_member` joins identity, quiz and dial once per query and gains `in_house_subscription`, `own_plan_active`; `v_household.pays_user_id` from the house subscription (OT-103) plus its id and status; `v_customer_bag_attribution` D24 order (claim, then recipient: `intended` for someone else, `buyer` for the buyer).
+
+**Backend:** per-line recipients (`resolveIntendedFor` per cart item, in-box members only; `ResolvedLine.itemIndex` so a Collection's coffees share their item's recipient; the fingerprint includes them); every order of a household member carries its `household_id`; a subscription carries it only when a bag is for someone else (Dana's decision 2); recipient items store no archetype. Renewal per drinker (`subscriptionShipment.resolveDrinkerLine`: current quiz, then their dial, signup slot, landing default); a bag whose drinker has no quiz or left the box is skipped and the rest ships at its own tier (decision 1), recorded (`renewal_items_skipped`) and the payer emailed once per cycle; drinkers travel in the invoice metadata to the renewal order. `subscriptionService.addItem` / `removeItem` (D12). Member mail (`householdEmails`: bag ordered / shipped to members with a sign-in, D13, T8). Cancel on leave / dissolve with confirmation, handover offers and email, the perk on the first box (`applySubscriptionPricing` extra percentage), `handover_redeemed` at completion (D22); the holder of the house subscription cannot be removed (decision 3). Build the house box (`GET /api/household/house-box`), `GET /api/household/recipients`, `GET /api/admin/household/numbers`; the quote shows the offer when signed in.
+
+**Frontend:** the cart's "For" per line (`CartLines`, recipient in the merge key and the checkout payload); the offer line in the subscription total; Family Household tab: Build the house box, the house subscription with Add a bag / Drop, the handover offer, Leave / Close confirming the cancellation; `SubscriptionPanel` names each bag's drinker; admin Households: the numbers card and the house subscription in the drawer.
+
+**Tests:** `services/householdOrder.test.ts` (8); brief-1 tests updated (per-item recipients, confirm instead of refusal, 20 event kinds).
+
+**Verified:** see `CLOSING_REPORT_3.md`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

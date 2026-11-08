@@ -128,8 +128,13 @@ function SubscriptionCard({ s, data, busy, notice, openCardOnLoad, onAct, onCanc
         <div className="flex flex-col gap-1">
           <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60">Lined up</p>
           {s.nextCoffees.map((c, i) => (
-            <p key={i} className="text-sm text-[#a33726]/80">{c.quantity} × {c.displayName}{c.weightOz ? ` · ${c.weightOz} oz` : ''}</p>
+            <p key={i} className="text-sm text-[#a33726]/80">
+              {c.quantity} × {c.displayName}{c.weightOz ? ` · ${c.weightOz} oz` : ''}
+              {/* Family Household 3 (C3): a house subscription names whom each bag is for. */}
+              {s.nextFor?.[i]?.drinkerFirstName ? ` · for ${s.nextFor[i].drinkerFirstName}` : ''}
+            </p>
           ))}
+          {(s.skipped ?? []).map((r, i) => <p key={`skip-${i}`} className="text-xs text-[#a33726]/60">{r}</p>)}
         </div>
       )}
       {s.followsDial && <Link to="/bloom" className={link}>Change it on your Bloom Dial</Link>}

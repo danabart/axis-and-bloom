@@ -18,6 +18,7 @@ import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware
 import {
   getSubscriptionsForCustomer, subscriptionOwnedBy, changeFrequency, skipNext, pause, resume, cancel,
   createPaymentMethodSession, allowedFrequencies, pauseBounds, SelfServiceError,
+  subscriptionItemsEditableBy, addItem, removeItem,
 } from '../services/subscriptionService.js';
 
 const router = Router();
@@ -54,6 +55,28 @@ const owned = async (req: AuthRequest, res: Response): Promise<string | null> =>
 const FrequencyBody = z.object({ weeks: z.coerce.number().int().positive() });
 const PauseBody = z.object({ resumeOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
 const badBody = (res: Response, message: string) => res.status(400).json({ error: 'invalid_request', message });
+
+// Family Household 3 (D12, T11): a bag for a household member, or drop one, from the next renewal.
+// The subscriber or an administrator of the household the subscription serves.
+const ItemBody = z.object({ intendedForUserId: z.string().uuid(), weightOz: z.coerce.number().positive(), quantity: z.coerce.number().int().positive() });
+router.post('/:id/items', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+  try {
+    const id = String(req.params.id ?? '');
+    if (!(await subscriptionItemsEditableBy(req.uid!, id))) { res.status(404).json({ error: 'subscription_not_found', message: 'We could not find that subscription.' }); return; }
+    const body = ItemBody.safeParse(req.body ?? {});
+    if (!body.success) return badBody(res, 'Choose who the bag is for, its size and how many.');
+    res.json(await addItem(id, body.data));
+  } catch (err) { fail(res, err, 'add-item'); }
+});
+router.delete('/:id/items/:itemId', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+  try {
+    const id = String(req.params.id ?? '');
+    if (!(await subscriptionItemsEditableBy(req.uid!, id))) { res.status(404).json({ error: 'subscription_not_found', message: 'We could not find that subscription.' }); return; }
+    const itemId = z.string().uuid().safeParse(req.params.itemId);
+    if (!itemId.success) return badBody(res, 'Unknown bag.');
+    res.json(await removeItem(id, itemId.data));
+  } catch (err) { fail(res, err, 'remove-item'); }
+});
 
 router.post('/:id/frequency', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   try {

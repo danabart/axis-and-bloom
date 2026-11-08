@@ -3,6 +3,7 @@ import type { CartItem } from './types';
 import { formatPrice, formatWeight } from './types';
 import { getCheckoutRules, quoteCheckout, type CartQuote, type CheckoutRules, type SubscriptionChoice } from '../../lib/api';
 import { useCart, toCheckoutItems } from '../../context/CartContext';
+import { useAuth } from '../../context/AuthContext';
 import { Caps } from '../chrome';
 import { Photo } from '../home/Photo';
 import { familyLookOf } from '../shop/ShopCoffeeCard';
@@ -131,6 +132,14 @@ export function SubtotalLine({ items, quote, subscribed, className = 'text-sm' }
   const oneTime = cartSubtotalCents(items);
   const sub = subscribed ? quote?.subscription : null;
   return (
+    <>
+    {/* Family Household 3 (D22): the handover perk on this first box, its own line, words from the API. */}
+    {sub?.offer && (
+      <div className={`flex items-center justify-between gap-4 ${className}`} data-testid="offer-line">
+        <span style={MUTED}>{sub.offer.label} · {sub.offer.pct}%</span>
+        <span style={INK}>−{formatPrice(sub.offer.cents)}</span>
+      </div>
+    )}
     <div className={`flex items-center justify-between gap-4 ${className}`} data-testid="subtotal-line">
       <span style={MUTED}>Subtotal</span>
       <span style={INK}>
@@ -140,6 +149,58 @@ export function SubtotalLine({ items, quote, subscribed, className = 'text-sm' }
         {subscribed && !sub ? '…' : formatPrice(sub ? sub.subtotalCents : oneTime)}
       </span>
     </div>
+    </>
+  );
+}
+
+/** Family Household 3 (C1): who a bag can be for — the buyer first, then the household box; empty outside a household. */
+type Recipient = { userId: string; firstName: string | null; isMe: boolean };
+let recipientsCache: { uid: string; at: number; list: Promise<Recipient[]> } | null = null;
+function useHouseholdRecipients(): Recipient[] {
+  const { user } = useAuth();
+  const [list, setList] = useState<Recipient[]>([]);
+  useEffect(() => {
+    if (!user || user.isAnonymous) { setList([]); return; }
+    if (!recipientsCache || recipientsCache.uid !== user.uid || Date.now() - recipientsCache.at > 60_000) {
+      recipientsCache = {
+        uid: user.uid, at: Date.now(),
+        list: Promise.resolve().then(() => user.getIdToken())
+          .then(t => fetch('/api/household/recipients', { headers: { Authorization: `Bearer ${t}` } }))
+          .then(r => (r.ok ? r.json() : []))
+          .catch(() => []),
+      };
+    }
+    let live = true;
+    recipientsCache.list.then(l => { if (live) setList(l); });
+    return () => { live = false; };
+  }, [user]);
+  return list;
+}
+
+/** The "For" choice on a line (shown when the buyer is in a household with someone in the box). */
+function ForWhom({ item, index, editable }: { item: CartItem; index: number; editable: boolean }) {
+  const recipients = useHouseholdRecipients();
+  const { setRecipient } = useCart();
+  if (recipients.length < 2) return null;
+  const current = item.intendedForUserId ?? recipients.find(r => r.isMe)?.userId ?? '';
+  if (!editable) {
+    const who = recipients.find(r => r.userId === current);
+    return who && !who.isMe ? <p className="text-xs" style={MUTED} data-testid="line-for">For {who.firstName}</p> : null;
+  }
+  return (
+    <label className="text-xs flex items-center gap-1.5" style={MUTED} data-testid="line-for">
+      For
+      <select
+        value={current}
+        onChange={e => {
+          const r = recipients.find(x => x.userId === e.target.value);
+          setRecipient(index, r && !r.isMe ? r.userId : null, r && !r.isMe ? r.firstName : null);
+        }}
+        className="bg-transparent border-b text-xs" style={{ ...INK, borderColor: 'var(--ab-ink-hairline)' }}
+      >
+        {recipients.map(r => <option key={r.userId} value={r.userId}>{r.isMe ? `${r.firstName ?? 'Me'} (you)` : r.firstName}</option>)}
+      </select>
+    </label>
   );
 }
 
@@ -198,6 +259,7 @@ export function CartLines({ items, onRemove, onQuantity, variant = 'list' }: {
               <div className="cp-lm">
                 <Caps weight={400}>{meta}</Caps>
                 <span className="cp-ln">{name}</span>
+                <ForWhom item={item} index={i} editable={Boolean(onRemove)} />
               </div>
               <div className="cp-right">
                 {onQuantity && (
@@ -241,6 +303,7 @@ export function CartLines({ items, onRemove, onQuantity, variant = 'list' }: {
                 </p>
               </>
             )}
+            <ForWhom item={item} index={i} editable={Boolean(onRemove)} />
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-sm" style={INK}><LinePrice item={item} /></span>

@@ -29,6 +29,8 @@ import { resolveCart, CartError, type CartItemInput, type ResolvedCart } from '.
 import { commerceParam, commerceParamText } from './commerceParameters.js';
 import { stripe, STRIPE_ENABLED, getOrCreateStripeCustomer } from './stripe.js';
 import { applySubscriptionPricing } from './subscriptionShipment.js';
+import { activeHouseholdOf, openHandoverOffer } from './householdReads.js';
+import { recordHandoverRedeemed } from './householdService.js';
 import {
   createPaidSubscriptionFromCheckout, recordSubscriptionStarted, markRenewalCharged, todayEastern, type SubscriptionIntent,
 } from './subscriptionService.js';
@@ -66,31 +68,40 @@ async function resolveShipTo(userId: string, shippingAddressId?: string | null):
 }
 
 // Customer Blueprint C2, Part A4 (moved from routes/orders.ts) — who each bag
-// is for: the same for every line, and the buyer or a member of the buyer's
-// household; the buyer when the client names nobody (this path never sets
-// "order".household_id and there is no company-gift order path, so D7's
-// default always applies). Family Household 1 (2026-11-07): membership is
-// read from v_household_member (both active in the same household), not the
-// retired user_profile.household_id; brief 3 makes the recipient per line.
-export async function resolveIntendedFor(userId: string, items: Array<{ intendedForUserId?: string | null }>): Promise<string> {
-  const named = items.filter(it => it.intendedForUserId !== undefined).map(it => it.intendedForUserId ?? null);
-  if (!named.length) return userId;
-  if (new Set(named).size > 1) throw new CheckoutError(400, 'invalid_recipient', 'intendedForUserId must be the same for every line in one order');
-  const target = named[0];
-  if (!target || target === userId) return userId;
-  const member = (await db.query(
-    `SELECT 1 FROM v_household_member t
-     JOIN v_household_member b ON b.household_id = t.household_id AND b.user_id = $2 AND b.status_code = 'active'
-     WHERE t.user_id = $1 AND t.status_code = 'active'`, [target, userId]
-  )).rows.length > 0;
-  if (!member) throw new CheckoutError(400, 'invalid_recipient', "intendedForUserId must be the buyer or a member of the buyer's household");
-  return target;
+// is for. Family Household 3 (2026-11-07, B1): per cart item. Each item's
+// intendedForUserId is absent/null/the buyer (the buyer's own bag) or an active
+// member of the buyer's household whose roles put them in the house box
+// (v_household_membership, in_house_box); anything else is 400. The buyer's
+// own lines store the buyer's id (attribution reads it, D24). householdId is
+// the buyer's active household (CTO call 1: every order of a household member
+// carries it, for counting).
+export async function resolveIntendedFor(
+  userId: string, items: Array<{ intendedForUserId?: string | null }>,
+): Promise<{ perItem: string[]; householdId: string | null }> {
+  const householdId = await activeHouseholdOf(userId);
+  const allowed = new Set<string>([userId]);
+  if (householdId) {
+    const r = await db.query<{ user_id: string }>(
+      `SELECT user_id FROM v_household_membership WHERE household_id = $1 AND status_code = 'active' AND in_house_box`, [householdId]
+    );
+    for (const row of r.rows) allowed.add(row.user_id);
+  }
+  const perItem = items.map(it => {
+    const target = it.intendedForUserId ?? null;
+    if (!target || target === userId) return userId;
+    if (!allowed.has(target)) {
+      throw new CheckoutError(400, 'invalid_recipient', "Each bag is for you or for someone in your Family Household's box");
+    }
+    return target;
+  });
+  return { perItem, householdId };
 }
 
-function fingerprint(cart: ResolvedCart, shipTo: ShipTo, intendedFor: string, intent: SubscriptionIntent | null): string {
+export function fingerprint(cart: ResolvedCart, shipTo: ShipTo, recipients: string[], intent: SubscriptionIntent | null): string {
   return createHash('sha256').update(JSON.stringify({
-    lines: cart.lines.map(l => [l.coffeeSkuId, l.quantity, l.unitPriceCents, l.discountCents, l.source, l.archetype, l.dialSortOrder]),
-    shipping: cart.shippingCents, shipTo, intendedFor,
+    // Family Household 3: each line's recipient is part of the cart.
+    lines: cart.lines.map(l => [l.coffeeSkuId, l.quantity, l.unitPriceCents, l.discountCents, l.source, l.archetype, l.dialSortOrder, recipients[l.itemIndex ?? 0]]),
+    shipping: cart.shippingCents, shipTo,
     // Commerce 2: the same cart as a subscription is a different session.
     ...(intent ? { subscription: intent.frequencyWeeks } : {}),
   })).digest('hex');
@@ -108,8 +119,8 @@ export async function subscriptionFrequencies(): Promise<number[]> {
  * subscription tier by total bags. Shipping is unchanged (same bag count,
  * same rule).
  */
-async function priceForSubscription(cart: ResolvedCart): Promise<ResolvedCart> {
-  const pricing = await applySubscriptionPricing(cart.lines.map(l => ({ ...l, fullPriceCents: l.unitPriceCents + l.discountCents })));
+async function priceForSubscription(cart: ResolvedCart, extraPct = 0): Promise<ResolvedCart> {
+  const pricing = await applySubscriptionPricing(cart.lines.map(l => ({ ...l, fullPriceCents: l.unitPriceCents + l.discountCents })), extraPct);
   return {
     ...cart,
     lines: pricing.lines.map(({ fullPriceCents: _full, ...l }) => l),
@@ -121,9 +132,20 @@ export interface CartQuote {
   bagCount: number;
   subtotalCents: number;
   shippingCents: number;
-  /** The same cart as a subscription: the tier by bag count, no collection discount (null when not asked). */
-  subscription: { frequencyWeeks: number; discountPct: number; discountCents: number; subtotalCents: number } | null;
+  /**
+   * The same cart as a subscription: the tier by bag count, no collection
+   * discount (null when not asked). Family Household 3 (D22): `offer` is the
+   * handover perk when the signed-in buyer has an open offer (first box only):
+   * its percentage, what it takes off, and the line's words.
+   */
+  subscription: {
+    frequencyWeeks: number; discountPct: number; discountCents: number; subtotalCents: number;
+    offer?: { pct: number; cents: number; label: string; expiresAt: string } | null;
+  } | null;
 }
+
+/** D22's words for the quote line. */
+const HANDOVER_OFFER_LABEL = 'Family Household offer';
 
 /**
  * Commerce 2, C1: POST /api/checkout/quote — the cart summary's numbers from
@@ -131,14 +153,23 @@ export interface CartQuote {
  * checkout would price it, and, when asked, as a subscription. Read-only;
  * the client's prices are checked exactly as at checkout (409 when stale).
  */
-export async function quoteCart(items: CartItemInput[], subscription: { frequencyWeeks: number } | null): Promise<CartQuote> {
+export async function quoteCart(items: CartItemInput[], subscription: { frequencyWeeks: number } | null, buyerUid: string | null = null): Promise<CartQuote> {
   const cart = await resolveCart(items);
   let sub: CartQuote['subscription'] = null;
   if (subscription) {
     const weeks = Number(subscription.frequencyWeeks);
     if (!(await subscriptionFrequencies()).includes(weeks)) throw new CheckoutError(400, 'invalid_frequency', 'Choose one of the delivery frequencies offered.');
-    const pricing = await applySubscriptionPricing(cart.lines.map(l => ({ ...l, fullPriceCents: l.unitPriceCents + l.discountCents })));
-    sub = { frequencyWeeks: weeks, discountPct: pricing.discountPct, discountCents: pricing.discountCents, subtotalCents: pricing.subtotalCents };
+    const full = cart.lines.map(l => ({ ...l, fullPriceCents: l.unitPriceCents + l.discountCents }));
+    const tier = await applySubscriptionPricing(full);
+    const buyerId = buyerUid
+      ? (await db.query<{ id: string }>(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [buyerUid])).rows[0]?.id ?? null
+      : null;
+    const offer = buyerId ? await openHandoverOffer(buyerId) : null;
+    const pricing = offer ? await applySubscriptionPricing(full, offer.pct) : tier;
+    sub = {
+      frequencyWeeks: weeks, discountPct: pricing.discountPct, discountCents: pricing.discountCents, subtotalCents: pricing.subtotalCents,
+      ...(offer ? { offer: { pct: offer.pct, cents: tier.subtotalCents - pricing.subtotalCents, label: HANDOVER_OFFER_LABEL, expiresAt: offer.expiresAt } } : {}),
+    };
   }
   return { bagCount: cart.bagCount, subtotalCents: cart.subtotalCents, shippingCents: cart.shippingCents, subscription: sub };
 }
@@ -172,10 +203,14 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
   }
 
   const shipTo = await resolveShipTo(profile.id, input.shippingAddressId);
-  const intendedFor = await resolveIntendedFor(profile.id, input.items ?? []);
+  const { perItem: recipients } = await resolveIntendedFor(profile.id, input.items ?? []);
   const resolved = await resolveCart(input.items);
-  const cart = intent ? await priceForSubscription(resolved) : resolved;
-  const print = fingerprint(cart, shipTo, intendedFor, intent);
+  // Family Household 3 (D22, CTO call 2): an open handover offer adds its
+  // percentage to the tier on this, the first box; recorded on the session and
+  // redeemed when it completes. Renewals are at the normal tier.
+  const offer = intent ? await openHandoverOffer(profile.id) : null;
+  const cart = intent ? await priceForSubscription(resolved, offer?.pct ?? 0) : resolved;
+  const print = fingerprint(cart, shipTo, recipients, intent);
 
   // The same open cart twice within the expiry window reuses its session.
   const open = (await db.query<{ id: string; stripe_checkout_session_id: string | null }>(
@@ -202,12 +237,13 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
     const s = await tx.query<{ id: string }>(
       `INSERT INTO checkout_session
          (user_id, mode, status, cart_fingerprint, subtotal_cents, shipping_cents, bag_count, shipping_address_id,
-          shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, expires_at, subscription_intent)
-       VALUES ($1, $13, 'open', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $14)
+          shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, expires_at, subscription_intent,
+          handover_offer_event_id)
+       VALUES ($1, $13, 'open', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $14, $15)
        RETURNING id`,
       [profile.id, print, cart.subtotalCents, cart.shippingCents, cart.bagCount, shipTo.id,
        shipTo.street, shipTo.city, shipTo.state, shipTo.postal_code, shipTo.country, expiresAt,
-       intent ? 'subscription' : 'payment', intent ? JSON.stringify(intent) : null]
+       intent ? 'subscription' : 'payment', intent ? JSON.stringify(intent) : null, offer?.eventId ?? null]
     );
     for (const l of cart.lines) {
       await tx.query(
@@ -216,7 +252,7 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
             discount_cents, intended_for_user_id, order_kind, source, archetype, dial_sort_order)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'manual', $10, $11, $12)`,
         [s.rows[0].id, l.coffeeSkuId, l.coffeeId, l.displayName, l.weightOz, l.quantity, l.unitPriceCents,
-         l.discountCents, intendedFor, l.source, l.archetype, l.dialSortOrder]
+         l.discountCents, recipients[l.itemIndex ?? 0], l.source, l.archetype, l.dialSortOrder]
       );
     }
     return s.rows[0].id;
@@ -340,8 +376,10 @@ export async function completeCheckoutSession(session: Stripe.Checkout.Session):
     // Commerce 2: a subscription checkout. "order" is insert-only (D11), so
     // the subscription exists first and the order carries its id at insert;
     // the subscription then points at the order (started event, last_order_id).
+    // Family Household 3 (CTO call 1): the buyer's active household, at payment.
+    const householdId = await activeHouseholdOf(cs.user_id, tx);
     const subscriptionId: string | null = cs.subscription_intent
-      ? await createPaidSubscriptionFromCheckout(tx, cs, lines.rows, { paymentMethodId })
+      ? await createPaidSubscriptionFromCheckout(tx, cs, lines.rows, { paymentMethodId, householdId })
       : null;
 
     const inserted = await tx.query<{ id: string }>(
@@ -349,14 +387,14 @@ export async function completeCheckoutSession(session: Stripe.Checkout.Session):
          (user_id, fulfillment_status, subtotal, shipping_fee_charged, taxes_collected, transaction_fee, total_amount_paid,
           currency, shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_address_id,
           checkout_session_id, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, fulfillment_roaster_id,
-          is_subscription, subscription_id)
-       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), NULL, $17, $18)
+          is_subscription, subscription_id, household_id)
+       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), NULL, $17, $18, $19)
        ON CONFLICT (stripe_checkout_session_id) DO NOTHING
        RETURNING id`,
       [cs.user_id, toDollars(cs.subtotal_cents), toDollars(session.total_details?.amount_shipping ?? cs.shipping_cents),
        toDollars(session.total_details?.amount_tax), feeCents === null ? null : toDollars(feeCents), toDollars(session.amount_total),
        (session.currency ?? 'usd').toUpperCase(), cs.shipping_street, cs.shipping_city, cs.shipping_state, cs.shipping_postal_code,
-       cs.shipping_country, cs.shipping_address_id, cs.id, session.id, paymentIntentId, subscriptionId !== null, subscriptionId]
+       cs.shipping_country, cs.shipping_address_id, cs.id, session.id, paymentIntentId, subscriptionId !== null, subscriptionId, householdId]
     );
     if (!inserted.rows[0]) {
       // Lost a race to a concurrent delivery of the same event. With a
@@ -381,6 +419,10 @@ export async function completeCheckoutSession(session: Stripe.Checkout.Session):
     await recordOrderEvent({
       orderId, kind: 'paid', paymentStatus: 'paid', fulfillmentStatus: 'awaiting_manual', stripeRef: paymentIntentId, source: 'webhook',
     }, tx);
+    // Family Household 3 (D22): the handover perk this session priced in is used now (once per offer).
+    if (cs.handover_offer_event_id && subscriptionId) {
+      await recordHandoverRedeemed(tx, cs.handover_offer_event_id, { orderId, subscriptionId, userId: cs.user_id });
+    }
     await tx.query(
       `UPDATE checkout_session SET status = 'complete', completed_at = now(), order_id = $1, subscription_id = $3 WHERE id = $2`,
       [orderId, cs.id, subscriptionId]
@@ -411,6 +453,8 @@ export interface RenewalLineMetadata {
   weight_oz?: string;
   unit_price_cents?: string;
   discount_cents?: string;
+  /** Family Household 3: the member this bag is for (absent = the subscriber). */
+  intended_for_user_id?: string;
 }
 
 const isUuid = (s: string | undefined) => Boolean(s && /^[0-9a-f-]{36}$/i.test(s));
@@ -458,22 +502,25 @@ export async function createSubscriptionOrder(invoice: Stripe.Invoice): Promise<
       return {
         skuId: m.coffee_sku_id!, displayName: m.display_name ?? null, weightOz: m.weight_oz ? Number(m.weight_oz) : null,
         quantity: i.quantity, unitCents: Number(m.unit_price_cents), discountCents: Number(m.discount_cents ?? 0),
+        intendedFor: isUuid(m.intended_for_user_id) ? m.intended_for_user_id! : sub.user_id,
       };
     });
+    // Family Household 3 (CTO call 1): the subscriber's active household, at payment.
+    const householdId = await activeHouseholdOf(sub.user_id, tx);
     const subtotalCents = lineRows.reduce((s, l) => s + l.unitCents * l.quantity, 0);
 
     const inserted = await tx.query<{ id: string }>(
       `INSERT INTO "order"
          (user_id, fulfillment_status, subtotal, shipping_fee_charged, taxes_collected, transaction_fee, total_amount_paid,
           currency, shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_address_id,
-          stripe_payment_intent_id, paid_at, fulfillment_roaster_id, is_subscription, subscription_id, stripe_invoice_id)
-       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULL, true, $16, $17)
+          stripe_payment_intent_id, paid_at, fulfillment_roaster_id, is_subscription, subscription_id, stripe_invoice_id, household_id)
+       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULL, true, $16, $17, $18)
        ON CONFLICT (stripe_invoice_id) DO NOTHING
        RETURNING id`,
       [sub.user_id, toDollars(subtotalCents), toDollars(shippingCents), toDollars(taxCents),
        feeCents === null ? null : toDollars(feeCents), toDollars(full.amount_paid), (full.currency ?? 'usd').toUpperCase(),
        shipTo?.street ?? null, shipTo?.city ?? null, shipTo?.state ?? null, shipTo?.postal_code ?? null, shipTo?.country ?? null,
-       shipTo?.id ?? null, paymentIntentId, paidAt, subscriptionId, invoiceId]
+       shipTo?.id ?? null, paymentIntentId, paidAt, subscriptionId, invoiceId, householdId]
     );
     if (!inserted.rows[0]) {
       const again = await tx.query<{ id: string }>(`SELECT id FROM "order" WHERE stripe_invoice_id = $1`, [invoiceId]);
@@ -486,7 +533,7 @@ export async function createSubscriptionOrder(invoice: Stripe.Invoice): Promise<
         `INSERT INTO order_line_item
            (order_id, blend_id, quantity, unit_price_charged, discount_amount, intended_for_user_id, order_kind, display_name, weight_oz)
          VALUES ($1, $2, $3, $4, $5, $6, 'subscription_renewal', $7, $8)`,
-        [orderId, l.skuId, l.quantity, toDollars(l.unitCents), toDollars(l.discountCents), sub.user_id, l.displayName, l.weightOz]
+        [orderId, l.skuId, l.quantity, toDollars(l.unitCents), toDollars(l.discountCents), l.intendedFor, l.displayName, l.weightOz]
       );
     }
     await recordOrderEvent({

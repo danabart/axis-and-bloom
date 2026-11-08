@@ -5,6 +5,8 @@
 import { db } from '../db/client.js';
 import { householdParam } from './householdParameters.js';
 import { getDialTurnsByOthers } from './customerReads.js';
+import { resolveDrinkerLine } from './subscriptionShipment.js';
+import { commerceParam } from './commerceParameters.js';
 
 /** The profile id behind a Firebase uid, or null (no /sync yet). */
 export async function profileIdForUid(uid: string): Promise<string | null> {
@@ -50,6 +52,7 @@ interface MemberView {
   may_turn_dials: boolean; account_state: 'login' | 'managed'; archetype_name: string | null; archetype_code: string | null;
   quiz_state: 'none' | 'by_admin' | 'own'; quiz_taken_by_first_name: string | null;
   dial_slot_id: number | null; dial_sort_order: number | null; dial_slot_name: string | null; claim_link_id: string | null;
+  in_house_subscription: boolean; own_plan_active: boolean;
   open_link_id: string | null; open_link_token: string | null;
   open_link_created_at: string | null; joined_at: string; ended_at: string | null;
 }
@@ -57,14 +60,15 @@ interface MemberView {
 const MEMBER_SELECT = `vm.member_id, vm.user_id, vm.first_name, vm.status_code, vm.status_label, vm.role_codes, vm.can_administer,
   vm.in_house_box, vm.self_manages_cycle, vm.may_turn_dials, vm.account_state, vm.archetype_name, vm.archetype_code,
   vm.quiz_state, vm.quiz_taken_by_first_name, vm.dial_slot_id, cds.sort_order AS dial_sort_order, cds.name AS dial_slot_name,
-  vm.claim_link_id, vm.open_link_id, vm.open_link_token, vm.open_link_created_at, vm.joined_at, vm.ended_at`;
+  vm.claim_link_id, vm.open_link_id, vm.open_link_token, vm.open_link_created_at, vm.joined_at, vm.ended_at,
+  vm.in_house_subscription, vm.own_plan_active`;
 
 const fill = (label: string, actor: string | null) => label.replace('{actor}', actor ?? 'another member');
 
 /** The household the user is an active member of, with members, my roles, recent events and the limits the UI needs; null when none. */
 export async function mine(userId: string) {
   const meRow = await db.query<{ member_id: string; household_id: string }>(
-    `SELECT member_id, household_id FROM v_household_member WHERE user_id = $1 AND status_code = 'active'`, [userId]
+    `SELECT member_id, household_id FROM v_household_membership WHERE user_id = $1 AND status_code = 'active'`, [userId]
   );
   const mine = meRow.rows[0];
   if (!mine) return null;
@@ -107,6 +111,9 @@ export async function mine(userId: string) {
         quizState: { code: m.quiz_state, label: fill(quizWord.get(m.quiz_state) ?? m.quiz_state, m.quiz_taken_by_first_name) },
         dial: m.dial_slot_id ? { slotId: m.dial_slot_id, sortOrder: m.dial_sort_order, name: m.dial_slot_name } : null,
         joinedAt: m.joined_at,
+        inHouseBox: m.in_house_box,
+        inHouseSubscription: m.in_house_subscription,
+        ownPlanActive: m.own_plan_active,
         mayQuizFor,
         mayTurnDialFor,
         // D25: the member themselves or an administrator; never a member who administers (transfer first).
@@ -128,6 +135,9 @@ export async function mine(userId: string) {
     }),
     events: events.rows,
     limits: { maxMembers },
+    // Family Household 3: the house subscription (who pays, what ships next, for whom) and my open handover offer.
+    houseSubscription: await houseSubscriptionView(mine.household_id, userId, isAdmin, members.rows),
+    handoverOffer: await handoverOfferView(userId),
   };
 }
 
@@ -167,7 +177,7 @@ export async function peekLink(token: string, viewerUserId: string | null) {
   let viewer: { alreadyMember: boolean; leavesHousehold: string | null } | null = null;
   if (viewerUserId) {
     const cur = await db.query<{ household_id: string; household_name: string | null }>(
-      `SELECT vm.household_id, vh.household_name FROM v_household_member vm
+      `SELECT vm.household_id, vh.household_name FROM v_household_membership vm
        JOIN v_household vh ON vh.household_id = vm.household_id
        WHERE vm.user_id = $1 AND vm.status_code = 'active'`, [viewerUserId]
     );
@@ -215,5 +225,146 @@ export async function household(householdId: string) {
     ),
   ]);
   if (!h.rows[0]) return null;
-  return { household: h.rows[0], members: members.rows, links: links.rows, events: events.rows };
+  // Family Household 3 (C4): the house subscription and its live items.
+  const houseItems = h.rows[0].house_subscription_id ? (await db.query(
+    `SELECT item_id, signup_name, weight_oz, quantity, drinker_first_name, intended_for_user_id, created_at
+     FROM v_subscription_item WHERE subscription_id = $1 AND ended_at IS NULL ORDER BY created_at, item_id`, [h.rows[0].house_subscription_id]
+  )).rows : [];
+  return { household: h.rows[0], members: members.rows, links: links.rows, events: events.rows, houseItems };
+}
+
+// ── Family Household 3 (2026-11-07) ──────────────────────────────────────────
+
+type Q = { query: (sql: string, values?: unknown[]) => Promise<{ rows: any[] }> };
+
+/** The household the profile is an active member of (CTO call 1: an order carries it), or null. */
+export async function activeHouseholdOf(userId: string, runner: Q = db): Promise<string | null> {
+  const r = await runner.query(
+    `SELECT household_id FROM v_household_membership WHERE user_id = $1 AND status_code = 'active'`, [userId]
+  );
+  return r.rows[0]?.household_id ?? null;
+}
+
+/** D22: an open handover offer for this profile (inside the window, not yet used), with the perk. */
+export async function openHandoverOffer(userId: string, runner: Q = db): Promise<{ eventId: string; pct: number; expiresAt: string } | null> {
+  const r = await runner.query(
+    `SELECT e.event_id, e.detail ->> 'expires_at' AS expires_at
+     FROM v_household_event e
+     WHERE e.kind_code = 'handover_offered' AND e.detail ->> 'member_user_id' = $1
+       AND (e.detail ->> 'expires_at')::timestamptz > now()
+       AND NOT EXISTS (SELECT 1 FROM v_household_event r
+                        WHERE r.kind_code = 'handover_redeemed' AND r.detail ->> 'offer_event_id' = e.event_id::text)
+     ORDER BY e.created_at DESC LIMIT 1`, [userId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return { eventId: row.event_id, pct: await householdParam('household_handover_discount_pct'), expiresAt: row.expires_at };
+}
+
+async function houseSubscriptionView(householdId: string, viewerId: string, viewerAdministers: boolean, members: MemberView[]) {
+  const h = (await db.query<{ house_subscription_id: string | null; pays_user_id: string | null; pays_first_name: string | null }>(
+    `SELECT house_subscription_id, pays_user_id, pays_first_name FROM v_household WHERE household_id = $1`, [householdId]
+  )).rows[0];
+  if (!h?.house_subscription_id) return null;
+  const sub = (await db.query<{ status: string; customer_label: string | null; frequency_weeks: number | null; next_delivery_date: string | null; bag_count: string }>(
+    `SELECT status, customer_label, frequency_weeks, next_delivery_date::text AS next_delivery_date, bag_count
+     FROM v_subscription_status WHERE subscription_id = $1`, [h.house_subscription_id]
+  )).rows[0];
+  const items = (await db.query<{ item_id: string; signup_name: string | null; weight_oz: string; quantity: number; drinker_first_name: string | null; intended_for_user_id: string | null }>(
+    `SELECT item_id, signup_name, weight_oz, quantity, drinker_first_name, intended_for_user_id
+     FROM v_subscription_item WHERE subscription_id = $1 AND ended_at IS NULL ORDER BY created_at, item_id`, [h.house_subscription_id]
+  )).rows;
+  const canEdit = viewerAdministers || h.pays_user_id === viewerId;
+  return {
+    id: h.house_subscription_id,
+    paysFirstName: h.pays_first_name,
+    status: sub?.status ?? null,
+    statusLabel: sub?.customer_label ?? null,
+    frequencyWeeks: sub?.frequency_weeks ?? null,
+    nextDeliveryDate: sub?.next_delivery_date ?? null,
+    bagCount: Number(sub?.bag_count ?? 0),
+    items: items.map(i => ({
+      itemId: i.item_id, name: i.signup_name, weightOz: Number(i.weight_oz), quantity: i.quantity,
+      // A bag for a member follows their own quiz and dial at each renewal (T2); the subscriber's bag shows its signup name.
+      forFirstName: i.intended_for_user_id ? i.drinker_first_name : h.pays_first_name,
+      followsMember: Boolean(i.intended_for_user_id),
+    })),
+    canEdit,
+    // Members a bag can be added for (D12): in the household box, other than the subscriber.
+    addableFor: canEdit
+      ? members.filter(m => m.in_house_box && m.status_code === 'active' && m.user_id !== h.pays_user_id).map(m => ({ userId: m.user_id, firstName: m.first_name }))
+      : [],
+    weightOz: await householdParam('house_box_weight_oz'),
+  };
+}
+
+async function handoverOfferView(userId: string) {
+  const offer = await openHandoverOffer(userId);
+  if (!offer) return null;
+  const until = new Date(offer.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'America/New_York' });
+  return {
+    pct: offer.pct,
+    expiresAt: offer.expiresAt,
+    line: `Start a subscription by ${until} and your first box takes an extra ${offer.pct}% on top of the subscription price.`,
+  };
+}
+
+/** The cart's "For" choices (C1): the buyer first, then the in-box members of their household; empty outside a household. */
+export async function recipients(userId: string): Promise<Array<{ userId: string; firstName: string | null; isMe: boolean }>> {
+  const r = await db.query<{ user_id: string; first_name: string | null }>(
+    `SELECT vm.user_id, vm.first_name FROM v_household_membership vm
+     JOIN v_household_membership me ON me.household_id = vm.household_id AND me.user_id = $1 AND me.status_code = 'active'
+     WHERE vm.status_code = 'active' AND (vm.in_house_box OR vm.user_id = $1)
+     ORDER BY (vm.user_id = $1) DESC, vm.joined_at`, [userId]
+  );
+  return r.rows.map(m => ({ userId: m.user_id, firstName: m.first_name, isMe: m.user_id === userId }));
+}
+
+/**
+ * B7, Build the house box: for every active in-box member, house_box_bags_per_member
+ * bag(s) of house_box_weight_oz at their current match, by the renewal's own rule
+ * (subscriptionShipment.resolveDrinkerLine), so the cart and the renewal agree.
+ * A member with no quiz gets no line and needsQuiz (the admin may still add
+ * any coffee for them by hand, G2.19); ownPlanActive marks D30. Nothing is
+ * ordered here.
+ */
+export async function houseBox(userId: string) {
+  const meRow = (await db.query<{ household_id: string; can_administer: boolean }>(
+    `SELECT household_id, can_administer FROM v_household_membership WHERE user_id = $1 AND status_code = 'active'`, [userId]
+  )).rows[0];
+  if (!meRow) return null;
+  const [bags, weightOz, followDial] = await Promise.all([
+    householdParam('house_box_bags_per_member'),
+    householdParam('house_box_weight_oz'),
+    commerceParam('subscription_ships_current_dial_position').then(v => v === 1),
+  ]);
+  const members = (await db.query<{ member_id: string; user_id: string; first_name: string | null; quiz_state: string; own_plan_active: boolean }>(
+    `SELECT member_id, user_id, first_name, quiz_state, own_plan_active FROM v_household_member
+     WHERE household_id = $1 AND status_code = 'active' AND in_house_box ORDER BY (user_id = $2) DESC, joined_at`, [meRow.household_id, userId]
+  )).rows;
+  const out = [];
+  for (const m of members) {
+    const r = m.quiz_state === 'none' ? null : await resolveDrinkerLine(m.member_id, m.user_id, meRow.household_id, weightOz, bags, followDial, null);
+    const line = r && !('reason' in r) ? r : null;
+    out.push({
+      memberId: m.member_id,
+      userId: m.user_id,
+      firstName: m.first_name,
+      isMe: m.user_id === userId,
+      needsQuiz: m.quiz_state === 'none',
+      ownPlanActive: m.own_plan_active,
+      unavailable: r && 'reason' in r ? r.reason : null,
+      line: line ? {
+        kind: 'dial' as const, archetype: line.archetype!, archetypeLabel: line.archetypeLabel, dialSortOrder: line.dialSortOrder!,
+        weightOz: line.weightOz, platformName: line.displayName, retailPriceCents: line.fullPriceCents, qty: line.quantity,
+        intendedForUserId: m.user_id, intendedForName: m.first_name,
+      } : null,
+    });
+  }
+  return { canAdminister: meRow.can_administer, members: out };
+}
+
+/** D19: the admin numbers card (v_household_numbers, one row). */
+export async function numbers() {
+  return (await db.query(`SELECT * FROM v_household_numbers`)).rows[0];
 }
