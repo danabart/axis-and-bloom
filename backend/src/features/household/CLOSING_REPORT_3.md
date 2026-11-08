@@ -134,6 +134,17 @@ CATALOG.md checked (G2.4): the recipient of a line and of an item are columns th
 - Tom's quote for 2 bags as a subscription: 15 % (tier 10 + offer 5), offer line $3.20, $54.40; his checkout (Stripe session `cs_test_a1WjqQCHml…`, $54.40, offer event `d8cb3464…`) completes and `handover_redeemed` is recorded; quoting again: 10 %, $57.60. His new subscription is personal (`household_id` NULL).
 - Events: created, member_added, link_created, link_accepted, member_claimed (Tom, Ella), member_left (Ella), admin_transferred, subscription_cancelled_on_leave, handover_offered, member_left (Dana), handover_redeemed. Subscription events: started, canceled.
 
+## Deploy (2026-11-07)
+
+- Commit `0be5f21` pushed; Deploy run `42444016096` green (backend + frontend); revision `axis-bloom-backend-00844-6g5`.
+- Startup log: `DB schema verified`, `[db-comments] applied 1762 statements`, 0 ERROR lines; the same pre-existing findings (quiz-integrity #10 = OT-33, sommelier-integrity #3, evidence-integrity #2 and #6, data-catalog #6); data-catalog #4 reported `CATALOG.md` stale as expected, regenerated from prod (168 tables, 86 views, 1,508 columns, hash `6704cc35…`) and committed with this report.
+- Production, read-only after the deploy: `subscription_item` CHECKs are `subscription_item_quantity_check` and `subscription_item_what_ships`; household "Bars-checout1-test": pays Dana-Admin (no house subscription yet), 2 active members, 1 proxy quiz; members Dana-Admin (login, own quiz, earthy, dial slot 15) and camila (managed, quiz by Dana-Admin, fruity, dial slot 7), neither in a house subscription nor on an own plan; numbers: 1 household, 2 members, 1 proxy quiz, 1 managed profile, 0 claims, 0 house orders; `house_box_weight_oz` 12.
+- **Before Part E (read-only resolution on prod):** Build the house box will give camila "Clean Fruit" (Fruity, her dial stop 1, $29.00 at 12 oz) and Dana-Admin none: Earthy has nothing sellable at 12 oz on prod (her dial slot 15 and the landing default slot 16). Dana can add any coffee for herself by hand (G2.19); it is a catalog fact, not a household rule.
+
+## Part E — production (with Dana)
+
+**Not run yet (STOP 2).**
+
 ## Deviations from the brief (and why)
 
 - Decisions 1–5 (above).

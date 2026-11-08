@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-08 from database `axisandbloom` · 168 tables · 83 views · 1505 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `2cfca3bd20dd` (full value in the footer).
+Generated 2026-11-08 from database `axisandbloom` · 168 tables · 86 views · 1508 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `6704cc35667d` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -1381,7 +1381,7 @@ One paid order, written once when Stripe confirms payment: a one-time checkout o
 |---|---|---|---|
 | `id` | uuid | no | Surrogate UUID primary key; referenced by order_line_item.order_id, roastery_shipment_details.order_id and notification_log.order_id. |
 | `user_id` | uuid | yes | FK to user_profile(id); the buyer. |
-| `household_id` | uuid | yes | FK to household(id); never set by any code path (confirmed in Customer Blueprint C2 Task 0), always NULL. |
+| `household_id` | uuid | yes | FK to household(id): the buyer's active household at payment (Family Household 3, CTO call 1), for counting house orders and for the D24 claim join; NULL when the buyer is in no household \| Writer: checkoutService.completeCheckoutSession, checkoutService.createSubscriptionOrder |
 | `external_shopify_order_id` | text | yes | ID of a matching Shopify order; written only by the retired Shopify checkout (POST /api/orders, 410 since Commerce 1, 2026-10-31), NULL for Stripe orders. |
 | `fulfillment_status` | text | yes | Legacy at-insert fulfilment value, FK to order_fulfillment_status(code): written once as awaiting_manual by checkoutService.completeCheckoutSession and never changed (D11); pending is the pre-Stripe column default. Readers use v_order_status.fulfillment_status, which follows order_event (Commerce 1, 2026-10-31). |
 | `is_subscription` | boolean | yes | True when the order belongs to a subscription: its first delivery (written at checkout) and every renewal (written from invoice.paid); default false (Commerce 2, 2026-10-31). |
@@ -1443,7 +1443,7 @@ One purchased SKU line of an order, with price paid and who it is for (immutable
 | `id` | uuid | no | Surrogate UUID primary key; referenced by customer fact tables as order_line_item_id. |
 | `order_id` | uuid | yes | FK to "order"(id), ON DELETE CASCADE; the parent order. |
 | `blend_id` | uuid | yes | FK to coffee_sku(id); the SKU purchased (the column keeps its pre-rename name). |
-| `intended_for_user_id` | uuid | yes | FK to user_profile(id); the person the bag is for, defaults to the buyer unless the client passes another user. |
+| `intended_for_user_id` | uuid | yes | FK to user_profile(id): the person the bag is for, per line (Family Household 3): the buyer's own lines carry the buyer; a line for a household member carries that member; a renewal line carries the subscription item's member (from the invoice item metadata) or the subscriber. |
 | `shipment_id` | uuid | yes | Reserved, never written: FK to roastery_shipment_details(id). order_line_item is insert-only for ab_app (D11), so a line cannot gain its shipment after insert; shipments link to the order by roastery_shipment_details.order_id instead (Dana, 2026-10-31, Commerce 3 decision 3). |
 | `quantity` | integer | no | Number of bags on this line; NOT NULL, default 1. |
 | `unit_price_charged` | numeric | yes | Price per bag charged, in dollars (numeric, not cents). |
@@ -1842,6 +1842,7 @@ One Stripe Checkout Session we created: a priced cart with a ships-to snapshot w
 | `completed_at` | timestamp with time zone | yes | UTC timestamp the completion webhook wrote the order; NULL while open or after expiry. |
 | `subscription_intent` | jsonb | yes | JSON {"frequencyWeeks": N, "startsSubscription": true} when the checkout starts a subscription; NULL for a one-time checkout (Commerce 2). |
 | `subscription_id` | uuid | yes | FK to subscription(id); the subscription created when a subscription checkout completed; NULL otherwise. |
+| `handover_offer_event_id` | uuid | yes | References household_event.id of the handover offer (D22) whose perk priced this subscription checkout; on completion the offer is redeemed once (household_event handover_redeemed). NULL otherwise (Family Household 3). |
 
 #### `checkout_session_line`
 
@@ -2119,7 +2120,7 @@ Current roles of each household member, one row per grant; revoking sets revoked
 
 #### `household_parameter`
 
-Every business number of the Family Household (max_members, quiz_for_member_enabled, house_box_bags_per_member, household_handover_discount_pct, household_handover_window_days) with history, admin-editable in /admin/households, read through householdParameters.householdParam (60 s cache); a change supersedes the current row
+Every business number of the Family Household (max_members, quiz_for_member_enabled, house_box_bags_per_member, house_box_weight_oz, household_handover_discount_pct, household_handover_window_days) with history, admin-editable in /admin/households, read through householdParameters.householdParam (60 s cache); a change supersedes the current row
 
 - **Writer:** householdParameters.setParameterInTx; seed
 - **Readers:** householdParameters (householdService, householdReads, householdAdmin)
@@ -2828,7 +2829,7 @@ Current state of one recurring-delivery subscription: a company-sponsored seat (
 |---|---|---|---|
 | `id` | uuid | no | Surrogate UUID primary key. |
 | `user_id` | uuid | yes | FK to user_profile(id), ON DELETE CASCADE; the subscriber (matched directly, never via household). |
-| `household_id` | uuid | yes | FK to household(id), the household the subscription belongs to; reserved, not written yet (neither the company-gift seat nor the paid subscription sets it). |
+| `household_id` | uuid | yes | FK to household(id): set only on a house subscription, one with at least one item for a member other than the subscriber (Family Household 3, Dana's decision 2; a member's own plan stays NULL). Liam access for members (D16) and cancel-on-leave (D22) follow it \| Writer: subscriptionService.createPaidSubscriptionFromCheckout, subscriptionService.addItem, subscriptionService.removeItem |
 | `status` | text | yes | FK to subscription_status(code), default active (Commerce 2). Sponsored seats are only ever active or lapsed; paid subscriptions move through active, past_due (a renewal charge failed, Stripe retrying), paused, canceled and lapsed. Whether a status keeps Liam access and the SUBSCRIBER stage is subscription_status.counts_as_subscriber. |
 | `frequency_days` | integer | yes | Days between deliveries, default 30; kept equal to frequency_weeks times 7 on paid subscriptions for older readers (sponsored seats keep the default). frequency_weeks is the source. |
 | `next_delivery_date` | date | yes | Calendar date (US Eastern) of the next charge-and-ship: the daily cron charges a paid subscription on or after it. Moves only when a cycle is paid (or skipped while paused or on a skip), so while past_due it is the unpaid cycle's date; NULL on sponsored seats. |
@@ -2850,10 +2851,10 @@ Current state of one recurring-delivery subscription: a company-sponsored seat (
 
 #### `subscription_item`
 
-What a paid subscription ships each cycle, one row per checkout line at signup: the archetype and signup slot of a dial or collection line (a renewal follows the customer's current Bloom Dial position, subscriptionShipment) or the signup coffee of a category coffee, with the weight and bag count
+What a paid subscription ships each cycle (live items: ended_at IS NULL), one row per checkout line at signup or per bag added for a household member (Family Household 3): the archetype and signup slot of a dial or collection line (a renewal follows the customer's current Bloom Dial position, subscriptionShipment) or the signup coffee of a category coffee, with the weight and bag count
 
-- **Writer:** subscriptionService.createPaidSubscriptionFromCheckout
-- **Readers:** subscriptionShipment, v_subscription_status
+- **Writer:** subscriptionService.createPaidSubscriptionFromCheckout, subscriptionService.addItem, subscriptionService.removeItem
+- **Readers:** subscriptionShipment, v_subscription_status, v_subscription_item, v_household_member
 - **Since:** 2026-10-31 (Commerce 2)
 
 | column | type | null | comment |
@@ -2867,6 +2868,8 @@ What a paid subscription ships each cycle, one row per checkout line at signup: 
 | `quantity` | integer | no | Bags of this item per delivery; the subscription's bag count (the discount tier and free shipping) is their sum. |
 | `display_name_at_signup` | text | yes | House name shown at signup (slot name or category coffee name), never a roaster name. |
 | `created_at` | timestamp with time zone | no | UTC timestamp the item was written. |
+| `intended_for_user_id` | uuid | yes | References user_profile.id of the household member the bag is for (Family Household 3); NULL = the subscriber. A recipient item stores no archetype (T2): each renewal reads the member's current quiz and dial. CHECK subscription_item_what_ships: archetype, signup coffee or recipient. |
+| `ended_at` | timestamp with time zone | yes | UTC timestamp the item was dropped (subscriptionService.removeItem): it ships no more from the next renewal; never deleted (G2.11). NULL while live. |
 
 #### `token_events`
 
@@ -3689,12 +3692,12 @@ The printed sheets' lines: which dimension each line feeds and whether it is sco
 
 #### `v_customer_bag_attribution`
 
-One row per order line item saying which user drank the bag (intended_for_user_id, else the buyer, else a bag claim by an active member of the order's household per v_household_member, else unattributed) and why (attribution), per the D7 rule.
+One row per order line item saying which user drank the bag (D24: a bag claim by an active member of the order's household per v_household_membership; else the line's recipient, 'intended' when it is someone other than the buyer and 'buyer' when it is the buyer; else the buyer of a non-household order; else unattributed) and why (attribution), per the D7 rule.
 
 - **Writer:** none (derived)
 - **Readers:** customerReads.getFactsWatermark, v_customer_timeline, v_palate_evidence, v_palate_shared_traits, v_palate_dominant_dimensions, v_palate_archetype_spread, +3 more
 - **Since:** 2026-09-27 (Customer Blueprint C3 Part A2)
-- **reads:** `coffee_sku`, `customer_bag_claim`, `order`, `order_line_item`, `user_profile`, `v_household_member`
+- **reads:** `coffee_sku`, `customer_bag_claim`, `order`, `order_line_item`, `user_profile`, `v_household_membership`
 
 #### `v_customer_brew_profile`
 
@@ -3887,12 +3890,12 @@ One row per distinct word x source (roaster form, roaster remark, roaster websit
 
 #### `v_household`
 
-One row per household: name, admin, who pays, active member count, proxy quiz count (quizzes answered for a member by someone else), dissolved_at.
+One row per household: name, admin, who pays (the active house subscription's subscriber, else the admin pointer; OT-103), the house subscription id and status, active member count, proxy quiz count, dissolved_at.
 
 - **Writer:** none (derived)
 - **Readers:** householdReads
 - **Since:** 2026-11-07 (Family Household 1)
-- **reads:** `household`, `household_member`, `household_member_status`, `quiz_session`, `user_profile`, `v_customer_identity`, `v_household_member`
+- **reads:** `household`, `household_member`, `household_member_status`, `quiz_session`, `subscription`, `subscription_status`, `user_profile`, `v_customer_identity`, `v_household_membership`
 
 #### `v_household_event`
 
@@ -3901,7 +3904,7 @@ Household history with kind and source codes and labels, actor and member first 
 - **Writer:** none (derived)
 - **Readers:** householdReads
 - **Since:** 2026-11-07 (Family Household 1)
-- **reads:** `household_event`, `household_event_kind`, `household_event_source`, `user_profile`, `v_household_member`
+- **reads:** `household_event`, `household_event_kind`, `household_event_source`, `user_profile`, `v_household_membership`
 
 #### `v_household_invitation`
 
@@ -3910,16 +3913,34 @@ One row per join link (and legacy email invitation) with its state code and labe
 - **Writer:** none (derived)
 - **Readers:** householdReads, householdService
 - **Since:** 2026-11-07 (Family Household 1)
-- **reads:** `household`, `household_invitation`, `household_invitation_status`, `v_household_member`
+- **reads:** `household`, `household_invitation`, `household_invitation_status`, `v_household_membership`
 
 #### `v_household_member`
 
-One row per household membership: first name, status, role codes with the six capability flags OR-ed across the member's roles, account state (household_account_state code), current archetype and quiz state (household_quiz_state code: none, by_admin, own) with who answered, the dial slot for the current archetype (v_customer_dial_current), the claim link, the open join link. The one read path for membership.
+The Family Household tab's member read: v_household_membership plus canonical id, current archetype and quiz state (none, by_admin, own) with who answered, the dial slot for that archetype, in_house_subscription (a live item of the house subscription is theirs) and own_plan_active (D30). Identity, quiz and dial are joined once per query (OT-108).
 
 - **Writer:** none (derived)
-- **Readers:** householdReads, householdService, checkoutService.resolveIntendedFor, customerReads.getCustomerIdentity, liamAccess, users.GET /homepage-state, userSignals, v_household, v_household_invitation, v_household_event, v_customer_bag_attribution
-- **Since:** 2026-11-07 (Family Household 1)
-- **reads:** `customer_identity_link`, `customer_identity_unlink`, `household_invitation`, `household_invitation_status`, `household_member`, `household_member_role`, `household_member_status`, `household_role`, `user_profile`, `user_type`, `v_customer_dial_current`, `v_customer_identity`, `v_customer_quiz_current`
+- **Readers:** householdReads (mine, admin household, house box), householdService.assertMayQuizFor
+- **Since:** 2026-11-07 (Family Household 1; split in Family Household 3)
+- **reads:** `customer_identity_link`, `customer_identity_unlink`, `subscription`, `subscription_item`, `subscription_status`, `v_customer_dial_current`, `v_customer_identity`, `v_customer_quiz_current`, `v_household_membership`
+
+#### `v_household_membership`
+
+The lean membership read: one row per household membership with first name, status, role codes and the six capability flags, account state, claim link and open join link; no identity walk, no palate columns (OT-108).
+
+- **Writer:** none (derived)
+- **Readers:** householdService, householdReads, checkoutService.resolveIntendedFor, subscriptionService (items), subscriptionShipment.readDrinker, customerReads.getCustomerIdentity, liamAccess, users.GET /homepage-state, userSignals, v_household_member, v_household, v_household_invitation, v_household_event, v_customer_bag_attribution
+- **Since:** 2026-11-07 (Family Household 3)
+- **reads:** `customer_identity_link`, `customer_identity_unlink`, `household_invitation`, `household_invitation_status`, `household_member`, `household_member_role`, `household_member_status`, `household_role`, `user_profile`, `user_type`
+
+#### `v_household_numbers`
+
+The admin numbers card (D19), one row: open households, active members, members per household, proxy quizzes, managed profiles, claims and claim rate, house orders and bags per house order.
+
+- **Writer:** none (derived)
+- **Readers:** householdReads.numbers (admin Households page)
+- **Since:** 2026-11-07 (Family Household 3)
+- **reads:** `customer_identity_link`, `customer_identity_unlink`, `household`, `household_member`, `household_member_status`, `order`, `order_line_item`, `quiz_session`, `user_profile`, `user_type`
 
 #### `v_newsletter_subscribers`
 
@@ -4146,12 +4167,21 @@ Weekly new newsletter subscriber counts broken down by signup source, for the ma
 - **Since:** 2026-07-22
 - **reads:** `newsletter_subscriber`, `subscriber_source`
 
+#### `v_subscription_item`
+
+Every subscription item, live or ended, with its subscription's subscriber and household, the signup name and the drinker (the recipient member, else the subscriber) with first name.
+
+- **Writer:** none (derived)
+- **Readers:** subscriptionService (panel, add/drop), householdReads (house subscription), householdService (handover email), customer and admin Households views
+- **Since:** 2026-11-07 (Family Household 3)
+- **reads:** `coffee_dial_slot`, `subscription`, `subscription_item`, `user_profile`
+
 #### `v_subscription_status`
 
-One row per subscription with its status and customer label, whether it counts as a subscriber, frequency, next delivery date, pause and skip windows, item and bag counts, last order and the signup names (the SQL fallback for the coffee lined up; the dial-aware answer comes from subscriptionShipment); since Commerce 3 also canceled_at (the latest canceled event) and has_payment_method
+One row per subscription with its status and customer label, whether it counts as a subscriber, frequency, next delivery date, pause and skip windows, item and bag counts (live items), last order, the household of a house subscription (household_id, Family Household 3) and the signup names (the SQL fallback for the coffee lined up; the dial-aware answer comes from subscriptionShipment); since Commerce 3 also canceled_at (the latest canceled event) and has_payment_method
 
 - **Writer:** none (view)
-- **Readers:** subscriptions route (GET /api/subscriptions/mine), subscriptionService, commerceAdminReads (/admin/subscriptions)
+- **Readers:** subscriptions route (GET /api/subscriptions/mine), subscriptionService, commerceAdminReads (/admin/subscriptions), householdService (cancel on leave), householdReads, v_household
 - **Since:** 2026-10-31 (Commerce 2)
 - **reads:** `coffee_dial_slot`, `subscription`, `subscription_event`, `subscription_item`, `subscription_status`
 
@@ -4175,21 +4205,21 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `checkout_session` | checkoutService | checkoutService (INSERT, UPDATE) | checkoutService | — |
 | `checkout_session_line` | checkoutService | checkoutService (INSERT) | checkoutService | — |
 | `claude_daily_spend` | anthropicGuard, seed | anthropicGuard (INSERT), seed (UPDATE) | admin, anthropicGuard | — |
-| `coffee_archetype` | catalogService, seed | catalogService (UPDATE), seed (INSERT, UPDATE) | admin, archetypeRelationshipReads, axis, axisStatsReads, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, checkoutService, correct-subscriber-archetypes, cuppingReads, customerIntegrity, customerReads, evidenceReads, exportCalibration, freeSlots, householdReads, householdService, index, liamAccess, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession, roasteryPortalReads, sommelierRag, userSignals, users | v_archetype_dimension_comparison, v_archetype_vectors, v_coffee_archetype, v_coffee_customer_descriptor, v_customer_quiz_current, v_customer_timeline, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_roastery_portal_dimension_match, v_subscriber_quiz_results |
+| `coffee_archetype` | catalogService, seed | catalogService (UPDATE), seed (INSERT, UPDATE) | archetypeRelationshipReads, axis, axisStatsReads, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, correct-subscriber-archetypes, cuppingReads, customerIntegrity, customerReads, evidenceReads, exportCalibration, freeSlots, householdReads, householdService, index, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession, roasteryPortalReads, sommelierRag, subscriptionShipment, users | v_archetype_dimension_comparison, v_archetype_vectors, v_coffee_archetype, v_coffee_customer_descriptor, v_customer_quiz_current, v_customer_timeline, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_roastery_portal_dimension_match, v_subscriber_quiz_results |
 | `coffee_archetype_assignment` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, archetypeRelationshipReads, axisStatsReads, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, compatibilityReads, cuppingReads, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, setMatch2916, setMatch2917 | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_coffee, v_roastery_portal_dimension_match |
 | `coffee_archetype_relationship_kind` | seed | seed (INSERT) | archetypeRelationshipReads | — |
 | `coffee_category` | catalogService, seed | catalogService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, axisStatsReads, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, roasteryPortalService, setMatch2917 | v_coffee |
 | `coffee_category_assignment` | catalogService, seed | catalogService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, axisStatsReads, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, setMatch2917 | v_coffee |
-| `coffee_dial_slot` | catalogService, seed | catalogService (UPDATE), seed (INSERT) | admin, archetypeRelationshipReads, axis, axisStatsReads, backfillCustomerFacts, catalogImport, catalogIntegrity, catalogReads, catalogService, checkoutService, commerceAdminReads, cuppingService, customerReads, dialPositionService, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, householdReads, roasteryPortalReads, setMatch2917, sommelier, sommelierRag, subscriptionService, subscriptionShipment | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_roastery_portal_dimension_match, v_subscription_status |
+| `coffee_dial_slot` | catalogService, seed | catalogService (UPDATE), seed (INSERT) | admin, archetypeRelationshipReads, axis, axisStatsReads, backfillCustomerFacts, catalogImport, catalogIntegrity, catalogReads, catalogService, checkoutService, commerceAdminReads, cuppingService, customerReads, dialPositionService, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, householdReads, householdService, roasteryPortalReads, setMatch2917, sommelier, sommelierRag, subscriptionService, subscriptionShipment | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_roastery_portal_dimension_match, v_subscription_item, v_subscription_status |
 | `coffee_dimensions` | seed | seed (INSERT, UPDATE) | admin, archetypeRelationshipReads, axis, axisStatsReads, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceReads, freeSlots, homeContentReads, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_archetype_vectors, v_coffee_archetype, v_coffee_card, v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_evidence_cupper_calibration, v_evidence_dimension, v_evidence_roastery_calibration, v_roastery_portal_dimension_match |
 | `coffee_hop` | catalogService | catalogService (DELETE, INSERT) | admin, archetypeRelationshipReads, axis, axisStatsReads, catalogIntegrity, catalogReads, catalogService, dialSuggestion, qrDoor, sommelierRag | v_coffee_hop |
 | `coffee_milk_recommendation` | seed | seed (INSERT) | catalogReads, catalogService | v_coffee_card |
 | `coffee_presentation` | catalogService | catalogService (INSERT) | catalogReads, catalogService | v_coffee_card |
 | `coffee_retail_price` | catalogService | catalogService (INSERT) | catalogReads, catalogService | — |
 | `coffee_size` | seed | seed (INSERT) | axisStatsReads, catalogReads, catalogService, customerReads, freeSlots, roasteryPortalReads | v_coffee_sellable_candidate, v_coffee_visibility, v_palate_slot_candidates |
-| `coffee_sku` | catalogService, seed | catalogService (INSERT, UPDATE), seed (UPDATE) | admin, axisStatsReads, backfillCustomerFacts, behavioralConfidence, blendResolver, brewCard, cartResolver, catalogReads, catalogService, checkoutService, coffees, customerReads, engagementMetrics, exportCalibration, freeSlots, index, liamSmsFeedback, orderEmails, orders, qrDoor, roasteryPortalReads, users | v_coffee_sellable_candidate, v_coffee_visibility, v_customer_bag_attribution, v_customer_timeline |
+| `coffee_sku` | catalogService, seed | catalogService (INSERT, UPDATE), seed (UPDATE) | admin, axisStatsReads, backfillCustomerFacts, behavioralConfidence, blendResolver, brewCard, cartResolver, catalogReads, catalogService, checkoutService, coffees, customerReads, engagementMetrics, exportCalibration, freeSlots, householdEmails, index, liamSmsFeedback, orderEmails, orders, qrDoor, roasteryPortalReads, users | v_coffee_sellable_candidate, v_coffee_visibility, v_customer_bag_attribution, v_customer_timeline |
 | `coffee_slot_assignment` | catalogService | catalogService (INSERT, UPDATE) | admin, archetypeRelationshipReads, axis, axisStatsReads, catalogIntegrity, catalogReads, catalogService, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, setMatch2917, sommelierRag | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_coffee_visibility_summary, v_palate_recommendation_outcome, v_roastery_portal_dimension_match |
-| `coffee_slot_price` | catalogService, seed | catalogService (INSERT), seed (UPDATE) | axisStatsReads, catalogIntegrity, catalogReads, catalogService, customerReads, freeSlots, roasteryPortalReads | v_coffee_sellable_candidate, v_coffee_visibility |
+| `coffee_slot_price` | catalogService, seed | catalogService (INSERT), seed (UPDATE) | axisStatsReads, catalogIntegrity, catalogReads, catalogService, customerReads, freeSlots, roasteryPortalReads, subscriptionService | v_coffee_sellable_candidate, v_coffee_visibility |
 | `coffees` | admin, catalogService, coffees, qrDoor, seed | admin (UPDATE), catalogService (INSERT, UPDATE), coffees (UPDATE), qrDoor (UPDATE) | activeCatalog, admin, archetypeRelationshipReads, axis, axisStatsReads, behavioralConfidence, blendResolver, cartResolver, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, homeContentReads, index, orderEmails, qrDoor, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelier, sommelierRag | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_axis_origin_region_count, v_coffee, v_coffee_card, v_coffee_dimension_range, v_coffee_hop, v_collaborative_flavor_wheel, v_cupping_scores_readable, v_roastery_remark |
 | `commerce_parameter` | commerceParameters, seed | commerceParameters (INSERT, UPDATE), seed (INSERT) | commerceParameters | — |
 | `company` | companyGiftsAdmin | companyGiftsAdmin (INSERT) | companiesAdmin, companyGiftsAdmin | — |
@@ -4214,8 +4244,8 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `customer_dial_event` | customerFacts | customerFacts (INSERT) | backfillCustomerFacts, customerReads | v_customer_timeline |
 | `customer_feedback_descriptor` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, cuppingReads, customerReads, evidenceReads, exportCalibration | v_collaborative_flavor_wheel, v_customer_feedback_current |
 | `customer_feedback_event` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, cuppingReads, customerReads, evidenceReads, exportCalibration | v_collaborative_flavor_wheel, v_customer_feedback_current, v_customer_timeline |
-| `customer_identity_link` | customerFacts | customerFacts (INSERT) | admin, backfillClaimedSessionLinks, checkoutService, customerIntegrity, customerReads, dialPositionService, engagementMetrics, evidenceReads, exportCalibration, householdReads, householdService, liamAccess, quizInterpretationBackfill, quizSession, userSignals, users | v_customer_identity, v_customer_timeline, v_household_member |
-| `customer_identity_unlink` | customerFacts | customerFacts (INSERT) | admin, checkoutService, customerReads, dialPositionService, engagementMetrics, evidenceReads, exportCalibration, householdReads, householdService, liamAccess, quizInterpretationBackfill, quizSession, userSignals, users | v_customer_identity, v_household_member |
+| `customer_identity_link` | customerFacts | customerFacts (INSERT) | admin, backfillClaimedSessionLinks, checkoutService, customerIntegrity, customerReads, dialPositionService, engagementMetrics, evidenceReads, exportCalibration, householdEmails, householdReads, householdService, liamAccess, quizInterpretationBackfill, quizSession, subscriptionService, subscriptionShipment, userSignals, users | v_customer_identity, v_customer_timeline, v_household_member, v_household_membership, v_household_numbers |
+| `customer_identity_unlink` | customerFacts | customerFacts (INSERT) | admin, checkoutService, customerReads, dialPositionService, engagementMetrics, evidenceReads, exportCalibration, householdEmails, householdReads, householdService, liamAccess, quizInterpretationBackfill, quizSession, subscriptionService, subscriptionShipment, userSignals, users | v_customer_identity, v_household_member, v_household_membership, v_household_numbers |
 | `customer_liam_action` | customerFacts | customerFacts (INSERT) | customerReads | v_customer_timeline |
 | `customer_liam_question` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration, quizInterpretationBackfill | v_customer_timeline, v_palate_evidence, v_palate_threads |
 | `customer_liam_recommendation` | customerFacts | customerFacts (INSERT) | admin, backfillLiamRecommendations, customerReads, exportCalibration | v_customer_calibration, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome |
@@ -4225,19 +4255,19 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `dial_source_weight` | seed | seed (INSERT) | admin | v_coffee_dial_position_consensus |
 | `evidence_parameter` | evidenceParameterService, seed | evidenceParameterService (INSERT, UPDATE), seed (INSERT, UPDATE) | evidenceParameterService, evidenceReads | — |
 | `evidence_stop_word` | seed | seed (INSERT) | evidenceReads | v_evidence_unmapped_words |
-| `household` | householdService | householdService (INSERT, UPDATE) | householdReads, householdService | v_household, v_household_invitation |
+| `household` | householdService | householdService (INSERT, UPDATE) | householdReads, householdService | v_household, v_household_invitation, v_household_numbers |
 | `household_account_state` | seed | seed (INSERT) | householdReads | — |
 | `household_event` | householdService, manual:migrations/household_2026_11_07 | householdService (INSERT) | customerReads, householdReads, householdService | v_household_event |
 | `household_event_kind` | seed | seed (INSERT) | customerReads, householdReads, householdService | v_household_event |
 | `household_event_source` | seed | seed (INSERT) | householdReads, householdService | v_household_event |
-| `household_invitation` | householdService, manual:migrations/household_2026_11_07 | householdService (INSERT, UPDATE) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, userSignals, users | v_household_invitation, v_household_member |
-| `household_invitation_status` | seed | seed (INSERT) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, userSignals, users | v_household_invitation, v_household_member |
-| `household_member` | householdService, manual:migrations/household_2026_11_07 | householdService (INSERT, UPDATE) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, userSignals, users | v_household, v_household_member |
-| `household_member_role` | householdService, manual:migrations/household_2026_11_07 | householdService (INSERT, UPDATE) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, userSignals, users | v_household_member |
-| `household_member_status` | seed | seed (INSERT) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, userSignals, users | v_household, v_household_member |
+| `household_invitation` | householdService, manual:migrations/household_2026_11_07 | householdService (INSERT, UPDATE) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, subscriptionService, subscriptionShipment, userSignals, users | v_household_invitation, v_household_membership |
+| `household_invitation_status` | seed | seed (INSERT) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, subscriptionService, subscriptionShipment, userSignals, users | v_household_invitation, v_household_membership |
+| `household_member` | householdService, manual:migrations/household_2026_11_07 | householdService (INSERT, UPDATE) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, subscriptionService, subscriptionShipment, userSignals, users | v_household, v_household_membership, v_household_numbers |
+| `household_member_role` | householdService, manual:migrations/household_2026_11_07 | householdService (INSERT, UPDATE) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, subscriptionService, subscriptionShipment, userSignals, users | v_household_membership |
+| `household_member_status` | seed | seed (INSERT) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, subscriptionService, subscriptionShipment, userSignals, users | v_household, v_household_membership, v_household_numbers |
 | `household_parameter` | householdParameters, seed | householdParameters (INSERT, UPDATE), seed (INSERT) | householdParameters | — |
 | `household_quiz_state` | seed | seed (INSERT) | householdReads, householdService | — |
-| `household_role` | seed | seed (INSERT) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, userSignals, users | v_household_member |
+| `household_role` | seed | seed (INSERT) | admin, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, subscriptionService, subscriptionShipment, userSignals, users | v_household_membership |
 | `liam_sms_feedback` | none | — | — | — |
 | `lookup_value` | admin, seed | admin (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | admin, axisStatsReads, catalogReads, catalogService, coffees, roasterVoiceReads, roasteryPortalReads, sommelierAnswerService, sommelierEvalService, sommelierGateRuleService, sommelierReads, sommelierTurnService, sommelier_answer_seed | v_axis_origin_region_count, v_coffee_card |
 | `marketing_config` | reportingConfig, seed | reportingConfig (UPDATE), seed (INSERT) | reportingConfig | — |
@@ -4245,17 +4275,17 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `newsletter_subscriber` | backfill:backfillUnsubscribeTokens, backfill:correct-subscriber-archetypes, newsletter, seed, unsubscribe | backfill:backfillUnsubscribeTokens (UPDATE), backfill:correct-subscriber-archetypes (UPDATE), newsletter (INSERT), seed (UPDATE), unsubscribe (UPDATE) | admin, audit-quiz-emails, auth, backfillClaimedSessionLinks, backfillUnsubscribeTokens, correct-subscriber-archetypes, exportCalibration, mailchimp-backfill, newsletter, newsletterReconcile, quizIntegrity, quizInterpretationBackfill, unsubscribe, users | campaign_funnel_v, campaign_subscriber_archetype_v, v_archetype_distribution, v_customer_calibration, v_newsletter_subscribers, v_subscriber_quiz_results, v_subscribers_weekly |
 | `newsletter_subscriber_backup_20260925` | backfill:correct-subscriber-archetypes | — | — | — |
 | `notification_log` | smsProvider | smsProvider (INSERT) | — | — |
-| `order` | checkoutService | checkoutService (INSERT) | admin, behavioralConfidence, brewCard, catalogService, checkoutService, commerceAdminReads, customerReads, engagementMetrics, exportCalibration, index, orders, qrDoor, shipmentService, staleGuestCleanup, userSignals, users | v_customer_bag_attribution, v_customer_calibration, v_customer_timeline, v_order_status, v_orders_weekly, v_palate_evidence, v_palate_recommendation_outcome |
+| `order` | checkoutService | checkoutService (INSERT) | admin, behavioralConfidence, brewCard, catalogService, checkoutService, commerceAdminReads, customerReads, engagementMetrics, exportCalibration, householdEmails, householdReads, index, orders, qrDoor, shipmentService, staleGuestCleanup, userSignals, users | v_customer_bag_attribution, v_customer_calibration, v_customer_timeline, v_household_numbers, v_order_status, v_orders_weekly, v_palate_evidence, v_palate_recommendation_outcome |
 | `order_event` | checkoutService | checkoutService (INSERT) | catalogService, checkoutService, commerceAdminReads, index, orders, shipmentService, users | v_order_status |
 | `order_event_kind` | seed | seed (INSERT) | commerceAdminReads | — |
 | `order_fulfillment_status` | seed | seed (INSERT, UPDATE) | catalogService, checkoutService, commerceAdminReads, index, orders, shipmentService, users | v_order_status |
-| `order_line_item` | checkoutService, seed | checkoutService (INSERT), seed (UPDATE) | admin, backfillCustomerFacts, behavioralConfidence, brewCard, catalogService, checkoutService, commerceAdminReads, customerIntegrity, customerReads, engagementMetrics, exportCalibration, orders, qrDoor, userSignals, users | v_customer_bag_attribution, v_customer_calibration, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome |
+| `order_line_item` | checkoutService, seed | checkoutService (INSERT), seed (UPDATE) | admin, backfillCustomerFacts, behavioralConfidence, brewCard, catalogService, checkoutService, commerceAdminReads, customerIntegrity, customerReads, engagementMetrics, exportCalibration, householdEmails, householdReads, orders, qrDoor, userSignals, users | v_customer_bag_attribution, v_customer_calibration, v_customer_timeline, v_household_numbers, v_palate_evidence, v_palate_recommendation_outcome |
 | `order_payment_status` | seed | seed (INSERT) | catalogService, checkoutService, commerceAdminReads, index, orders, shipmentService, users | v_order_status |
 | `order_refund_reason` | seed | seed (INSERT) | checkoutService, commerceAdminReads | — |
 | `qr_scan_event` | qr | qr (INSERT) | engagementMetrics | — |
 | `qr_universal_token` | qrDoor | qrDoor (INSERT) | qrDoor | — |
 | `quiz` | seed | seed (INSERT, UPDATE) | customerIntegrity, homeContentReads, quiz, quizIntegrity, quizSession | campaign_funnel_v, v_quiz_scoring_matrix |
-| `quiz_answer` | seed | seed (INSERT, UPDATE) | admin, checkoutService, customerIntegrity, customerReads, exportCalibration, householdReads, householdService, liamAccess, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession, userSignals, users | v_customer_quiz_current, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
+| `quiz_answer` | seed | seed (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, householdReads, householdService, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession, subscriptionShipment | v_customer_quiz_current, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
 | `quiz_answer_archetype_score` | seed | seed (INSERT) | quizIntegrity, quizScorer | v_quiz_scoring_matrix |
 | `quiz_backup_20261008_quiz` | seed | seed (CREATE AS) | — | — |
 | `quiz_backup_20261008_quiz_answer` | seed | seed (CREATE AS) | — | — |
@@ -4263,8 +4293,8 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `quiz_backup_20261008_quiz_question` | seed | seed (CREATE AS) | — | — |
 | `quiz_funnel_event` | funnelEvents | funnelEvents (INSERT) | audit-quiz-emails, newsletter, quizIntegrity | campaign_funnel_v, v_quiz_funnel_weekly |
 | `quiz_question` | seed | seed (INSERT, UPDATE) | customerIntegrity, homeContentReads, quiz, quizIntegrity, quizScorer, quizSession | v_quiz_scoring_matrix |
-| `quiz_session` | quizSession | quizSession (INSERT) | admin, auth, backfillClaimedSessionLinks, behavioralConfidence, checkoutService, correct-subscriber-archetypes, customerIntegrity, customerReads, exportCalibration, householdReads, householdService, liamAccess, quizIntegrity, quizInterpretationBackfill, quizSession, staleGuestCleanup, userSignals, users | v_customer_calibration, v_customer_quiz_current, v_customer_timeline, v_household, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
-| `quiz_session_interpretation` | quizSession | quizSession (INSERT, UPDATE) | admin, checkoutService, customerIntegrity, customerReads, exportCalibration, householdReads, householdService, liamAccess, quizInterpretationBackfill, quizSession, userSignals, users | v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
+| `quiz_session` | quizSession | quizSession (INSERT) | auth, backfillClaimedSessionLinks, behavioralConfidence, correct-subscriber-archetypes, customerIntegrity, customerReads, exportCalibration, householdReads, householdService, quizIntegrity, quizInterpretationBackfill, quizSession, staleGuestCleanup, subscriptionShipment, users | v_customer_calibration, v_customer_quiz_current, v_customer_timeline, v_household, v_household_numbers, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
+| `quiz_session_interpretation` | quizSession | quizSession (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, householdReads, householdService, quizInterpretationBackfill, quizSession, subscriptionShipment | v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
 | `quiz_type` | seed | seed (INSERT) | homeContentReads | v_quiz_scoring_matrix |
 | `quiz_vector` | none | — | — | — |
 | `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axisStatsReads, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, commerceAdminReads, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelierEval, sommelierGate, sommelierIntegrity, sommelierRag, sommelierReplyCheck, sommelier_eval_seed, sommelier_gate_rule_seed | v_coffee, v_roastery_remark |
@@ -4305,17 +4335,17 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `sommelier_turn_label` | sommelierTurnService | sommelierTurnService (INSERT) | sommelierReads | — |
 | `stripe_event` | stripeWebhook | stripeWebhook (INSERT, UPDATE) | stripeWebhook | — |
 | `subscriber_source` | seed | seed (INSERT) | admin, mailchimp-backfill, newsletter | v_newsletter_subscribers, v_subscriber_quiz_results, v_subscribers_weekly |
-| `subscription` | subscriptionService | subscriptionService (INSERT, UPDATE) | catalogService, checkoutService, commerceAdminReads, companyGiftRedemption, cron, customerReads, householdService, liamAccess, subscriptionEmails, subscriptionRenewal, subscriptionService, subscriptionShipment, userSignals, users | v_subscription_status |
-| `subscription_event` | subscriptionService | subscriptionService (INSERT) | checkoutService, commerceAdminReads, subscriptionService | v_subscription_status |
+| `subscription` | subscriptionService | subscriptionService (INSERT, UPDATE) | catalogService, checkoutService, commerceAdminReads, companyGiftRedemption, cron, customerReads, householdReads, householdService, liamAccess, subscriptionEmails, subscriptionRenewal, subscriptionService, subscriptionShipment, userSignals, users | v_household, v_household_member, v_subscription_item, v_subscription_status |
+| `subscription_event` | subscriptionService | subscriptionService (INSERT) | checkoutService, commerceAdminReads, householdReads, householdService, subscriptionService | v_subscription_status |
 | `subscription_event_kind` | seed | seed (INSERT) | — | — |
 | `subscription_event_source` | seed | seed (INSERT) | — | — |
-| `subscription_item` | subscriptionService | subscriptionService (INSERT) | checkoutService, commerceAdminReads, subscriptionService, subscriptionShipment | v_subscription_status |
+| `subscription_item` | subscriptionService | subscriptionService (INSERT, UPDATE) | checkoutService, commerceAdminReads, householdReads, householdService, subscriptionService, subscriptionShipment | v_household_member, v_subscription_item, v_subscription_status |
 | `subscription_kind` | seed | seed (INSERT) | — | — |
-| `subscription_status` | seed | seed (INSERT) | catalogService, checkoutService, commerceAdminReads, customerReads, householdService, liamAccess, subscriptionService, userSignals, users | v_subscription_status |
+| `subscription_status` | seed | seed (INSERT) | catalogService, checkoutService, commerceAdminReads, customerReads, householdReads, householdService, liamAccess, subscriptionService, userSignals, users | v_household, v_household_member, v_subscription_status |
 | `token_events` | auth, manual:grant_tokens, tokenService | auth (INSERT), tokenService (INSERT) | admin, sommelier, sommelierGuards | — |
 | `transactional_email_log` | transactionalEmail | transactionalEmail (DELETE, INSERT, UPDATE) | audit-quiz-emails, quizIntegrity, transactionalEmail | — |
 | `user_archetype_tuning` | none | — | — | — |
-| `user_bloom_dial_current_position` | dialPositionService, seed | dialPositionService (INSERT), seed (UPDATE) | admin, catalogIntegrity, catalogService, checkoutService, customerReads, dialPositionService, exportCalibration, householdReads, householdService, liamAccess, sommelier, subscriptionShipment, userSignals, users | v_customer_dial_current |
+| `user_bloom_dial_current_position` | dialPositionService, seed | dialPositionService (INSERT), seed (UPDATE) | catalogIntegrity, catalogService, customerReads, dialPositionService, householdReads, householdService, sommelier, subscriptionShipment | v_customer_dial_current |
 | `user_brew_card` | brewCard, cron | brewCard (INSERT, UPDATE), cron (UPDATE) | brewCard, cron, customerReads, engagementMetrics | — |
 | `user_coffee_profile` | none | — | — | — |
 | `user_email` | auth, users | auth (INSERT), users (INSERT) | admin, checkoutService, commerceAdminReads, cron, roasteryPortalReads, staleGuestCleanup, users | — |
@@ -4325,11 +4355,11 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `user_lifecycle_state` | userLifecycle | userLifecycle (INSERT, UPDATE) | userLifecycle, users | — |
 | `user_payment_detail` | none | — | — | — |
 | `user_phone` | users | users (INSERT, UPDATE) | beatEngine, cron, liamSmsFeedback, users | — |
-| `user_profile` | admin, auth, companyGiftRedemption, householdService, quiz, seed, staleGuestCleanup, stripe, users | admin (UPDATE), auth (INSERT), companyGiftRedemption (UPDATE), householdService (INSERT), quiz (INSERT), seed (UPDATE), staleGuestCleanup (DELETE), stripe (UPDATE), users (INSERT, UPDATE) | admin, auth, backfillCustomerFacts, backfillLiamRecommendations, behavioralConfidence, catalogService, checkoutService, commerceAdminReads, companyGiftRedemption, companyGiftsAdmin, correct-subscriber-archetypes, cron, customerReads, dialPositionService, engagementMetrics, evidenceReads, exportCalibration, householdReads, householdService, liamAccess, liamSmsFeedback, liamWriteBack, migrateSavedItems, newsletter, orders, outcomeTracker, qr, qrDoor, quizIntegrity, quizInterpretationBackfill, quizSession, roasteryPortalReads, roasteryPortalService, sommelier, sommelierEvaluator, staleGuestCleanup, stripe, subscriptionEmails, subscriptionRenewal, subscriptionService, userSignals, users | v_customer_bag_attribution, v_customer_identity, v_customer_quiz_current, v_household, v_household_event, v_household_member |
+| `user_profile` | admin, auth, companyGiftRedemption, householdService, quiz, seed, staleGuestCleanup, stripe, users | admin (UPDATE), auth (INSERT), companyGiftRedemption (UPDATE), householdService (INSERT), quiz (INSERT), seed (UPDATE), staleGuestCleanup (DELETE), stripe (UPDATE), users (INSERT, UPDATE) | admin, auth, backfillCustomerFacts, backfillLiamRecommendations, behavioralConfidence, catalogService, checkoutService, commerceAdminReads, companyGiftRedemption, companyGiftsAdmin, correct-subscriber-archetypes, cron, customerReads, dialPositionService, engagementMetrics, evidenceReads, exportCalibration, householdEmails, householdReads, householdService, liamAccess, liamSmsFeedback, liamWriteBack, migrateSavedItems, newsletter, orders, outcomeTracker, qr, qrDoor, quizIntegrity, quizInterpretationBackfill, quizSession, roasteryPortalReads, roasteryPortalService, sommelier, sommelierEvaluator, staleGuestCleanup, stripe, subscriptionEmails, subscriptionRenewal, subscriptionService, subscriptionShipment, userSignals, users | v_customer_bag_attribution, v_customer_identity, v_customer_quiz_current, v_household, v_household_event, v_household_membership, v_household_numbers, v_subscription_item |
 | `user_roaster_link` | none | — | — | — |
 | `user_saved_item` | backfill:migrateSavedItems, dialPositionService, users | backfill:migrateSavedItems (INSERT), dialPositionService (INSERT), users (INSERT, UPDATE) | customerReads, migrateSavedItems, users | — |
 | `user_tokens` | auth, manual:grant_tokens, tokenService | auth (INSERT), tokenService (UPDATE) | admin, tokenService, tokens, users | — |
-| `user_type` | seed | seed (INSERT) | admin, auth, checkoutService, customerReads, exportCalibration, householdReads, householdService, liamAccess, roasteryPortalReads, staleGuestCleanup, userSignals, users | v_household_member |
+| `user_type` | seed | seed (INSERT) | admin, auth, checkoutService, customerReads, exportCalibration, householdEmails, householdReads, householdService, liamAccess, roasteryPortalReads, staleGuestCleanup, subscriptionService, subscriptionShipment, userSignals, users | v_household_membership, v_household_numbers |
 | `user_vector_state` | none | — | — | — |
 
 Probe markers (`// lineage: probe, not a write`), each a write the rule does not count:
@@ -4348,5 +4378,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: 2cfca3bd20dd0f0f1b22d1b3cde457a8d84672e27931b3a20c282f8a9ae3ba73
-lineage-hash: 01a6d99f4e7dcbbcf2cbc30bf939a139eba56038da78ca06f1fb74cd01ca8344
+catalog-hash: 6704cc35667d0a46c1f22766d0bb92fa3c6a5b961782e6ddeb308a0694b880ec
+lineage-hash: 9f982110dab38689e838e00a2b13c2be81f1bd014e5688170ef49afb3f02d18f
