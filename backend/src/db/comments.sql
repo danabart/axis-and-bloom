@@ -40,7 +40,7 @@
 -- firestore: users/{uid}/sommelier_evaluations | Purpose: Retired: per-session sommelier evaluations, replaced by sommelier_evaluation. Still holds data. | Writer: none (retired, C2/C3) | Readers: customerIntegrity check 15
 
 -- ── user_type ──
-COMMENT ON TABLE user_type IS $c$Purpose: Lookup of account roles that user_profile.user_type_id points to (admin, customer) | Class: operating | Writer: seed | Readers: middleware/auth, users, liamAccess, roasteryPortalReads, admin, SQL fn list_admins | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_type IS $c$Purpose: Lookup of account roles that user_profile.user_type_id points to (admin, customer, household_managed: a profile a household admin set up, which cannot sign in) | Class: operating | Writer: seed | Readers: middleware/auth, users, liamAccess, roasteryPortalReads, admin, SQL fn list_admins | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_type.id IS $c$Surrogate primary key (UUID); referenced by user_profile.user_type_id.$c$;
 COMMENT ON COLUMN user_type.name IS $c$Role name, unique; seeded values are admin and customer (docs also mention subscriber and roaster partner, never seeded).$c$;
 COMMENT ON COLUMN user_type.description IS $c$Free-text description of the role.$c$;
@@ -130,21 +130,23 @@ COMMENT ON COLUMN sensory_lexicon_attribute.edition IS $c$Lexicon edition label,
 COMMENT ON COLUMN sensory_lexicon_attribute.definition IS $c$Attribute definition text; deliberately left NULL because the WCR text is copyrighted.$c$;
 COMMENT ON COLUMN sensory_lexicon_attribute.cupping_note_id IS $c$References cupping_note.id: the active descriptor this attribute corresponds to; set for all 84 active descriptors by the seed's explicit mapping, NULL otherwise.$c$;
 -- ── household ──
-COMMENT ON TABLE household IS $c$Purpose: A Family Bundle household grouping several user profiles under one shared account | Class: operating | Writer: household.POST /api/household/create, household.DELETE /api/household/leave | Readers: household | Since: 2026-05-22$c$;
-COMMENT ON COLUMN household.id IS $c$Surrogate primary key (UUID); referenced by user_profile.household_id and household_invitation.household_id.$c$;
-COMMENT ON COLUMN household.household_name IS $c$Optional household display name chosen by the creator.$c$;
-COMMENT ON COLUMN household.primary_billing_user_id IS $c$References user_profile.id: the household creator, set at creation; no code changes it afterward.$c$;
+COMMENT ON TABLE household IS $c$Purpose: A Family Household: several palates, one box, one card; members are household_member rows | Class: operating | Writer: householdService.create, householdService.transferAdmin, householdService.dissolve | Readers: v_household, v_household_invitation, householdReads | Since: 2026-05-22 (rebuilt as Family Household 1, 2026-11-07)$c$;
+COMMENT ON COLUMN household.id IS $c$Surrogate primary key (UUID); referenced by household_member, household_invitation, household_event, subscription and "order".household_id.$c$;
+COMMENT ON COLUMN household.household_name IS $c$Household display name chosen by the creator.$c$;
+COMMENT ON COLUMN household.primary_billing_user_id IS $c$References user_profile.id: who pays for the house box; the creator at creation, moved to the new admin by householdService.transferAdmin (D21).$c$;
 COMMENT ON COLUMN household.created_at IS $c$UTC timestamp when the household was created.$c$;
-COMMENT ON COLUMN household.updated_at IS $c$Timestamp set only at insert (default now()); no code updates the household row afterward.$c$;
+COMMENT ON COLUMN household.updated_at IS $c$UTC timestamp of the last change to the household row (transfer, dissolve), set by householdService.$c$;
+COMMENT ON COLUMN household.dissolved_at IS $c$UTC timestamp the household was closed by householdService.dissolve; NULL while open. A household row is never deleted (T5).$c$;
+
 -- ── user_profile ──
-COMMENT ON TABLE user_profile IS $c$Purpose: Core customer record keyed to a Firebase uid (real or anonymous guest), holding name, household, role and consent flags | Class: operating | Writer: admin.POST /api/admin/grant-admin, admin.DELETE /api/admin/revoke-admin, auth.POST /api/auth/sync, companyGiftRedemption.POST /api/company-gift-redemption/:code/redeem, household.DELETE /api/household/leave, household.DELETE /api/household/members/:userId, household.POST /api/household/create, household.POST /api/household/join/:token, quiz.POST /api/quiz/results, staleGuestCleanup.purgeStaleAnonymousGuests, users.GET /api/users/profile, users.PATCH /api/users/profile, stripe.getOrCreateStripeCustomer; seed | Readers: v_customer_identity, v_customer_bag_attribution, middleware/auth, users, household, orders, cron, sommelier, +N more | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_profile IS $c$Purpose: Core customer record keyed to a Firebase uid (real or anonymous guest), holding name, role and consent flags; household membership lives in household_member | Class: operating | Writer: admin.POST /api/admin/grant-admin, admin.DELETE /api/admin/revoke-admin, auth.POST /api/auth/sync, companyGiftRedemption.POST /api/company-gift-redemption/:code/redeem, householdService.addMember (managed profiles, Family Household 1), quiz.POST /api/quiz/results, staleGuestCleanup.purgeStaleAnonymousGuests, users.GET /api/users/profile, users.PATCH /api/users/profile, stripe.getOrCreateStripeCustomer; seed | Readers: v_customer_identity, v_household_member, v_household, v_household_event, middleware/auth, users, orders, cron, sommelier, +N more | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_profile.id IS $c$Surrogate primary key (UUID); the user_id referenced by nearly every user-scoped table.$c$;
 COMMENT ON COLUMN user_profile.firebase_uid IS $c$Firebase Auth uid, unique; may be an anonymous-auth uid, and the same uid carries forward when a guest converts to a real account.$c$;
-COMMENT ON COLUMN user_profile.first_name IS $c$Customer first name | Writer: auth.POST /sync, users.PATCH /profile$c$;
+COMMENT ON COLUMN user_profile.first_name IS $c$Customer first name; for a household_managed profile, the first name the household admin typed | Writer: auth.POST /sync, users.PATCH /profile, householdService.addMember$c$;
 COMMENT ON COLUMN user_profile.last_name IS $c$Customer last name | Writer: auth.POST /sync, users.PATCH /profile$c$;
-COMMENT ON COLUMN user_profile.household_id IS $c$References household.id; NULL when the user is in no household | Writer: household.POST /create, household.POST /join/:token, household.DELETE /leave, household.DELETE /members/:userId$c$;
-COMMENT ON COLUMN user_profile.is_household_admin IS $c$True when the user administers their household (the creator); false otherwise | Writer: household.POST /create, household.DELETE /leave, household.DELETE /members/:userId$c$;
-COMMENT ON COLUMN user_profile.user_type_id IS $c$References user_type.id (admin or customer); NULL is treated as a regular customer | Writer: admin.POST /grant-admin, admin.DELETE /revoke-admin, SQL fns grant_admin and revoke_admin$c$;
+COMMENT ON COLUMN user_profile.household_id IS $c$Class: deprecated | Retired 2026-11-07 (household 1). Never written. Membership lives in household_member; read v_household_member.$c$;
+COMMENT ON COLUMN user_profile.is_household_admin IS $c$Class: deprecated | Retired 2026-11-07 (household 1). Never written. Roles live in household_member_role; read v_household_member.$c$;
+COMMENT ON COLUMN user_profile.user_type_id IS $c$References user_type.id (admin, customer or household_managed); NULL is treated as a regular customer | Writer: admin.POST /grant-admin, admin.DELETE /revoke-admin, SQL fns grant_admin and revoke_admin, householdService.addMember (household_managed)$c$;
 COMMENT ON COLUMN user_profile.stripe_customer_id IS $c$Stripe customer id (cus_...) for the user, unique when set (partial index user_profile_stripe_customer_id_key); created on the first checkout and reused after (Commerce 1, 2026-10-31) | Writer: stripe.getOrCreateStripeCustomer$c$;
 COMMENT ON COLUMN user_profile.accepts_marketing IS $c$Class: deprecated | DEPRECATED 2026-10-16: never read or written; marketing consent lives on newsletter_subscriber (subscribed, unsubscribed_at).$c$;
 COMMENT ON COLUMN user_profile.date_of_birth IS $c$Customer date of birth (date, no time zone); used to derive generation for Liam | Writer: users.PATCH /profile$c$;
@@ -152,15 +154,102 @@ COMMENT ON COLUMN user_profile.created_at IS $c$UTC timestamp when the profile w
 COMMENT ON COLUMN user_profile.updated_at IS $c$UTC timestamp of last profile touch; refreshed by the lazy upserts and PATCH.$c$;
 COMMENT ON COLUMN user_profile.company_gift_id IS $c$References company_gift.id: the company-sponsored gift this user redeemed; NULL otherwise | Writer: companyGiftRedemption.POST /:code/redeem$c$;
 -- ── household_invitation ──
-COMMENT ON TABLE household_invitation IS $c$Purpose: Token-based invitations to join a household, valid 7 days | Class: operating | Writer: household.POST /api/household/invite, household.POST /api/household/join/:token, household.DELETE /api/household/invitations/:invitationId | Readers: household | Since: 2026-06-08$c$;
+COMMENT ON TABLE household_invitation IS $c$Purpose: Join links for a Family Household: one open link per member, shared by the admin through their own channel (D31); a link never expires on its own (T9). Rows before 2026-11-07 are email invitations, shown as legacy | Class: operating | Writer: householdService.addMember, householdService.createLink, householdService.revokeLink, householdService.accept, householdService.decline, householdService.removeMember; manual:migrations/household_2026_11_07.sql | Readers: v_household_invitation, v_household_member, householdReads | Since: 2026-06-08 (join links: Family Household 1, 2026-11-07)$c$;
 COMMENT ON COLUMN household_invitation.id IS $c$Surrogate primary key (UUID).$c$;
-COMMENT ON COLUMN household_invitation.household_id IS $c$References household.id; invitation is deleted with the household (ON DELETE CASCADE).$c$;
-COMMENT ON COLUMN household_invitation.invited_email IS $c$Lower-cased email address the invitation was sent to; acceptance requires the joiner's email to match.$c$;
-COMMENT ON COLUMN household_invitation.invited_by_id IS $c$References user_profile.id: the household admin who sent the invitation.$c$;
-COMMENT ON COLUMN household_invitation.token IS $c$Unique 32-byte hex secret in the join link.$c$;
-COMMENT ON COLUMN household_invitation.status IS $c$Invitation state, no CHECK constraint. One of: pending, accepted, cancelled.$c$;
-COMMENT ON COLUMN household_invitation.created_at IS $c$UTC timestamp when the invitation was created.$c$;
-COMMENT ON COLUMN household_invitation.expires_at IS $c$UTC timestamp after which the invitation is rejected; defaults to created time plus 7 days.$c$;
+COMMENT ON COLUMN household_invitation.household_id IS $c$References household.id. The FK carries ON DELETE CASCADE from 2026-05; it never fires because no household row is deleted (T5).$c$;
+COMMENT ON COLUMN household_invitation.invited_email IS $c$Class: deprecated | Email the 2026-05 invitation was sent to. Never written for a join link (D31: no third-party contact data); kept on legacy rows (G2.10).$c$;
+COMMENT ON COLUMN household_invitation.invited_by_id IS $c$References user_profile.id: the household admin who created the link.$c$;
+COMMENT ON COLUMN household_invitation.token IS $c$Unique 32-byte hex secret in the join link /join-household?token=; whoever holds it may accept or decline (D14).$c$;
+COMMENT ON COLUMN household_invitation.status IS $c$Class: deprecated | Retired 2026-11-07 (household 1): the 2026-05 text state (pending, accepted, cancelled). Not written on new rows; read status_id.$c$;
+COMMENT ON COLUMN household_invitation.created_at IS $c$UTC timestamp when the link was created.$c$;
+COMMENT ON COLUMN household_invitation.expires_at IS $c$Class: deprecated | Expiry of a 2026-05 email invitation. NULL on join links, which never expire on their own (T9).$c$;
+COMMENT ON COLUMN household_invitation.status_id IS $c$References household_invitation_status.id (open, accepted, declined, revoked, legacy).$c$;
+COMMENT ON COLUMN household_invitation.member_id IS $c$References household_member.id: the member whose profile the link claims; NULL on legacy invitations. One open link per member (partial unique household_invitation_one_open).$c$;
+COMMENT ON COLUMN household_invitation.declined_at IS $c$UTC timestamp the link was declined on the join page; NULL otherwise.$c$;
+COMMENT ON COLUMN household_invitation.revoked_at IS $c$UTC timestamp the admin closed the link (or removed the member); NULL otherwise.$c$;
+COMMENT ON COLUMN household_invitation.accepted_by_user_id IS $c$References user_profile.id of the signed-in account that accepted the link; NULL until accepted.$c$;
+
+-- ── household_role ──
+COMMENT ON TABLE household_role IS $c$Purpose: Lookup of the roles a household member can hold, each rule a boolean column (design §4); a member holds one or more | Class: master | Writer: seed | Readers: v_household_member, householdReads.roles, householdService | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON COLUMN household_role.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN household_role.code IS $c$Stable code: admin, household, own_plan.$c$;
+COMMENT ON COLUMN household_role.label IS $c$Internal label (admin portal).$c$;
+COMMENT ON COLUMN household_role.customer_label IS $c$Label shown to customers on the Family Household tab.$c$;
+COMMENT ON COLUMN household_role.can_administer IS $c$True when the role may add and remove members, grant and revoke roles, share and revoke join links, order the house box and pay.$c$;
+COMMENT ON COLUMN household_role.in_house_box IS $c$True when the admin may put bags for this member in the house order and subscription.$c$;
+COMMENT ON COLUMN household_role.self_manages_cycle IS $c$True when the member orders and subscribes for themselves.$c$;
+COMMENT ON COLUMN household_role.may_turn_dials IS $c$True when the member may turn another member's dial (D27, household brief 2).$c$;
+COMMENT ON COLUMN household_role.admin_may_set IS $c$True when an administering member may grant or revoke this role on another member.$c$;
+COMMENT ON COLUMN household_role.member_may_self_set IS $c$True when a member may grant or revoke this role on themselves.$c$;
+COMMENT ON COLUMN household_role.sort_order IS $c$Display order, ascending.$c$;
+
+-- ── household_member_status ──
+COMMENT ON TABLE household_member_status IS $c$Purpose: Lookup of membership states (active, left, removed) | Class: master | Writer: seed | Readers: v_household_member, v_household, householdService | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON COLUMN household_member_status.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN household_member_status.code IS $c$Stable code: active, left, removed.$c$;
+COMMENT ON COLUMN household_member_status.label IS $c$Internal label (admin portal).$c$;
+COMMENT ON COLUMN household_member_status.customer_label IS $c$Label shown to customers.$c$;
+
+-- ── household_invitation_status ──
+COMMENT ON TABLE household_invitation_status IS $c$Purpose: Lookup of join-link states (open, accepted, declined, revoked, legacy) | Class: master | Writer: seed | Readers: v_household_invitation, v_household_member, householdService | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON COLUMN household_invitation_status.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN household_invitation_status.code IS $c$Stable code: open, accepted, declined, revoked, legacy.$c$;
+COMMENT ON COLUMN household_invitation_status.label IS $c$Internal label (admin portal).$c$;
+COMMENT ON COLUMN household_invitation_status.customer_label IS $c$Label shown to customers on the tab and the join page.$c$;
+
+-- ── household_event_kind ──
+COMMENT ON TABLE household_event_kind IS $c$Purpose: Lookup of household history event kinds (design §5) | Class: master | Writer: seed | Readers: v_household_event, householdService | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON COLUMN household_event_kind.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN household_event_kind.code IS $c$Stable code, e.g. created, member_added, link_accepted, member_claimed.$c$;
+COMMENT ON COLUMN household_event_kind.label IS $c$Label shown in the activity list and the admin drawer.$c$;
+
+-- ── household_event_source ──
+COMMENT ON TABLE household_event_source IS $c$Purpose: Lookup of where a household event came from (customer, admin, system, cron) | Class: master | Writer: seed | Readers: v_household_event, householdService | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON COLUMN household_event_source.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN household_event_source.code IS $c$Stable code: customer, admin, system, cron.$c$;
+COMMENT ON COLUMN household_event_source.label IS $c$Internal label.$c$;
+
+-- ── household_member ──
+COMMENT ON TABLE household_member IS $c$Purpose: One row per person per household stay; a person is an active member of at most one household (D23, partial unique household_member_one_active); the only place membership lives (G2.14) | Class: operating | Writer: householdService.create, householdService.addMember, householdService.accept, householdService.leave, householdService.removeMember, householdService.dissolve; manual:migrations/household_2026_11_07.sql | Readers: v_household_member, v_household, householdService | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON COLUMN household_member.id IS $c$Surrogate primary key (UUID).$c$;
+COMMENT ON COLUMN household_member.household_id IS $c$References household.id.$c$;
+COMMENT ON COLUMN household_member.user_id IS $c$References user_profile.id: the member's profile; a managed profile until the member claims it through a join link, then the account that accepted.$c$;
+COMMENT ON COLUMN household_member.status_id IS $c$References household_member_status.id (active, left, removed).$c$;
+COMMENT ON COLUMN household_member.joined_at IS $c$UTC timestamp the membership began.$c$;
+COMMENT ON COLUMN household_member.ended_at IS $c$UTC timestamp the member left or was removed; NULL while active.$c$;
+COMMENT ON COLUMN household_member.created_at IS $c$UTC timestamp the row was created.$c$;
+COMMENT ON COLUMN household_member.updated_at IS $c$UTC timestamp of the last change (status, claim), set by householdService.$c$;
+
+-- ── household_member_role ──
+COMMENT ON TABLE household_member_role IS $c$Purpose: Current roles of each household member, one row per grant; revoking sets revoked_at, history lives in household_event. At least one admin per household and one role per member (enforced by householdService) | Class: operating | Writer: householdService.create, householdService.addMember, householdService.grantRole, householdService.revokeRole, householdService.transferAdmin; manual:migrations/household_2026_11_07.sql | Readers: v_household_member | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON COLUMN household_member_role.id IS $c$Surrogate primary key (UUID).$c$;
+COMMENT ON COLUMN household_member_role.member_id IS $c$References household_member.id.$c$;
+COMMENT ON COLUMN household_member_role.role_id IS $c$References household_role.id. One current row per (member, role): partial unique household_member_role_current.$c$;
+COMMENT ON COLUMN household_member_role.granted_at IS $c$UTC timestamp the role was granted.$c$;
+COMMENT ON COLUMN household_member_role.revoked_at IS $c$UTC timestamp the role was revoked; NULL while held.$c$;
+COMMENT ON COLUMN household_member_role.granted_by_user_id IS $c$References user_profile.id of who granted it; NULL for the migration.$c$;
+
+-- ── household_event ──
+COMMENT ON TABLE household_event IS $c$Purpose: Insert-only history of every household state change (G2.13): kind, source, actor, detail | Class: fact | Writer: householdService.recordEvent; manual:migrations/household_2026_11_07.sql | Readers: v_household_event | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON COLUMN household_event.id IS $c$Surrogate primary key (UUID).$c$;
+COMMENT ON COLUMN household_event.household_id IS $c$References household.id.$c$;
+COMMENT ON COLUMN household_event.member_id IS $c$References household_member.id the event is about; NULL for household-wide events.$c$;
+COMMENT ON COLUMN household_event.kind_id IS $c$References household_event_kind.id.$c$;
+COMMENT ON COLUMN household_event.source_id IS $c$References household_event_source.id.$c$;
+COMMENT ON COLUMN household_event.actor_user_id IS $c$References user_profile.id of who acted; NULL for system events and for a decline (the link holder is not signed in).$c$;
+COMMENT ON COLUMN household_event.detail IS $c$JSONB detail of the change (role code, invitation id, previous household, migration source).$c$;
+COMMENT ON COLUMN household_event.created_at IS $c$UTC timestamp the event was recorded.$c$;
+
+-- ── household_parameter ──
+COMMENT ON TABLE household_parameter IS $c$Purpose: Every business number of the Family Household (max_members, quiz_for_member_enabled, house_box_bags_per_member, household_handover_discount_pct, household_handover_window_days) with history, admin-editable in /admin/households, read through householdParameters.householdParam (60 s cache); a change supersedes the current row | Class: operating | Writer: householdParameters.setParameterInTx; seed | Readers: householdParameters (householdService, householdReads, householdAdmin) | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON COLUMN household_parameter.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN household_parameter.key IS $c$Parameter name; one current row per key (partial unique household_parameter_current).$c$;
+COMMENT ON COLUMN household_parameter.value_numeric IS $c$Numeric value; exactly one of value_numeric and value_text is set.$c$;
+COMMENT ON COLUMN household_parameter.value_text IS $c$Text value; exactly one of value_numeric and value_text is set.$c$;
+COMMENT ON COLUMN household_parameter.since IS $c$Timestamp this value took effect.$c$;
+COMMENT ON COLUMN household_parameter.superseded_at IS $c$Timestamp a newer row replaced this one; NULL on the current row.$c$;
+COMMENT ON COLUMN household_parameter.note IS $c$What the number means and its sane range (Range: ...), plus the change trail.$c$;
+
 -- ── user_email ──
 COMMENT ON TABLE user_email IS $c$Purpose: Email addresses attached to a user profile, one flagged primary | Class: operating | Writer: auth.POST /api/auth/sync, users.GET /api/users/profile | Readers: users, household, cron, admin, roasteryPortalReads, staleGuestCleanup, checkoutService.getOrderSummary (the admin new-order email, Commerce 3), commerceAdminReads, SQL fns grant_admin, revoke_admin, list_admins | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_email.id IS $c$Surrogate primary key (UUID).$c$;
@@ -1174,17 +1263,30 @@ COMMENT ON VIEW v_coffee_hop IS $c$Purpose: One row per coffee_hop with endpoint
 COMMENT ON VIEW v_coffee_archetype_adjacency IS $c$Purpose: Cross-archetype bridge-hop summary (hop counts, more/less split, average confidence) between archetype pairs, from active coffees only | Class: view | Writer: none (derived) | Readers: routes/axis (GET /api/axis/adjacency and stats), sommelierRag, archetypeRelationshipReads.getArchetypeRelationships (the family relationship and order behind catalogReads.getArchetypeOrder, Website 9) | Since: 2026-09-13$c$;
 
 -- ── customer_identity_link ──
-COMMENT ON TABLE customer_identity_link IS $c$Purpose: Append-only fact linking an older or guest user profile to the surviving profile it merged into, walked at read time to find a customer's canonical id | Class: fact | Writer: customerFacts.identityLink (called from auth.POST /sync), customerFacts.identityLinkBackfill | Readers: v_customer_identity, v_customer_timeline, customerReads.getFactsWatermark, customerIntegrity | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_identity_link IS $c$Purpose: Append-only fact linking an older or guest user profile to the surviving profile it merged into, walked at read time to find a customer's canonical id | Class: fact | Writer: customerFacts.identityLink (called from auth.POST /sync and householdService.accept), customerFacts.identityLinkBackfill | Readers: v_customer_identity, v_customer_timeline, customerReads.getFactsWatermark, customerIntegrity | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_identity_link.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN customer_identity_link.user_id IS $c$References user_profile.id; set equal to from_user_id (the profile being linked away).$c$;
 COMMENT ON COLUMN customer_identity_link.occurred_at IS $c$UTC timestamp the link happened; database clock at insert, set explicitly only by backfill.$c$;
 COMMENT ON COLUMN customer_identity_link.recorded_at IS $c$UTC timestamp the row was recorded; differs from occurred_at only for rows learned of later (backfill).$c$;
-COMMENT ON COLUMN customer_identity_link.source IS $c$Origin of the fact, idempotency key with source_id. Code allows: onsite, liam, sms, shopify, qr, backfill, backfill_detected (no DB CHECK); this table gets onsite or backfill.$c$;
-COMMENT ON COLUMN customer_identity_link.source_id IS $c$Idempotency key within source, built as from_user_id:to_user_id; UNIQUE (source, source_id).$c$;
+COMMENT ON COLUMN customer_identity_link.source IS $c$Origin of the fact, idempotency key with source_id. Code allows: onsite, liam, sms, shopify, qr, backfill, backfill_detected (no DB CHECK); this table gets onsite or backfill (a household claim: onsite).$c$;
+COMMENT ON COLUMN customer_identity_link.source_id IS $c$Idempotency key within source: from_user_id:to_user_id for an email match, household_invitation:<invitation id> for a household claim; UNIQUE (source, source_id).$c$;
 COMMENT ON COLUMN customer_identity_link.catalog_version IS $c$Catalog version string from getCatalogVersion() when the fact was recorded; NULL only on backfilled rows.$c$;
 COMMENT ON COLUMN customer_identity_link.from_user_id IS $c$References user_profile.id of the older or merged profile the link points away from; must differ from to_user_id.$c$;
 COMMENT ON COLUMN customer_identity_link.to_user_id IS $c$References user_profile.id of the surviving profile new facts should read as.$c$;
-COMMENT ON COLUMN customer_identity_link.how IS $c$How the link was established. One of: email_match, household_claim, admin (only email_match has a caller today).$c$;
+COMMENT ON COLUMN customer_identity_link.how IS $c$How the link was established. One of: email_match (auth.POST /sync), household_claim (householdService.accept), admin.$c$;
+
+-- ── customer_identity_unlink ──
+COMMENT ON TABLE customer_identity_unlink IS $c$Purpose: Insert-only fact undoing one customer_identity_link (D25); v_customer_identity skips a link that has one. Created in Family Household 1 so the view honours it; written from household brief 2 | Class: fact | Writer: none | Readers: v_customer_identity, v_household_member | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON COLUMN customer_identity_unlink.id IS $c$Surrogate UUID primary key of this fact row.$c$;
+COMMENT ON COLUMN customer_identity_unlink.user_id IS $c$References user_profile.id; set equal to the link's from_user_id (the profile the link moved away).$c$;
+COMMENT ON COLUMN customer_identity_unlink.occurred_at IS $c$UTC timestamp the unlink happened; database clock at insert.$c$;
+COMMENT ON COLUMN customer_identity_unlink.recorded_at IS $c$UTC timestamp the row was recorded.$c$;
+COMMENT ON COLUMN customer_identity_unlink.source IS $c$Origin of the fact (customerFacts FactSource), idempotency key with source_id.$c$;
+COMMENT ON COLUMN customer_identity_unlink.source_id IS $c$Idempotency key within source; UNIQUE (source, source_id).$c$;
+COMMENT ON COLUMN customer_identity_unlink.catalog_version IS $c$Catalog version string from getCatalogVersion() when the fact was recorded.$c$;
+COMMENT ON COLUMN customer_identity_unlink.link_id IS $c$References customer_identity_link.id: the link being undone.$c$;
+COMMENT ON COLUMN customer_identity_unlink.actor_user_id IS $c$References user_profile.id of who undid it (the member or the household admin).$c$;
+COMMENT ON COLUMN customer_identity_unlink.reason IS $c$Free-text reason given at the unlink.$c$;
 
 -- ── customer_feedback_event ──
 COMMENT ON TABLE customer_feedback_event IS $c$Purpose: Append-only fact of a customer rating and expectation feedback on a coffee they received, revised by new rows that supersede old ones | Class: fact | Writer: customerFacts.feedback (called from orders.POST /:orderId/feedback and liamSmsFeedback.parseInboundReply), customerFacts.feedbackBackfill | Readers: v_customer_feedback_current, v_customer_timeline, v_collaborative_flavor_wheel, customerReads.latestFeedbackEventForOrder, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
@@ -1522,6 +1624,10 @@ COMMENT ON VIEW v_customer_identity IS $c$Purpose: One row per user_profile mapp
 
 -- ── v_customer_quiz_current ──
 COMMENT ON VIEW v_customer_quiz_current IS $c$Purpose: One row per canonical customer: their latest completed quiz_session across all linked profiles with the current interpretation (secondary, match archetype, food signal, branch answer) and quiz-change counts. | Class: view | Writer: none (derived) | Readers: customerReads.getQuizCurrent, v_palate_evidence, v_palate_slot_candidates, v_customer_calibration | Since: 2026-09-27 (Customer Blueprint C3 Part A2)$c$;
+COMMENT ON VIEW v_household_member IS $c$Purpose: One row per household membership: first name, status, role codes with the six capability flags OR-ed across the member's roles, account state (login or managed), current archetype and quiz state, the open join link. The one read path for membership. | Class: view | Writer: none (derived) | Readers: householdReads, householdService, checkoutService.resolveIntendedFor, customerReads.getCustomerIdentity, liamAccess, users.GET /homepage-state, userSignals, v_household, v_household_invitation, v_household_event, v_customer_bag_attribution | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON VIEW v_household IS $c$Purpose: One row per household: name, admin, who pays, active member count, dissolved_at. | Class: view | Writer: none (derived) | Readers: householdReads | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON VIEW v_household_invitation IS $c$Purpose: One row per join link (and legacy email invitation) with its state code and labels, member first name and household name. | Class: view | Writer: none (derived) | Readers: householdReads, householdService | Since: 2026-11-07 (Family Household 1)$c$;
+COMMENT ON VIEW v_household_event IS $c$Purpose: Household history with kind and source codes and labels, actor and member first names. | Class: view | Writer: none (derived) | Readers: householdReads | Since: 2026-11-07 (Family Household 1)$c$;
 
 -- ── v_customer_brew_profile ──
 COMMENT ON VIEW v_customer_brew_profile IS $c$Purpose: One row per canonical customer and brew-profile field holding the current value, replayed from customer_brew_profile_change (set/clear/add/remove) in occurred_at order; cleared fields are omitted. | Class: view | Writer: none (derived) | Readers: customerReads.getBrewProfileCurrent, engagementMetrics, v_palate_evidence | Since: 2026-09-27 (Customer Blueprint C3 Part A2)$c$;
@@ -1530,7 +1636,7 @@ COMMENT ON VIEW v_customer_brew_profile IS $c$Purpose: One row per canonical cus
 COMMENT ON VIEW v_customer_feedback_current IS $c$Purpose: Current revision of each customer feedback event (those no other row supersedes) per canonical customer, with a derived sentiment (rating 4+ positive, 2 or less negative) and descriptor note ids. | Class: view | Writer: none (derived) | Readers: customerReads.getFeedbackCurrent, admin, v_palate_evidence, v_palate_shared_traits, v_palate_dominant_dimensions, v_palate_archetype_spread, +3 more | Since: 2026-09-27 (Customer Blueprint C3 Part A2)$c$;
 
 -- ── v_customer_bag_attribution ──
-COMMENT ON VIEW v_customer_bag_attribution IS $c$Purpose: One row per order line item saying which user drank the bag (intended_for_user_id, else the buyer, else a household bag claim, else unattributed) and why (attribution), per the D7 rule. | Class: view | Writer: none (derived) | Readers: customerReads.getFactsWatermark, v_customer_timeline, v_palate_evidence, v_palate_shared_traits, v_palate_dominant_dimensions, v_palate_archetype_spread, +3 more | Since: 2026-09-27 (Customer Blueprint C3 Part A2)$c$;
+COMMENT ON VIEW v_customer_bag_attribution IS $c$Purpose: One row per order line item saying which user drank the bag (intended_for_user_id, else the buyer, else a bag claim by an active member of the order's household per v_household_member, else unattributed) and why (attribution), per the D7 rule. | Class: view | Writer: none (derived) | Readers: customerReads.getFactsWatermark, v_customer_timeline, v_palate_evidence, v_palate_shared_traits, v_palate_dominant_dimensions, v_palate_archetype_spread, +3 more | Since: 2026-09-27 (Customer Blueprint C3 Part A2)$c$;
 
 -- ── v_customer_timeline ──
 COMMENT ON VIEW v_customer_timeline IS $c$Purpose: Union of every customer fact (quiz, order line, feedback, brew profile change, dial event, bag claim, Liam recommendation/question/action, identity link) as one time-ordered stream per canonical customer. | Class: view | Writer: none (derived) | Readers: customerReads.getTimeline | Since: 2026-09-27 (Customer Blueprint C3 Part A3)$c$;

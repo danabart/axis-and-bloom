@@ -1,155 +1,149 @@
-import React, { useState, useEffect } from 'react';
+// Family Household 1, C2 (2026-11-07) — /join-household?token=…, outside the
+// pre-launch curtain (D15; listed in PRELAUNCH_OPEN_ROUTES, not wrapped in
+// <PrelaunchGate>). Works signed out (sign in or sign up through /sign-in,
+// which returns here), signed in, and for a new account. Join claims the
+// member the admin set up; Decline closes the link and the member stays in
+// the household for the admin to order for (D34). Every state label comes
+// from the API.
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { reportError } from '../lib/errorReporter';
 
-interface InviteInfo {
-  invitedEmail: string;
+interface Peek {
   householdName: string | null;
-  inviterName: string;
+  memberFirstName: string | null;
+  statusCode: string | null;
+  statusLabel: string | null;
+  open: boolean;
+  viewer: { alreadyMember: boolean; leavesHousehold: string | null } | null;
 }
+
+const caps = 'text-[10px] uppercase tracking-[var(--ab-caps)] text-[var(--ab-ink)]';
+const action = `${caps} border-b border-[var(--ab-ink-hairline)] pb-1 hover:border-[var(--ab-mark-b)] hover:text-[var(--ab-mark-b)] transition-colors disabled:opacity-30 w-fit`;
 
 export default function JoinHousehold() {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const navigate = useNavigate();
   const token = searchParams.get('token') ?? '';
+  const signedIn = Boolean(user && !user.isAnonymous);
 
   const [loading, setLoading] = useState(true);
-  const [invite, setInvite] = useState<InviteInfo | null>(null);
-  const [fetchError, setFetchError] = useState('');
-  const [joining, setJoining] = useState(false);
-  const [joinError, setJoinError] = useState('');
+  const [peek, setPeek] = useState<Peek | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [declined, setDeclined] = useState(false);
+
+  const authHeader = useCallback(async (): Promise<Record<string, string>> => (
+    signedIn ? { Authorization: `Bearer ${await user!.getIdToken()}` } : {}
+  ), [signedIn, user]);
 
   useEffect(() => {
-    if (!token) {
-      setFetchError('No invitation token found in the URL.');
-      setLoading(false);
-      return;
-    }
-    fetch(`/api/household/invite/${token}`)
-      .then(async r => {
-        const data = await r.json();
-        if (!r.ok) setFetchError(data.error ?? 'Invitation not found or expired.');
-        else setInvite(data);
-      })
-      .catch(err => { reportError('[JoinHousehold/load-invite]', err); setFetchError('Could not load invitation.'); })
-      .finally(() => setLoading(false));
-  }, [token]);
+    if (!token) { setNotFound(true); setLoading(false); return; }
+    let live = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/household/links/${encodeURIComponent(token)}`, { headers: await authHeader() });
+        if (!live) return;
+        if (r.status === 404) setNotFound(true);
+        else if (r.ok) setPeek(await r.json());
+        else setError('We could not load this join link. Please try again in a moment.');
+      } catch (err) {
+        reportError('[JoinHousehold/peek]', err);
+        if (live) setError('We could not load this join link. Please try again in a moment.');
+      } finally {
+        if (live) setLoading(false);
+      }
+    })();
+    return () => { live = false; };
+  }, [token, authHeader]);
 
-  async function handleJoin() {
-    if (!user || !token) return;
-    setJoining(true);
-    setJoinError('');
+  async function post(path: 'accept' | 'decline') {
+    setBusy(true); setError('');
     try {
-      const t = await user.getIdToken();
-      const r = await fetch(`/api/household/join/${token}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${t}` },
-      });
-      if (!r.ok) { setJoinError((await r.json()).error ?? 'Failed to join'); return; }
-      navigate('/profile');
+      const r = await fetch(`/api/household/links/${encodeURIComponent(token)}/${path}`, { method: 'POST', headers: await authHeader() });
+      const json = await r.json().catch(() => null);
+      if (!r.ok) { setError(json?.message ?? 'That did not go through. Please try again in a moment.'); return; }
+      if (path === 'accept') navigate('/profile?tab=family');
+      else setDeclined(true);
     } catch (err) {
-      reportError('[JoinHousehold/join]', err);
-      setJoinError('Something went wrong.');
-    } finally {
-      setJoining(false);
-    }
+      reportError(`[JoinHousehold/${path}]`, err);
+      setError('That did not go through. Please try again in a moment.');
+    } finally { setBusy(false); }
   }
 
   const signInUrl = `/sign-in?redirect=${encodeURIComponent(`/join-household?token=${token}`)}`;
 
   return (
-    <div className="w-full h-screen bg-[var(--ab-paper)] flex overflow-hidden">
-      <div className="hidden lg:flex w-1/2 bg-[#1a1a1a] relative flex-col justify-center items-center overflow-hidden">
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url('https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=1080&q=80')` }}
-        />
-      </div>
-
-      <div className="w-full lg:w-1/2 flex flex-col justify-center items-center p-8 md:p-16 lg:p-24 relative z-10">
-        <div className="w-full max-w-[400px] flex flex-col items-start gap-8">
-
-          {loading ? (
-            <p className="text-[var(--ab-ink)]/50 text-sm uppercase tracking-widest">Loading…</p>
-
-          ) : fetchError ? (
-            <div className="flex flex-col gap-6">
-              <h1 className="text-[2.5rem] text-[var(--ab-ink)] leading-tight font-normal">
-                This invitation is no longer valid.
+    <div className="w-full min-h-[70vh] bg-[var(--ab-paper)] flex justify-center items-center px-6 py-16">
+      <div className="w-full max-w-[420px] flex flex-col items-start gap-8" data-testid="join-household">
+        {loading ? (
+          <p className={`${caps} opacity-50`}>Loading…</p>
+        ) : notFound ? (
+          <div className="flex flex-col gap-6">
+            <h1 className="text-[2rem] text-[var(--ab-ink)] leading-tight font-normal">We could not find that join link.</h1>
+            <p className="text-base text-[var(--ab-ink)]/70 font-light">Ask your household admin to send you a new one.</p>
+            <Link to="/" className={action}>Return home</Link>
+          </div>
+        ) : declined ? (
+          <div className="flex flex-col gap-6">
+            <h1 className="text-[2rem] text-[var(--ab-ink)] leading-tight font-normal">Thank you for letting us know.</h1>
+            <p className="text-base text-[var(--ab-ink)]/70 font-light">The link is closed. Your household admin can send a new one any time.</p>
+            <Link to="/" className={action}>Return home</Link>
+          </div>
+        ) : peek ? (
+          <div className="flex flex-col gap-8 w-full">
+            <div>
+              <p className={`${caps} opacity-60 mb-4`}>Family Household</p>
+              <h1 className="text-[2rem] text-[var(--ab-ink)] leading-tight font-normal">
+                {peek.open && peek.memberFirstName ? `${peek.memberFirstName}, join ${peek.householdName ?? 'the household'}.` : peek.householdName}
               </h1>
-              <p className="text-base text-[var(--ab-ink)]/60 font-light">{fetchError}</p>
-              <Link
-                to="/"
-                className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/30 pb-1 hover:border-[var(--ab-ink)] hover:text-[var(--ab-mark-b)] transition-colors w-fit"
-              >
-                Return home
-              </Link>
             </div>
 
-          ) : invite ? (
-            <div className="flex flex-col gap-8 w-full">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.3em] text-[var(--ab-ink)]/60 mb-4">
-                  Family Bundle Invitation
+            {!peek.open ? (
+              <div className="flex flex-col gap-4">
+                <p className="text-base text-[var(--ab-ink)]/70 font-light">
+                  {peek.statusLabel ? `${peek.statusLabel}. ` : ''}Ask your household admin for a new link if you need one.
                 </p>
-                <h1 className="text-[2.5rem] text-[var(--ab-ink)] leading-tight font-normal">
-                  {invite.inviterName} invited you.
-                </h1>
+                <Link to={signedIn ? '/profile?tab=family' : '/'} className={action}>{signedIn ? 'Go to my profile' : 'Return home'}</Link>
               </div>
-
-              <p className="text-lg text-[var(--ab-ink)]/70 font-light leading-relaxed">
-                You've been invited to join{' '}
-                <strong className="text-[var(--ab-ink)] font-normal">
-                  {invite.householdName ?? 'a Family Bundle'}
-                </strong>
-                . Everyone gets coffee matched to their own palate, delivered together.
-              </p>
-
-              {joinError && <p className="text-sm text-red-600">{joinError}</p>}
-
-              {user ? (
-                user.email?.toLowerCase() === invite.invitedEmail.toLowerCase() ? (
-                  <button
-                    onClick={handleJoin}
-                    disabled={joining}
-                    className="text-[10px] uppercase tracking-[0.3em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/40 pb-1 hover:border-[var(--ab-mark-b)] hover:text-[var(--ab-mark-b)] transition-colors disabled:opacity-30 w-fit"
-                  >
-                    {joining ? 'Joining…' : 'Join Household'}
-                  </button>
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    <p className="text-sm text-[var(--ab-ink)]/60 font-light">
-                      This invitation was sent to{' '}
-                      <strong className="font-normal">{invite.invitedEmail}</strong>.
-                      You're signed in as {user.email}.
-                    </p>
-                    <Link
-                      to={signInUrl}
-                      className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/30 pb-1 hover:border-[var(--ab-ink)] hover:text-[var(--ab-mark-b)] transition-colors w-fit"
-                    >
-                      Sign in with the right account
-                    </Link>
-                  </div>
-                )
-              ) : (
-                <div className="flex flex-col gap-4">
-                  <p className="text-sm text-[var(--ab-ink)]/60 font-light">
-                    Sign in to accept this invitation.
+            ) : peek.viewer?.alreadyMember ? (
+              <div className="flex flex-col gap-4">
+                <p className="text-base text-[var(--ab-ink)]/70 font-light">You are already in this household.</p>
+                <Link to="/profile?tab=family" className={action}>Open the Family Household</Link>
+              </div>
+            ) : (
+              <>
+                <p className="text-lg text-[var(--ab-ink)]/80 font-light leading-relaxed">
+                  Everyone in the household keeps their own taste profile; the bags arrive together. When you join, your profile, your notifications and your place in the household are yours to manage.
+                </p>
+                {peek.viewer?.leavesHousehold !== null && peek.viewer?.leavesHousehold !== undefined && (
+                  <p className="text-sm text-[var(--ab-ink)]/70" data-testid="join-leaves-household">
+                    Joining moves you out of {peek.viewer.leavesHousehold || 'your current household'}.
                   </p>
-                  <Link
-                    to={signInUrl}
-                    className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/30 pb-1 hover:border-[var(--ab-ink)] hover:text-[var(--ab-mark-b)] transition-colors w-fit"
-                  >
-                    Sign in or create account
-                  </Link>
+                )}
+                {error && <p className="text-sm text-[var(--ab-mark-a)]" role="status">{error}</p>}
+                <div className="flex flex-wrap items-center gap-8">
+                  {signedIn ? (
+                    <button type="button" onClick={() => post('accept')} disabled={busy} className={action}>
+                      {busy ? 'Joining…' : 'Join'}
+                    </button>
+                  ) : (
+                    <Link to={signInUrl} className={action}>Sign in or create your account to join</Link>
+                  )}
+                  <button type="button" onClick={() => post('decline')} disabled={busy}
+                    className="text-[10px] uppercase tracking-[var(--ab-caps)] text-[var(--ab-ink)]/50 hover:text-[var(--ab-ink)] transition-colors disabled:opacity-30">
+                    Decline
+                  </button>
                 </div>
-              )}
-            </div>
-          ) : null}
-
-        </div>
+              </>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-[var(--ab-mark-a)]" role="status">{error}</p>
+        )}
       </div>
     </div>
   );

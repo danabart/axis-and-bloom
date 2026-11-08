@@ -84,3 +84,29 @@ describe('purgeStaleAnonymousGuests — Part D2 identity-vs-data split', () => {
     expect(sessionRow.rowCount).toBe(1);
   });
 });
+
+// Family Household 1 (2026-11-07): a household_managed profile has no quiz,
+// no order and no Firebase record by design; the empty-guest rule used to
+// match it and delete it. It is skipped now.
+describe('purgeStaleAnonymousGuests — household_managed profiles are never candidates', () => {
+  const managedUid = `managed:vitest-${Date.now()}`;
+
+  beforeAll(async () => {
+    await db.query(
+      `INSERT INTO user_profile (firebase_uid, first_name, user_type_id, created_at)
+       VALUES ($1, 'Tom', (SELECT id FROM user_type WHERE name = 'household_managed'), now() - interval '30 days')`,
+      [managedUid],
+    );
+  });
+
+  afterAll(async () => {
+    await db.query(`DELETE FROM user_profile WHERE firebase_uid = $1`, [managedUid]);
+  });
+
+  it('leaves the managed profile and its Firebase identity alone', async () => {
+    await purgeStaleAnonymousGuests();
+    expect(deleteUserCalls).not.toContain(managedUid);
+    const row = await db.query(`SELECT 1 FROM user_profile WHERE firebase_uid = $1`, [managedUid]);
+    expect(row.rowCount).toBe(1);
+  });
+});

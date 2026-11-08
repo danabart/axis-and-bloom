@@ -26,6 +26,7 @@ import AdminSommelierFlow from './components/admin/AdminSommelierFlow';
 import AdminAIOps from './components/admin/AdminAIOps';
 import AdminSystemHealth from './components/admin/AdminSystemHealth';
 import AdminCompanyGifts from './components/admin/AdminCompanyGifts';
+import AdminHouseholds from './components/admin/AdminHouseholds';
 import AdminQrDoor from './components/admin/AdminQrDoor';
 import AdminCommerce from './components/admin/AdminCommerce';
 import AdminOrders from './components/admin/AdminOrders';
@@ -154,6 +155,7 @@ export default function App() {
               <Route path="ai-ops" element={<AdminAIOps />} />
               <Route path="system-health" element={<AdminSystemHealth />} />
               <Route path="company-gifts" element={<AdminCompanyGifts />} />
+              <Route path="households" element={<AdminHouseholds />} />
               <Route path="commerce" element={<AdminCommerce />} />
               {/* Commerce 3: orders (with the /:orderId drawer deep link the admin email uses) and subscriptions. */}
               <Route path="orders" element={<AdminOrders />} />
@@ -233,7 +235,8 @@ export default function App() {
                   a paid customer always sees the confirmation (Checkout UX 1). */}
               <Route path="/checkout" element={<PrelaunchGate><RequireAuth><CheckoutPage /></RequireAuth></PrelaunchGate>} />
               <Route path="/checkout/return" element={<RequireAuth><CheckoutReturnPage /></RequireAuth>} />
-              <Route path="/join-household" element={<PrelaunchGate><JoinHousehold /></PrelaunchGate>} />
+              {/* Family Household 1 (2026-11-07, D15): outside the curtain, like /b/:token. No session bypass is set (T13 dropped, Dana 2026-11-07): /sign-in and /profile are already open. */}
+              <Route path="/join-household" element={<JoinHousehold />} />
               {/* Live deviation from the original spec (Dana, mid-execution): /the-axis
                   is closed too, not kept open as the written prompt listed it. */}
               <Route path="/the-axis" element={<PrelaunchGate><TheAxis /></PrelaunchGate>} />

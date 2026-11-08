@@ -41,6 +41,7 @@ export const PRELAUNCH_OPEN_ROUTES = [
   '/ig', // Social short link — forwards to /find-my-flavor?campaign=instagram (already open).
   '/fb', // Social short link — forwards to /find-my-flavor?campaign=facebook (already open).
   '/checkout/return', // A paid customer must always see the confirmation; Stripe's return_url carries no preview param.
+  '/join-household', // Family Household join link (D15, 2026-11-07): never wrapped; no session bypass is set (T13 dropped).
 ] as const;
 
 const BYPASS_KEY = 'abPreview';

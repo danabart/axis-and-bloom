@@ -1,285 +1,267 @@
+// Family Household 1, C3 (2026-11-07) — the Family Household tab on the
+// website handoff tokens. Reads GET /api/household/mine and /roles; every role
+// name and state label comes from the API (G4.2). The admin adds a member by
+// first name and shares that member's join link through their own channel
+// (Share where the browser has a share sheet, else Copy); Axis & Bloom sends
+// no email (D31). Take the quiz for, Open their dial and Build the house box
+// arrive with household briefs 2 and 3.
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { reportError } from '../lib/errorReporter';
+import { shareOrCopy, copyLink } from '../lib/share';
 
-interface Member {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string;
-  is_household_admin: boolean;
+interface RoleView {
+  code: string; customer_label: string; sort_order: number;
+  can_administer: boolean; admin_may_set: boolean; member_may_self_set: boolean;
+}
+interface MemberView {
+  memberId: string; firstName: string | null; isMe: boolean; roleCodes: string[];
+  accountState: 'login' | 'managed'; archetypeName: string | null; quizState: 'none' | 'own'; joinedAt: string;
+  openLink?: { invitationId: string; token: string; createdAt: string } | null;
+}
+interface EventView { event_id: string; kind_code: string; kind_label: string; actor_first_name: string | null; member_first_name: string | null; created_at: string }
+interface Mine {
+  household: { household_id: string; household_name: string | null; pays_first_name: string | null; active_member_count: number };
+  me: { memberId: string; roleCodes: string[]; canAdminister: boolean };
+  members: MemberView[];
+  events: EventView[];
+  limits: { maxMembers: number };
 }
 
-interface PendingInvite {
-  id: string;
-  invited_email: string;
-  expires_at: string;
-}
+const caps = 'text-[10px] uppercase tracking-[var(--ab-caps)] text-[var(--ab-ink)]';
+const linkBtn = `${caps} border-b border-[var(--ab-ink-hairline)] pb-0.5 hover:text-[var(--ab-mark-b)] hover:border-[var(--ab-mark-b)] transition-colors disabled:opacity-30 w-fit`;
+const quietBtn = 'text-[9px] uppercase tracking-[var(--ab-caps)] text-[var(--ab-ink)]/50 hover:text-[var(--ab-ink)] transition-colors disabled:opacity-30';
+const inputClass = 'w-full text-base tracking-wide py-2.5 rounded-none border-b border-[var(--ab-ink-hairline)] bg-transparent focus:outline-none focus:border-[var(--ab-mark-b)] text-[var(--ab-ink)] placeholder-[var(--ab-ink)]/40';
+const label = 'block text-[10px] uppercase tracking-[var(--ab-caps)] text-[var(--ab-ink)]/60 mb-1.5';
 
-interface Household {
-  id: string;
-  name: string | null;
-  createdAt: string;
-  isAdmin: boolean;
-  members: Member[];
-  pendingInvites: PendingInvite[];
-}
+const joinUrl = (token: string) => `${window.location.origin}/join-household?token=${token}`;
 
-const inputClass = "w-full text-left text-base tracking-wide transition-all duration-300 py-2.5 rounded-none border-b border-[#a33726]/30 bg-transparent focus:outline-none focus:border-[#ee5974] text-[#a33726] placeholder-[#a33726]/40";
-const labelClass = "block text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 mb-1.5 font-normal";
+class ApiError extends Error {}
 
 export default function FamilyTab() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [household, setHousehold] = useState<Household | null>(null);
-
+  const [data, setData] = useState<Mine | null>(null);
+  const [roles, setRoles] = useState<RoleView[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [hhName, setHhName] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState('');
+  const [firstName, setFirstName] = useState('');
 
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviting, setInviting] = useState(false);
-  const [inviteError, setInviteError] = useState('');
-  const [inviteSuccess, setInviteSuccess] = useState('');
-
-  const [actionError, setActionError] = useState('');
+  const api = useCallback(async (method: string, path: string, body?: unknown) => {
+    const token = await user!.getIdToken();
+    const r = await fetch(`/api/household${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const json = await r.json().catch(() => null);
+    if (!r.ok) throw new ApiError(json?.message ?? 'That did not go through. Please try again in a moment.');
+    return json;
+  }, [user]);
 
   const refresh = useCallback(async () => {
-    if (!user) return;
-    const token = await user.getIdToken();
-    const r = await fetch('/api/household/mine', { headers: { Authorization: `Bearer ${token}` } });
-    if (r.ok) setHousehold(await r.json());
-  }, [user]);
+    const [mine, roleList] = await Promise.all([api('GET', '/mine'), api('GET', '/roles')]);
+    setData(mine);
+    setRoles(roleList);
+  }, [api]);
 
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-    refresh().finally(() => setLoading(false));
+    refresh().catch(err => { reportError('[FamilyTab/load]', err); setError('We could not load your household.'); })
+      .finally(() => setLoading(false));
   }, [user, refresh]);
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    setCreating(true);
-    setCreateError('');
+  async function act(where: string, fn: () => Promise<unknown>, done?: string) {
+    setBusy(true); setError(''); setNotice('');
     try {
-      const token = await user!.getIdToken();
-      const r = await fetch('/api/household/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ householdName: hhName.trim() || undefined }),
-      });
-      if (!r.ok) { setCreateError((await r.json()).error ?? 'Failed to create'); return; }
+      await fn();
       await refresh();
-    } catch (err) { reportError('[FamilyTab/create]', err); setCreateError('Failed to create household'); }
-    finally { setCreating(false); }
+      if (done) setNotice(done);
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.message);
+      else { reportError(`[FamilyTab/${where}]`, err); setError('That did not go through. Please try again in a moment.'); }
+    } finally { setBusy(false); }
   }
 
-  async function handleInvite(e: React.FormEvent) {
-    e.preventDefault();
-    setInviting(true);
-    setInviteError('');
-    setInviteSuccess('');
-    try {
-      const token = await user!.getIdToken();
-      const r = await fetch('/api/household/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ email: inviteEmail }),
-      });
-      if (!r.ok) { setInviteError((await r.json()).error ?? 'Failed to invite'); return; }
-      setInviteSuccess(`Invitation sent to ${inviteEmail}`);
-      setInviteEmail('');
-      await refresh();
-    } catch (err) { reportError('[FamilyTab/invite]', err); setInviteError('Failed to send invitation'); }
-    finally { setInviting(false); }
+  async function share(m: MemberView) {
+    if (!m.openLink) return;
+    const outcome = await shareOrCopy(joinUrl(m.openLink.token), `Join ${data?.household.household_name ?? 'our Family Household'}`,
+      `${m.firstName ?? ''}, here is your link to join our Family Household on Axis & Bloom.`.trim());
+    if (outcome === 'copied') setNotice(`Link for ${m.firstName} copied.`);
+  }
+  async function copy(m: MemberView) {
+    if (!m.openLink) return;
+    const outcome = await copyLink(joinUrl(m.openLink.token));
+    setNotice(outcome === 'copied' ? `Link for ${m.firstName} copied.` : 'Copy is not available in this browser.');
   }
 
-  async function handleRemoveMember(memberId: string) {
-    setActionError('');
-    try {
-      const token = await user!.getIdToken();
-      const r = await fetch(`/api/household/members/${memberId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!r.ok) { setActionError((await r.json()).error ?? 'Failed'); return; }
-      await refresh();
-    } catch (err) { reportError('[FamilyTab/remove-member]', err); setActionError('Failed to remove member'); }
-  }
+  const roleLabel = (code: string) => roles.find(r => r.code === code)?.customer_label ?? code;
 
-  async function handleCancelInvite(inviteId: string) {
-    setActionError('');
-    try {
-      const token = await user!.getIdToken();
-      const r = await fetch(`/api/household/invitations/${inviteId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      // Fake-success fix (Observability Foundation Part D) — the only
-      // handler in this file missing a res.ok check; a failed delete used
-      // to refresh the list (showing the invite unchanged) with no error.
-      if (!r.ok) { setActionError((await r.json().catch(() => ({}))).error ?? 'Failed to cancel invite'); return; }
-      await refresh();
-    } catch (err) { reportError('[FamilyTab/cancel-invite]', err); setActionError('Failed to cancel invite'); }
-  }
+  if (loading) return <p className={`${caps} opacity-50 py-8`}>Loading…</p>;
 
-  async function handleLeave() {
-    if (!window.confirm(
-      household?.isAdmin && household.members.length === 1
-        ? 'Dissolve this household? This cannot be undone.'
-        : 'Leave this household?'
-    )) return;
-    setActionError('');
-    try {
-      const token = await user!.getIdToken();
-      const r = await fetch('/api/household/leave', {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!r.ok) { setActionError((await r.json()).error ?? 'Failed'); return; }
-      await refresh();
-    } catch (err) { reportError('[FamilyTab/leave]', err); setActionError('Failed to leave household'); }
-  }
-
-  if (loading) {
-    return <p className="text-[#a33726]/50 text-sm uppercase tracking-widest py-8">Loading…</p>;
-  }
-
-  if (!household) {
+  if (!data) {
     return (
-      <div className="flex flex-col gap-8 py-4">
-        <div className="flex flex-col gap-3">
-          <Users size={32} className="text-[#a33726]/30" strokeWidth={1} />
-          <p className="text-lg text-[#a33726]/70 tracking-wide font-light leading-relaxed">
-            A Family Bundle lets everyone in your household get coffee matched to their own palate, delivered together.
-          </p>
-        </div>
-        <form onSubmit={handleCreate} className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8 py-4" data-testid="family-household-create">
+        <p className="text-lg text-[var(--ab-ink)]/80 font-light leading-relaxed">
+          A Family Household brings several palates into one box. Everyone keeps their own taste profile, one person pays, and the bags arrive together.
+        </p>
+        <form onSubmit={e => { e.preventDefault(); act('create', () => api('POST', '/', { name: hhName.trim() })); }} className="flex flex-col gap-6">
           <div>
-            <label className={labelClass}>Household name <span className="opacity-50 normal-case tracking-normal">— optional</span></label>
-            <input
-              value={hhName}
-              onChange={e => setHhName(e.target.value)}
-              placeholder="e.g. The Garcias"
-              className={inputClass}
-            />
+            <label className={label} htmlFor="hh-name">Household name</label>
+            <input id="hh-name" value={hhName} onChange={e => setHhName(e.target.value)} placeholder="The Garcias" className={inputClass} maxLength={80} />
           </div>
-          {createError && <p className="text-xs text-red-600">{createError}</p>}
-          <button
-            type="submit"
-            disabled={creating}
-            className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30 w-fit"
-          >
-            {creating ? 'Creating…' : 'Create Household'}
-          </button>
+          {error && <p className="text-xs text-[var(--ab-mark-a)]">{error}</p>}
+          <button type="submit" disabled={busy || !hhName.trim()} className={linkBtn}>{busy ? 'Creating…' : 'Create Family Household'}</button>
         </form>
       </div>
     );
   }
 
-  const myId = household.members.find(m => m.email === user?.email)?.id;
-  const canLeave = !(household.isAdmin && household.members.length > 1);
+  const { household, me, members, events, limits } = data;
+  const isAdmin = me.canAdminister;
+  const myRoles = new Set(me.roleCodes);
+  const selfRoles = roles.filter(r => r.member_may_self_set);
+  const alone = members.length === 1;
+  const full = members.length >= limits.maxMembers;
 
   return (
-    <div className="flex flex-col gap-10">
-
+    <div className="flex flex-col gap-10" data-testid="family-household">
       <div>
-        <p className={labelClass}>Household</p>
-        <h2 className="text-xl text-[#a33726] font-normal">{household.name ?? 'My Household'}</h2>
+        <p className={label}>Family Household</p>
+        <h2 className="text-xl text-[var(--ab-ink)] font-normal">{household.household_name}</h2>
+        {household.pays_first_name && (
+          <p className="text-sm text-[var(--ab-ink)]/60 mt-1">{household.pays_first_name} pays for the house box.</p>
+        )}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <p className={labelClass}>Members</p>
-        {household.members.map(m => (
-          <div key={m.id} className="flex items-center justify-between py-3 border-b border-[#a33726]/10">
-            <div>
-              <p className="text-sm text-[#a33726]">
-                {m.first_name ? `${m.first_name}${m.last_name ? ' ' + m.last_name : ''}` : m.email}
-                {m.is_household_admin && (
-                  <span className="ml-2 text-[9px] uppercase tracking-widest text-[#a33726]/50">Admin</span>
-                )}
+      <div className="flex flex-col">
+        <p className={label}>Members</p>
+        {members.map(m => (
+          <div key={m.memberId} className="py-4 border-b border-[var(--ab-ink-hairline)] flex flex-col gap-2" data-testid="household-member">
+            <div className="flex items-baseline justify-between gap-4">
+              <p className="text-base text-[var(--ab-ink)]">
+                {m.firstName}{m.isMe && <span className="text-[var(--ab-ink)]/50"> (you)</span>}
               </p>
-              {m.first_name && <p className="text-xs text-[#a33726]/50 mt-0.5">{m.email}</p>}
+              <span className="text-[9px] uppercase tracking-[var(--ab-caps)] text-[var(--ab-ink)]/50" data-testid="account-state">
+                {m.accountState === 'login' ? 'Has their own sign-in' : 'Set up by the admin'}
+              </span>
             </div>
-            {household.isAdmin && !m.is_household_admin && m.id !== myId && (
-              <button
-                onClick={() => handleRemoveMember(m.id)}
-                className="text-[9px] uppercase tracking-[0.2em] text-[#a33726]/30 hover:text-[#a33726] transition-colors ml-4 shrink-0"
-              >
-                Remove
-              </button>
+            <p className="text-xs text-[var(--ab-ink)]/60">
+              {m.roleCodes.map(roleLabel).join(' · ')}
+              {' · '}
+              {m.archetypeName ?? 'No quiz yet'}
+            </p>
+
+            {isAdmin && !m.isMe && (
+              <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
+                {m.accountState === 'managed' && m.openLink && (
+                  <>
+                    <button type="button" className={quietBtn} disabled={busy} onClick={() => share(m)}>Share link</button>
+                    <button type="button" className={quietBtn} disabled={busy} onClick={() => copy(m)}>Copy link</button>
+                    <button type="button" className={quietBtn} disabled={busy}
+                      onClick={() => act('revoke-link', () => api('DELETE', `/links/${m.openLink!.invitationId}`), `${m.firstName}'s link is closed.`)}>
+                      Revoke link
+                    </button>
+                  </>
+                )}
+                {m.accountState === 'managed' && !m.openLink && (
+                  <button type="button" className={quietBtn} disabled={busy}
+                    onClick={() => act('create-link', () => api('POST', `/members/${m.memberId}/link`), `A new link for ${m.firstName} is ready.`)}>
+                    New join link
+                  </button>
+                )}
+                {m.accountState === 'login' && !m.roleCodes.includes('admin') && myRoles.has('admin') && (
+                  <button type="button" className={quietBtn} disabled={busy}
+                    onClick={() => {
+                      if (!window.confirm(`Hand the ${roleLabel('admin')} role to ${m.firstName}? ${m.firstName} will manage the household and pay for the house box.`)) return;
+                      act('transfer', () => api('POST', '/transfer', { toMemberId: m.memberId }), `${m.firstName} is the ${roleLabel('admin')} now.`);
+                    }}>
+                    Make admin
+                  </button>
+                )}
+                <button type="button" className={quietBtn} disabled={busy}
+                  onClick={() => {
+                    if (!window.confirm(`Remove ${m.firstName} from the household?`)) return;
+                    act('remove', () => api('DELETE', `/members/${m.memberId}`), `${m.firstName} is out of the household.`);
+                  }}>
+                  Remove
+                </button>
+              </div>
             )}
           </div>
         ))}
       </div>
 
-      {household.pendingInvites.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <p className={labelClass}>Pending Invitations</p>
-          {household.pendingInvites.map(inv => (
-            <div key={inv.id} className="flex items-center justify-between py-2.5 border-b border-[#a33726]/10">
-              <div>
-                <p className="text-sm text-[#a33726]/70">{inv.invited_email}</p>
-                <p className="text-xs text-[#a33726]/40 mt-0.5">
-                  Expires {new Date(inv.expires_at).toLocaleDateString()}
-                </p>
-              </div>
-              {household.isAdmin && (
-                <button
-                  onClick={() => handleCancelInvite(inv.id)}
-                  className="text-[9px] uppercase tracking-[0.2em] text-[#a33726]/30 hover:text-[#a33726] transition-colors ml-4 shrink-0"
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
+      {selfRoles.length > 0 && (
+        <div className="flex flex-col gap-3" data-testid="household-my-plan">
+          <p className={label}>My plan</p>
+          {selfRoles.map(r => {
+            const on = myRoles.has(r.code);
+            return (
+              <label key={r.code} className="flex items-center gap-3 text-sm text-[var(--ab-ink)] cursor-pointer">
+                <input type="checkbox" checked={on} disabled={busy} className="accent-[var(--ab-mark-b)]"
+                  onChange={() => act('self-role', () => on
+                    ? api('DELETE', `/members/${me.memberId}/roles/${r.code}`)
+                    : api('POST', `/members/${me.memberId}/roles`, { roleCode: r.code }))} />
+                {r.customer_label}
+              </label>
+            );
+          })}
+        </div>
+      )}
+
+      {isAdmin && !full && (
+        <form className="flex flex-col gap-4 border-t border-[var(--ab-ink-hairline)] pt-8" data-testid="household-add-member"
+          onSubmit={e => {
+            e.preventDefault();
+            const name = firstName.trim();
+            act('add-member', async () => { await api('POST', '/members', { firstName: name }); setFirstName(''); },
+              `${name} is in the household. Share their link when you are ready.`);
+          }}>
+          <p className={label}>Add a member</p>
+          <div>
+            <label className={label} htmlFor="hh-first-name">First name</label>
+            <input id="hh-first-name" value={firstName} onChange={e => setFirstName(e.target.value)} className={inputClass} maxLength={40} />
+          </div>
+          <p className="text-xs text-[var(--ab-ink)]/50">
+            Up to {limits.maxMembers} people. You get a join link to send them yourself; they sign up with their own email when they open it.
+          </p>
+          <button type="submit" disabled={busy || !firstName.trim()} className={linkBtn}>Add</button>
+        </form>
+      )}
+
+      {(error || notice) && (
+        <p className={`text-xs ${error ? 'text-[var(--ab-mark-a)]' : 'text-[var(--ab-ink)]/70'}`} role="status">{error || notice}</p>
+      )}
+
+      {events.length > 0 && (
+        <div className="flex flex-col gap-2" data-testid="household-activity">
+          <p className={label}>Activity</p>
+          {events.slice(0, 12).map(e => (
+            <p key={e.event_id} className="text-xs text-[var(--ab-ink)]/60">
+              <span className="text-[var(--ab-ink)]/40">{new Date(e.created_at).toLocaleDateString()}</span>{'  '}
+              {e.kind_label}{e.member_first_name ? `: ${e.member_first_name}` : ''}{e.actor_first_name ? ` (${e.actor_first_name})` : ''}
+            </p>
           ))}
         </div>
       )}
 
-      {household.isAdmin && (
-        <form onSubmit={handleInvite} className="flex flex-col gap-4 border-t border-[#a33726]/10 pt-8">
-          <p className={labelClass}>Invite a member</p>
-          <div>
-            <label className={labelClass}>Email address</label>
-            <input
-              type="email"
-              value={inviteEmail}
-              onChange={e => setInviteEmail(e.target.value)}
-              placeholder="their@email.com"
-              className={inputClass}
-              required
-            />
-          </div>
-          {inviteError && <p className="text-xs text-red-600">{inviteError}</p>}
-          {inviteSuccess && <p className="text-xs text-green-700">{inviteSuccess}</p>}
-          <button
-            type="submit"
-            disabled={inviting || !inviteEmail}
-            className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30 w-fit"
-          >
-            {inviting ? 'Sending…' : 'Send Invitation'}
+      <div className="border-t border-[var(--ab-ink-hairline)] pt-8">
+        {isAdmin && alone ? (
+          <button type="button" className={linkBtn} disabled={busy}
+            onClick={() => { if (window.confirm('Close this Family Household?')) act('dissolve', () => api('POST', '/dissolve')); }}>
+            Close household
           </button>
-        </form>
-      )}
-
-      {actionError && <p className="text-xs text-red-600">{actionError}</p>}
-
-      <div className="border-t border-[#a33726]/10 pt-8">
-        <button
-          onClick={handleLeave}
-          disabled={!canLeave}
-          className="flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726]/60 hover:text-[#a33726] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          <LogOut size={14} />
-          {household.isAdmin && household.members.length === 1 ? 'Dissolve Household' : 'Leave Household'}
-        </button>
-        {!canLeave && (
-          <p className="text-xs text-[#a33726]/40 mt-2">Remove all members before leaving as admin.</p>
+        ) : (
+          <button type="button" className={linkBtn} disabled={busy}
+            onClick={() => { if (window.confirm('Leave this Family Household?')) act('leave', () => api('POST', '/leave')); }}>
+            Leave household
+          </button>
         )}
       </div>
-
     </div>
   );
 }

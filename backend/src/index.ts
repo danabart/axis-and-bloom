@@ -24,6 +24,7 @@ import adminRouter from './routes/admin.js';
 import coffeesRouter from './routes/coffees.js';
 import homeRouter from './routes/home.js'; // Website 2 (2026-11-04)
 import householdRouter from './routes/household.js';
+import householdAdminRouter from './routes/householdAdmin.js'; // Family Household 1 (2026-11-07)
 import axisRouter from './routes/axis.js';
 import sommelierRouter from './routes/sommelier.js';
 import tokensRouter from './routes/tokens.js';
@@ -163,6 +164,7 @@ app.use('/api/subscriptions', subscriptionsRouter);
 app.use('/api/admin/commerce', commerceAdminRouter);
 app.use('/api/admin/orders', adminOrdersRouter);          // Commerce 3
 app.use('/api/admin/subscriptions', adminSubscriptionsRouter); // Commerce 3
+app.use('/api/admin/household', householdAdminRouter);    // Family Household 1 (D17)
 
 // Observability Foundation Part B -- central boundary handler, mounted AFTER
 // every router so it only sees what Express itself routes here: a

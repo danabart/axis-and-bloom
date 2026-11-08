@@ -1,374 +1,203 @@
-import { Router } from 'express';
-import { Resend } from 'resend';
-import { randomBytes } from 'crypto';
-import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
-import { db } from '../db/client.js';
+// Family Household 1, B4 (2026-11-07) — /api/household, rewritten from the
+// 2026-05 handlers (which held SQL, wrote user_profile and sent invitation
+// email through a direct Resend call whose result was never read). Every
+// route validates with zod, resolves the caller's profile, and calls one
+// householdService / householdReads function (G3.1); the service checks the
+// caller's rights inside its transaction. No email is sent from here (D31).
+//
+// Signed in, never anonymous:
+//   POST   /                          create {name}
+//   GET    /mine                      the caller's household (null when none)
+//   GET    /roles                     the role lookup with labels and flags
+//   POST   /members {firstName}       add a member by first name → join link
+//   POST   /members/:memberId/link    a new join link (when none is open)
+//   DELETE /links/:invitationId       close a join link
+//   POST   /links/:token/accept       join (claims the managed profile)
+//   POST   /members/:memberId/roles {roleCode}     grant a role
+//   DELETE /members/:memberId/roles/:roleCode       revoke a role
+//   POST   /transfer {toMemberId}     hand the admin role over (D21)
+//   POST   /leave                     leave the household
+//   DELETE /members/:memberId         remove a member
+//   POST   /dissolve                  close the household (only member left)
+// Public (whoever holds the link, D14):
+//   GET    /links/:token              what the join page shows
+//   POST   /links/:token/decline      decline
+// The 2026-05 paths answer 410 for one release so a stale tab fails loudly.
+import { Router, type Response } from 'express';
+import { z } from 'zod';
+import { requireAuth, blockAnonymousAuth, optionalAuth, type AuthRequest } from '../middleware/auth.js';
+import {
+  create, addMember, createLink, revokeLink, accept, decline, grantRole, revokeRole, transferAdmin,
+  leave, removeMember, dissolve, HouseholdError,
+} from '../services/householdService.js';
+import { mine, roles, peekLink, profileIdForUid } from '../services/householdReads.js';
 
 const router = Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
+const signedIn = [requireAuth, blockAnonymousAuth];
 
-async function getProfile(uid: string) {
-  const r = await db.query(
-    `SELECT up.id, up.first_name, up.last_name, up.household_id, up.is_household_admin,
-            ue.email_address AS email
-     FROM user_profile up
-     LEFT JOIN user_email ue ON ue.user_id = up.id AND ue.is_primary = true
-     WHERE up.firebase_uid = $1`,
-    [uid]
-  );
-  return r.rows[0] ?? null;
+function fail(res: Response, err: unknown, where: string): void {
+  if (err instanceof HouseholdError) { res.status(err.status).json({ error: err.code, message: err.message, ...err.extra }); return; }
+  console.error(`[household] ${where}`, err);
+  res.status(500).json({ error: 'household_failed', message: 'That did not go through. Please try again in a moment.' });
 }
 
-// POST /api/household/create
-router.post('/create', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
-  const { householdName } = req.body as { householdName?: string };
-  try {
-    const profile = await getProfile(req.uid!);
-    if (!profile) { res.status(404).json({ error: 'Profile not found' }); return; }
-    if (profile.household_id) { res.status(409).json({ error: 'Already in a household' }); return; }
+const badBody = (res: Response, message: string) => res.status(400).json({ error: 'invalid_request', message });
 
-    const hhResult = await db.query(
-      `INSERT INTO household (household_name, primary_billing_user_id)
-       VALUES ($1, $2) RETURNING id, household_name, created_at`,
-      [householdName?.trim() || null, profile.id]
-    );
-    const household = hhResult.rows[0];
-
-    await db.query(
-      `UPDATE user_profile SET household_id = $1, is_household_admin = true WHERE id = $2`,
-      [household.id, profile.id]
-    );
-
-    res.json({ id: household.id, name: household.household_name, createdAt: household.created_at });
-  } catch (err) {
-    console.error('[household/create]', err);
-    res.status(500).json({ error: 'Failed to create household' });
-  }
-});
-
-// GET /api/household/mine
-router.get('/mine', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
-  try {
-    const profile = await getProfile(req.uid!);
-    if (!profile?.household_id) { res.json(null); return; }
-
-    const [hhResult, membersResult, invitesResult] = await Promise.all([
-      db.query(`SELECT id, household_name, created_at FROM household WHERE id = $1`, [profile.household_id]),
-      db.query(
-        `SELECT up.id, up.first_name, up.last_name, up.is_household_admin,
-                ue.email_address AS email
-         FROM user_profile up
-         LEFT JOIN user_email ue ON ue.user_id = up.id AND ue.is_primary = true
-         WHERE up.household_id = $1
-         ORDER BY up.is_household_admin DESC, up.created_at ASC`,
-        [profile.household_id]
-      ),
-      db.query(
-        `SELECT id, invited_email, status, created_at, expires_at
-         FROM household_invitation
-         WHERE household_id = $1 AND status = 'pending'
-         ORDER BY created_at DESC`,
-        [profile.household_id]
-      ),
-    ]);
-
-    const hh = hhResult.rows[0];
-    res.json({
-      id: hh.id,
-      name: hh.household_name,
-      createdAt: hh.created_at,
-      isAdmin: profile.is_household_admin,
-      members: membersResult.rows,
-      pendingInvites: invitesResult.rows,
-    });
-  } catch (err) {
-    console.error('[household/mine]', err);
-    res.status(500).json({ error: 'Failed to fetch household' });
-  }
-});
-
-// POST /api/household/invite
-router.post('/invite', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
-  const { email } = req.body as { email?: string };
-  if (!email || typeof email !== 'string') { res.status(400).json({ error: 'Email required' }); return; }
-
-  try {
-    const profile = await getProfile(req.uid!);
-    if (!profile?.household_id) { res.status(403).json({ error: 'Not in a household' }); return; }
-    if (!profile.is_household_admin) { res.status(403).json({ error: 'Only household admins can invite' }); return; }
-
-    const normalizedEmail = email.toLowerCase().trim();
-
-    const existing = await db.query(
-      `SELECT up.id FROM user_profile up
-       JOIN user_email ue ON ue.user_id = up.id
-       WHERE ue.email_address = $1 AND up.household_id = $2`,
-      [normalizedEmail, profile.household_id]
-    );
-    if (existing.rows.length) {
-      res.status(409).json({ error: 'This person is already in your household' });
-      return;
-    }
-
-    await db.query(
-      `UPDATE household_invitation SET status = 'cancelled'
-       WHERE household_id = $1 AND invited_email = $2 AND status = 'pending'`,
-      [profile.household_id, normalizedEmail]
-    );
-
-    const token = randomBytes(32).toString('hex');
-    const inviteResult = await db.query(
-      `INSERT INTO household_invitation (household_id, invited_email, invited_by_id, token)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, invited_email, expires_at`,
-      [profile.household_id, normalizedEmail, profile.id, token]
-    );
-    const invite = inviteResult.rows[0];
-
-    const hhResult = await db.query(`SELECT household_name FROM household WHERE id = $1`, [profile.household_id]);
-    const hhName = hhResult.rows[0]?.household_name || 'a Family Bundle';
-    const inviterName = profile.first_name
-      ? `${profile.first_name}${profile.last_name ? ' ' + profile.last_name : ''}`
-      : (profile.email ?? 'Someone');
-
-    const joinLink = `${process.env.FRONTEND_URL ?? 'http://localhost:5173'}/join-household?token=${token}`;
-
-    await resend.emails.send({
-      from: 'Axis & Bloom <noreply@axisandbloomcoffee.com>',
-      to: normalizedEmail,
-      subject: `${inviterName} invited you to a Family Bundle`,
-      html: buildInviteEmail(inviterName, hhName, joinLink),
-    });
-
-    res.json({ id: invite.id, invitedEmail: invite.invited_email, expiresAt: invite.expires_at });
-  } catch (err) {
-    console.error('[household/invite]', err);
-    res.status(500).json({ error: 'Failed to send invitation' });
-  }
-});
-
-// DELETE /api/household/leave
-router.delete('/leave', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
-  try {
-    const profile = await getProfile(req.uid!);
-    if (!profile?.household_id) { res.status(400).json({ error: 'Not in a household' }); return; }
-
-    if (profile.is_household_admin) {
-      const otherMembers = await db.query(
-        `SELECT id FROM user_profile WHERE household_id = $1 AND id != $2`,
-        [profile.household_id, profile.id]
-      );
-      if (otherMembers.rows.length > 0) {
-        res.status(403).json({ error: 'Remove all members before leaving as admin' });
-        return;
-      }
-      // Only member — clear household_id first to avoid FK violation, then delete
-      await db.query(
-        `UPDATE user_profile SET household_id = NULL, is_household_admin = false WHERE id = $1`,
-        [profile.id]
-      );
-      await db.query(`DELETE FROM household WHERE id = $1`, [profile.household_id]);
-    } else {
-      await db.query(
-        `UPDATE user_profile SET household_id = NULL, is_household_admin = false WHERE id = $1`,
-        [profile.id]
-      );
-    }
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[household/leave]', err);
-    res.status(500).json({ error: 'Failed to leave household' });
-  }
-});
-
-// DELETE /api/household/members/:userId
-router.delete('/members/:userId', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
-  const { userId } = req.params;
-  try {
-    const profile = await getProfile(req.uid!);
-    if (!profile?.household_id) { res.status(403).json({ error: 'Not in a household' }); return; }
-    if (!profile.is_household_admin) { res.status(403).json({ error: 'Admin only' }); return; }
-    if (userId === profile.id) { res.status(400).json({ error: 'Cannot remove yourself' }); return; }
-
-    await db.query(
-      `UPDATE user_profile SET household_id = NULL, is_household_admin = false
-       WHERE id = $1 AND household_id = $2`,
-      [userId, profile.household_id]
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[household/members/remove]', err);
-    res.status(500).json({ error: 'Failed to remove member' });
-  }
-});
-
-// GET /api/household/invite/:token  (public — for join page)
-router.get('/invite/:token', async (req, res) => {
-  const { token } = req.params;
-  try {
-    const r = await db.query(
-      `SELECT hi.id, hi.invited_email, hi.status, hi.expires_at,
-              h.household_name,
-              up.first_name AS inviter_first, up.last_name AS inviter_last,
-              ue.email_address AS inviter_email
-       FROM household_invitation hi
-       JOIN household h      ON h.id  = hi.household_id
-       JOIN user_profile up  ON up.id = hi.invited_by_id
-       LEFT JOIN user_email ue ON ue.user_id = up.id AND ue.is_primary = true
-       WHERE hi.token = $1`,
-      [token]
-    );
-    if (!r.rows.length) { res.status(404).json({ error: 'Invitation not found' }); return; }
-    const row = r.rows[0];
-    if (row.status !== 'pending') {
-      res.status(410).json({ error: 'Invitation already used or cancelled', status: row.status });
-      return;
-    }
-    if (new Date(row.expires_at) < new Date()) {
-      res.status(410).json({ error: 'Invitation expired', status: 'expired' });
-      return;
-    }
-
-    res.json({
-      invitedEmail: row.invited_email,
-      householdName: row.household_name,
-      inviterName: row.inviter_first
-        ? `${row.inviter_first}${row.inviter_last ? ' ' + row.inviter_last : ''}`
-        : (row.inviter_email ?? 'Someone'),
-    });
-  } catch (err) {
-    console.error('[household/invite/token]', err);
-    res.status(500).json({ error: 'Failed to look up invitation' });
-  }
-});
-
-// POST /api/household/join/:token
-router.post('/join/:token', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
-  const { token } = req.params;
-  try {
-    const profile = await getProfile(req.uid!);
-    if (!profile) { res.status(404).json({ error: 'Profile not found' }); return; }
-    if (profile.household_id) { res.status(409).json({ error: 'Already in a household' }); return; }
-
-    const r = await db.query(
-      `SELECT id, household_id, invited_email, status, expires_at
-       FROM household_invitation WHERE token = $1 FOR UPDATE`,
-      [token]
-    );
-    if (!r.rows.length) { res.status(404).json({ error: 'Invitation not found' }); return; }
-    const invite = r.rows[0];
-    if (invite.status !== 'pending') { res.status(410).json({ error: 'Invitation already used' }); return; }
-    if (new Date(invite.expires_at) < new Date()) { res.status(410).json({ error: 'Invitation expired' }); return; }
-    if (profile.email?.toLowerCase() !== invite.invited_email.toLowerCase()) {
-      res.status(403).json({ error: 'This invitation was sent to a different email address' });
-      return;
-    }
-
-    await db.query(
-      `UPDATE user_profile SET household_id = $1 WHERE id = $2`,
-      [invite.household_id, profile.id]
-    );
-    await db.query(
-      `UPDATE household_invitation SET status = 'accepted' WHERE id = $1`,
-      [invite.id]
-    );
-
-    res.json({ ok: true, householdId: invite.household_id });
-  } catch (err) {
-    console.error('[household/join]', err);
-    res.status(500).json({ error: 'Failed to join household' });
-  }
-});
-
-// DELETE /api/household/invitations/:invitationId
-router.delete('/invitations/:invitationId', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
-  const { invitationId } = req.params;
-  try {
-    const profile = await getProfile(req.uid!);
-    if (!profile?.household_id) { res.status(403).json({ error: 'Not in a household' }); return; }
-    if (!profile.is_household_admin) { res.status(403).json({ error: 'Admin only' }); return; }
-
-    await db.query(
-      `UPDATE household_invitation SET status = 'cancelled'
-       WHERE id = $1 AND household_id = $2`,
-      [invitationId, profile.household_id]
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[household/invitations/cancel]', err);
-    res.status(500).json({ error: 'Failed to cancel invitation' });
-  }
-});
-
-function buildInviteEmail(inviterName: string, householdName: string, joinLink: string): string {
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-</head>
-<body style="margin:0;padding:0;background:#f2f1ea;font-family:Georgia,serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f2f1ea;padding:48px 0;">
-    <tr>
-      <td align="center">
-        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;padding:48px;">
-
-          <tr>
-            <td style="padding-bottom:32px;border-bottom:1px solid #e8e4dc;">
-              <p style="margin:0;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:#a33726;font-family:Georgia,serif;">
-                Axis &amp; Bloom
-              </p>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding:40px 0 24px;">
-              <h1 style="margin:0;font-size:32px;font-weight:400;color:#a33726;line-height:1.2;font-family:Georgia,serif;">
-                You're invited.
-              </h1>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding-bottom:32px;">
-              <p style="margin:0;font-size:16px;color:#6b5a56;line-height:1.6;font-family:Arial,sans-serif;font-weight:300;">
-                ${inviterName} has invited you to join <strong style="color:#a33726;">${householdName}</strong> on Axis &amp; Bloom —
-                a shared household where everyone gets coffee matched to their own palate,
-                delivered together.
-              </p>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding-bottom:40px;">
-              <a href="${joinLink}"
-                 style="display:inline-block;padding:14px 32px;background:#a33726;color:#ffffff;
-                        text-decoration:none;font-size:11px;letter-spacing:0.2em;
-                        text-transform:uppercase;font-family:Arial,sans-serif;font-weight:500;">
-                Join the Household
-              </a>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="border-top:1px solid #e8e4dc;padding-top:24px;">
-              <p style="margin:0;font-size:12px;color:#a33726;opacity:0.5;font-family:Arial,sans-serif;line-height:1.6;">
-                This invitation expires in 7 days. If you didn't expect this email, you can safely ignore it.<br/><br/>
-                Having trouble with the button?
-                <a href="${joinLink}" style="color:#a33726;">Copy this link</a>
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-  `.trim();
+/** The caller's profile id; answers 404 itself when the account has no profile yet. */
+async function caller(req: AuthRequest, res: Response): Promise<string | null> {
+  const id = await profileIdForUid(req.uid!);
+  if (!id) res.status(404).json({ error: 'profile_not_found', message: 'Finish setting up your account first.' });
+  return id;
 }
+
+const Uuid = z.string().uuid();
+const Token = z.string().regex(/^[0-9a-f]{64}$/);
+const CreateBody = z.object({ name: z.string().trim().min(1).max(80) });
+const AddMemberBody = z.object({ firstName: z.string().trim().min(1).max(40) });
+const RoleBody = z.object({ roleCode: z.string().trim().min(1).max(40) });
+const TransferBody = z.object({ toMemberId: Uuid });
+
+// ── retired 2026-05 paths ────────────────────────────────────────────────────
+const gone = (_req: unknown, res: Response) => res.status(410).json({ error: 'household_api_changed', message: 'This page has been updated. Please refresh.' });
+router.post('/create', gone);
+router.post('/invite', gone);
+router.delete('/leave', gone);
+router.get('/invite/:token', gone);
+router.post('/join/:token', gone);
+router.delete('/invitations/:invitationId', gone);
+
+// ── reads ────────────────────────────────────────────────────────────────────
+router.get('/mine', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const me = await profileIdForUid(req.uid!);
+    res.json(me ? await mine(me) : null);
+  } catch (err) { fail(res, err, 'mine'); }
+});
+
+router.get('/roles', ...signedIn, async (_req, res) => {
+  try { res.json(await roles()); } catch (err) { fail(res, err, 'roles'); }
+});
+
+router.get('/links/:token', optionalAuth, async (req: AuthRequest, res) => {
+  try {
+    const t = Token.safeParse(req.params.token);
+    if (!t.success) { res.status(404).json({ error: 'link_not_found', message: 'We could not find that join link.' }); return; }
+    const viewer = req.uid && !req.isAnonymous ? await profileIdForUid(req.uid) : null;
+    const peek = await peekLink(t.data, viewer);
+    if (!peek) { res.status(404).json({ error: 'link_not_found', message: 'We could not find that join link.' }); return; }
+    res.json(peek);
+  } catch (err) { fail(res, err, 'peek'); }
+});
+
+// ── writes ───────────────────────────────────────────────────────────────────
+router.post('/', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const body = CreateBody.safeParse(req.body ?? {});
+    if (!body.success) return badBody(res, 'Give your household a name.');
+    const me = await caller(req, res); if (!me) return;
+    res.status(201).json(await create(me, body.data.name));
+  } catch (err) { fail(res, err, 'create'); }
+});
+
+router.post('/members', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const body = AddMemberBody.safeParse(req.body ?? {});
+    if (!body.success) return badBody(res, 'Add their first name.');
+    const me = await caller(req, res); if (!me) return;
+    const added = await addMember(me, body.data.firstName);
+    res.status(201).json({ memberId: added.memberId, invitationId: added.invitationId, token: added.token });
+  } catch (err) { fail(res, err, 'add-member'); }
+});
+
+router.post('/members/:memberId/link', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const id = Uuid.safeParse(req.params.memberId);
+    if (!id.success) return badBody(res, 'Unknown member.');
+    const me = await caller(req, res); if (!me) return;
+    res.status(201).json(await createLink(me, id.data));
+  } catch (err) { fail(res, err, 'create-link'); }
+});
+
+router.delete('/links/:invitationId', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const id = Uuid.safeParse(req.params.invitationId);
+    if (!id.success) return badBody(res, 'Unknown join link.');
+    const me = await caller(req, res); if (!me) return;
+    await revokeLink(me, id.data);
+    res.json({ ok: true });
+  } catch (err) { fail(res, err, 'revoke-link'); }
+});
+
+router.post('/links/:token/accept', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const t = Token.safeParse(req.params.token);
+    if (!t.success) { res.status(404).json({ error: 'link_not_found', message: 'We could not find that join link.' }); return; }
+    const me = await caller(req, res); if (!me) return;
+    res.json(await accept(t.data, me));
+  } catch (err) { fail(res, err, 'accept'); }
+});
+
+router.post('/links/:token/decline', async (req, res) => {
+  try {
+    const t = Token.safeParse(req.params.token);
+    if (!t.success) { res.status(404).json({ error: 'link_not_found', message: 'We could not find that join link.' }); return; }
+    await decline(t.data);
+    res.json({ ok: true });
+  } catch (err) { fail(res, err, 'decline'); }
+});
+
+router.post('/members/:memberId/roles', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const id = Uuid.safeParse(req.params.memberId);
+    const body = RoleBody.safeParse(req.body ?? {});
+    if (!id.success || !body.success) return badBody(res, 'Unknown member or role.');
+    const me = await caller(req, res); if (!me) return;
+    res.json(await grantRole(me, id.data, body.data.roleCode));
+  } catch (err) { fail(res, err, 'grant-role'); }
+});
+
+router.delete('/members/:memberId/roles/:roleCode', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const id = Uuid.safeParse(req.params.memberId);
+    if (!id.success) return badBody(res, 'Unknown member.');
+    const me = await caller(req, res); if (!me) return;
+    res.json(await revokeRole(me, id.data, String(req.params.roleCode)));
+  } catch (err) { fail(res, err, 'revoke-role'); }
+});
+
+router.post('/transfer', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const body = TransferBody.safeParse(req.body ?? {});
+    if (!body.success) return badBody(res, 'Choose a member.');
+    const me = await caller(req, res); if (!me) return;
+    res.json(await transferAdmin(me, body.data.toMemberId));
+  } catch (err) { fail(res, err, 'transfer'); }
+});
+
+router.post('/leave', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const me = await caller(req, res); if (!me) return;
+    await leave(me);
+    res.json({ ok: true });
+  } catch (err) { fail(res, err, 'leave'); }
+});
+
+router.delete('/members/:memberId', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const id = Uuid.safeParse(req.params.memberId);
+    if (!id.success) return badBody(res, 'Unknown member.');
+    const me = await caller(req, res); if (!me) return;
+    await removeMember(me, id.data);
+    res.json({ ok: true });
+  } catch (err) { fail(res, err, 'remove-member'); }
+});
+
+router.post('/dissolve', ...signedIn, async (req: AuthRequest, res) => {
+  try {
+    const me = await caller(req, res); if (!me) return;
+    await dissolve(me);
+    res.json({ ok: true });
+  } catch (err) { fail(res, err, 'dissolve'); }
+});
 
 export default router;

@@ -22,9 +22,17 @@ const uids = {
 
 async function profile(uid: string, extra: { userTypeId?: string; householdId?: string } = {}): Promise<string> {
   const r = await client.query<{ id: string }>(
-    `INSERT INTO user_profile (firebase_uid, user_type_id, household_id) VALUES ($1, $2, $3) RETURNING id`,
-    [uid, extra.userTypeId ?? null, extra.householdId ?? null]
+    `INSERT INTO user_profile (firebase_uid, user_type_id) VALUES ($1, $2) RETURNING id`,
+    [uid, extra.userTypeId ?? null]
   );
+  // Family Household 1 (2026-11-07): membership is a household_member row (read via v_household_member).
+  if (extra.householdId) {
+    await client.query(
+      `INSERT INTO household_member (household_id, user_id, status_id)
+       VALUES ($1, $2, (SELECT id FROM household_member_status WHERE code = 'active'))`,
+      [extra.householdId, r.rows[0].id]
+    );
+  }
   return r.rows[0].id;
 }
 

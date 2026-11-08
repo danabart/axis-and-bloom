@@ -226,6 +226,190 @@ CREATE TABLE IF NOT EXISTS household_invitation (
   expires_at     TIMESTAMPTZ DEFAULT timezone('utc', now()) + INTERVAL '7 days'
 );
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Family Household 1 (2026-11-07): foundation and join links.
+-- backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_1_FOUNDATION_AND_JOIN_LINKS.md
+-- Membership is a row (household_member) with a set of roles
+-- (household_member_role); every state change is an insert-only
+-- household_event; numbers live in household_parameter. One writer for every
+-- household_* table: services/householdService.ts (householdParameters.ts for
+-- the parameter table). Reads: v_household_* (services/householdReads.ts).
+-- user_profile.household_id / is_household_admin are retired, never written.
+-- Placed here (after user_profile, before the A2 grant loops at the end of
+-- the file) so ab_app is granted the boot these appear.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Lookups (G2.7). Every rule a role carries is a column (design §4).
+CREATE TABLE IF NOT EXISTS household_role (
+  id                  SERIAL PRIMARY KEY,
+  code                TEXT UNIQUE NOT NULL,
+  label               TEXT NOT NULL,
+  customer_label      TEXT NOT NULL,
+  can_administer      BOOLEAN NOT NULL,
+  in_house_box        BOOLEAN NOT NULL,
+  self_manages_cycle  BOOLEAN NOT NULL,
+  may_turn_dials      BOOLEAN NOT NULL,
+  admin_may_set       BOOLEAN NOT NULL,
+  member_may_self_set BOOLEAN NOT NULL,
+  sort_order          INT NOT NULL
+);
+INSERT INTO household_role (code, label, customer_label, can_administer, in_house_box, self_manages_cycle, may_turn_dials, admin_may_set, member_may_self_set, sort_order) VALUES
+  ('admin',     'Household admin',      'Household admin',      true,  false, false, true, true,  false, 1),
+  ('household', 'In the household box', 'In the household box', false, true,  false, true, true,  false, 2),
+  ('own_plan',  'On their own plan',    'On their own plan',    false, false, true,  true, false, true,  3)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS household_member_status (
+  id             SERIAL PRIMARY KEY,
+  code           TEXT UNIQUE NOT NULL,
+  label          TEXT NOT NULL,
+  customer_label TEXT NOT NULL
+);
+INSERT INTO household_member_status (code, label, customer_label) VALUES
+  ('active',  'Active member',          'In the household'),
+  ('left',    'Left the household',     'Left the household'),
+  ('removed', 'Removed by the admin',   'Moved out of the household')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS household_invitation_status (
+  id             SERIAL PRIMARY KEY,
+  code           TEXT UNIQUE NOT NULL,
+  label          TEXT NOT NULL,
+  customer_label TEXT NOT NULL
+);
+INSERT INTO household_invitation_status (code, label, customer_label) VALUES
+  ('open',     'Open join link',                               'Ready to share'),
+  ('accepted', 'Accepted',                                     'Joined'),
+  ('declined', 'Declined on the join page',                    'Declined'),
+  ('revoked',  'Revoked by the admin',                         'Link closed'),
+  ('legacy',   'Email invitation from before 2026-11-07',      'Earlier invitation')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS household_event_kind (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT UNIQUE NOT NULL,
+  label TEXT NOT NULL
+);
+INSERT INTO household_event_kind (code, label) VALUES
+  ('created',                         'Household created'),
+  ('member_added',                    'Member added'),
+  ('link_created',                    'Join link created'),
+  ('link_revoked',                    'Join link closed'),
+  ('link_accepted',                   'Join link accepted'),
+  ('link_declined',                   'Join link declined'),
+  ('member_claimed',                  'Member signed in and claimed their profile'),
+  ('identity_unlinked',               'Profile link undone'),
+  ('role_granted',                    'Role granted'),
+  ('role_revoked',                    'Role removed'),
+  ('admin_transferred',               'Admin role handed over'),
+  ('member_left',                     'Member left'),
+  ('member_removed',                  'Member removed'),
+  ('dissolved',                       'Household closed'),
+  ('quiz_taken_for_member',           'Quiz taken for a member'),
+  ('dial_turned_for_member',          'Dial turned for a member'),
+  ('subscription_cancelled_on_leave', 'House subscription cancelled on leave'),
+  ('handover_offered',                'House subscription handover offered')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS household_event_source (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT UNIQUE NOT NULL,
+  label TEXT NOT NULL
+);
+INSERT INTO household_event_source (code, label) VALUES
+  ('customer', 'A household member, in the app'),
+  ('admin',    'Axis & Bloom admin portal'),
+  ('system',   'System (migration or service)'),
+  ('cron',     'Scheduled job')
+ON CONFLICT (code) DO NOTHING;
+
+-- Membership: one row per person per household stay. A person is in at most
+-- one household at a time (D23): partial unique on user_id while active,
+-- created below once the active id is known.
+CREATE TABLE IF NOT EXISTS household_member (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  household_id UUID NOT NULL REFERENCES household(id),
+  user_id      UUID NOT NULL REFERENCES user_profile(id),
+  status_id    INT NOT NULL REFERENCES household_member_status(id),
+  joined_at    TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  ended_at     TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+CREATE INDEX IF NOT EXISTS idx_household_member_household ON household_member (household_id);
+
+CREATE TABLE IF NOT EXISTS household_member_role (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  member_id          UUID NOT NULL REFERENCES household_member(id),
+  role_id            INT NOT NULL REFERENCES household_role(id),
+  granted_at         TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  revoked_at         TIMESTAMPTZ,
+  granted_by_user_id UUID REFERENCES user_profile(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS household_member_role_current ON household_member_role (member_id, role_id) WHERE revoked_at IS NULL;
+
+-- Insert-only history (G2.13). ab_app loses UPDATE/DELETE in the grant block.
+CREATE TABLE IF NOT EXISTS household_event (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  household_id  UUID NOT NULL REFERENCES household(id),
+  member_id     UUID REFERENCES household_member(id),
+  kind_id       INT NOT NULL REFERENCES household_event_kind(id),
+  source_id     INT NOT NULL REFERENCES household_event_source(id),
+  actor_user_id UUID REFERENCES user_profile(id),
+  detail        JSONB NOT NULL DEFAULT '{}',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+CREATE INDEX IF NOT EXISTS idx_household_event_household_created ON household_event (household_id, created_at);
+
+-- Business numbers (D5), same shape as commerce_parameter. A change is a new
+-- row that supersedes the current one (services/householdParameters.ts).
+CREATE TABLE IF NOT EXISTS household_parameter (
+  id            SERIAL PRIMARY KEY,
+  key           TEXT NOT NULL,
+  value_numeric NUMERIC,
+  value_text    TEXT,
+  since         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at TIMESTAMPTZ,
+  note          TEXT,
+  UNIQUE (key, since),
+  CHECK ((value_numeric IS NULL) <> (value_text IS NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS household_parameter_current ON household_parameter (key) WHERE superseded_at IS NULL;
+INSERT INTO household_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('max_members',                    6::numeric, NULL::text, 'Most active members a Family Household can hold, the admin included. Range: integer 1 <= value <= 20.'),
+  ('quiz_for_member_enabled',        1,  NULL, '1 = an admin may take the quiz for a member without a self-taken quiz (household brief 2), 0 = off. Range: integer 0 <= value <= 1.'),
+  ('house_box_bags_per_member',      1,  NULL, 'Bags per in-box member that Build the house box adds (household brief 3). Range: integer 1 <= value <= 4.'),
+  ('household_handover_discount_pct', 5, NULL, 'Extra subscription discount, in percent, offered to members when the admin leaves with the house subscription (D22, household brief 3). Range: 0 <= value <= 50.'),
+  ('household_handover_window_days', 7,  NULL, 'Days after the cancellation event during which the handover discount applies (D22, household brief 3). Range: integer 1 <= value <= 60.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM household_parameter p WHERE p.key = v.key);
+
+-- Alters on the 2026-05 tables (additive, G2.8).
+ALTER TABLE household ADD COLUMN IF NOT EXISTS dissolved_at TIMESTAMPTZ;
+ALTER TABLE household_invitation ADD COLUMN IF NOT EXISTS status_id INT REFERENCES household_invitation_status(id);
+ALTER TABLE household_invitation ADD COLUMN IF NOT EXISTS member_id UUID REFERENCES household_member(id);
+ALTER TABLE household_invitation ADD COLUMN IF NOT EXISTS declined_at TIMESTAMPTZ;
+ALTER TABLE household_invitation ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
+ALTER TABLE household_invitation ADD COLUMN IF NOT EXISTS accepted_by_user_id UUID REFERENCES user_profile(id);
+-- D31: no email is held for a new join link; T9: links never expire on their
+-- own. The retired text status keeps its rows but gets no value on new ones.
+ALTER TABLE household_invitation ALTER COLUMN invited_email DROP NOT NULL;
+ALTER TABLE household_invitation ALTER COLUMN expires_at DROP DEFAULT;
+ALTER TABLE household_invitation ALTER COLUMN status DROP NOT NULL;
+ALTER TABLE household_invitation ALTER COLUMN status DROP DEFAULT;
+
+-- Partial uniques on a lookup id: an index predicate cannot hold a subquery,
+-- so the id is resolved here and the index created with it (idempotent by
+-- name). household_member: one active membership per person (D23).
+-- household_invitation: one open join link per member (T10).
+DO $$ DECLARE active_id INT; open_id INT; BEGIN
+  SELECT id INTO active_id FROM household_member_status WHERE code = 'active';
+  SELECT id INTO open_id FROM household_invitation_status WHERE code = 'open';
+  EXECUTE format('CREATE UNIQUE INDEX IF NOT EXISTS household_member_one_active ON household_member (user_id) WHERE status_id = %s', active_id);
+  EXECUTE format('CREATE UNIQUE INDEX IF NOT EXISTS household_invitation_one_open ON household_invitation (member_id) WHERE status_id = %s', open_id);
+END $$;
+
 CREATE TABLE IF NOT EXISTS user_email (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       UUID REFERENCES user_profile(id) ON DELETE CASCADE,
@@ -1880,6 +2064,12 @@ $$;
 INSERT INTO user_type (name, description) VALUES
   ('admin',    'Internal team — full access to admin portal'),
   ('customer', 'Regular subscriber')
+ON CONFLICT (name) DO NOTHING;
+-- Family Household 1 (2026-11-07): a member the admin added by first name.
+-- Its firebase_uid is 'managed:<uuid>', never a Firebase uid; middleware/auth
+-- refuses that prefix and staleGuestCleanup skips this type.
+INSERT INTO user_type (name, description) VALUES
+  ('household_managed', 'Profile set up by a household admin; cannot sign in')
 ON CONFLICT (name) DO NOTHING;
 
 -- 0b. Lookup values (controlled vocabulary for dropdowns)
@@ -5298,6 +5488,29 @@ CREATE TABLE IF NOT EXISTS customer_identity_link (
 );
 CREATE INDEX IF NOT EXISTS idx_customer_identity_link_user_occurred ON customer_identity_link (user_id, occurred_at);
 
+-- Family Household 1 (2026-11-07, D25): undoing a link is an insert-only
+-- row, never a delete of the link. v_customer_identity skips a link that has
+-- one. Writer: customerFacts.identityUnlink (household brief 2); created now
+-- so the view honours it from the start. Same fact shape as every customer_*
+-- table (customerIntegrity checks 4 and 5): user_id (= the link's
+-- from_user_id), occurred_at, recorded_at, source, source_id, catalog_version,
+-- UNIQUE (source, source_id), the (user_id, occurred_at) index.
+CREATE TABLE IF NOT EXISTS customer_identity_unlink (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES user_profile(id),
+  occurred_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  recorded_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  source          TEXT NOT NULL,
+  source_id       TEXT NOT NULL,
+  catalog_version TEXT,
+  link_id         UUID NOT NULL REFERENCES customer_identity_link(id),
+  actor_user_id   UUID REFERENCES user_profile(id),
+  reason          TEXT,
+  UNIQUE (source, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_customer_identity_unlink_user_occurred ON customer_identity_unlink (user_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_customer_identity_unlink_link ON customer_identity_unlink (link_id);
+
 CREATE TABLE IF NOT EXISTS customer_feedback_event (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id            UUID NOT NULL REFERENCES user_profile(id),
@@ -5887,6 +6100,8 @@ WITH RECURSIVE walk AS (
          (cil.to_user_id = ANY(w.path))
   FROM walk w
   JOIN customer_identity_link cil ON cil.from_user_id = w.current_id
+    -- Family Household 1 (D25): an undone link is skipped.
+    AND NOT EXISTS (SELECT 1 FROM customer_identity_unlink u WHERE u.link_id = cil.id)
   WHERE w.depth < 5 AND NOT w.cycle_detected
 ),
 terminal AS (
@@ -6077,6 +6292,151 @@ LEFT JOIN (
 ) d ON d.feedback_event_id = cfe.id
 WHERE NOT EXISTS (SELECT 1 FROM customer_feedback_event newer WHERE newer.supersedes_id = cfe.id);
 
+-- ── Family Household 1 (2026-11-07): the household read path ────────────────
+-- Placed after v_customer_quiz_current (the archetype comes from it) and
+-- before v_customer_bag_attribution (whose claim join reads membership here).
+-- Every reader of membership goes through these views (G2.5); the retired
+-- user_profile.household_id / is_household_admin are read by nothing.
+
+DROP VIEW IF EXISTS v_household_member CASCADE;
+CREATE VIEW v_household_member AS
+SELECT
+  hm.id AS member_id,
+  hm.household_id,
+  hm.user_id,
+  -- After a claim the member row points at the account that opened the link;
+  -- until that account has a first name, the one the admin typed stands.
+  COALESCE(NULLIF(trim(up.first_name), ''), claimed.first_name) AS first_name,
+  ms.code AS status_code,
+  ms.customer_label AS status_label,
+  COALESCE(r.role_codes, ARRAY[]::text[]) AS role_codes,
+  COALESCE(r.can_administer, false)      AS can_administer,
+  COALESCE(r.in_house_box, false)        AS in_house_box,
+  COALESCE(r.self_manages_cycle, false)  AS self_manages_cycle,
+  COALESCE(r.may_turn_dials, false)      AS may_turn_dials,
+  COALESCE(r.admin_may_set, false)       AS admin_may_set,
+  COALESCE(r.member_may_self_set, false) AS member_may_self_set,
+  CASE WHEN ut.name = 'household_managed' THEN 'managed' ELSE 'login' END AS account_state,
+  -- The identity walk and the quiz read are scalar subqueries on purpose: a
+  -- reader that only asks for membership (liamAccess, userSignals, the
+  -- checkout recipient check) never selects these columns, so the planner
+  -- drops them and never walks v_customer_identity for every profile.
+  (SELECT vci.canonical_user_id FROM v_customer_identity vci WHERE vci.user_id = hm.user_id) AS canonical_user_id,
+  (SELECT qc.archetype_name FROM v_customer_quiz_current qc
+     JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
+    WHERE vci.user_id = hm.user_id) AS archetype_name,
+  (SELECT qc.archetype_code FROM v_customer_quiz_current qc
+     JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
+    WHERE vci.user_id = hm.user_id) AS archetype_code,
+  -- 'by_admin' arrives with household brief 2 (quiz_session.taken_by_user_id).
+  CASE WHEN EXISTS (SELECT 1 FROM v_customer_quiz_current qc
+                      JOIN v_customer_identity vci ON vci.canonical_user_id = qc.canonical_user_id
+                     WHERE vci.user_id = hm.user_id) THEN 'own' ELSE 'none' END AS quiz_state,
+  link.id AS open_link_id,
+  link.token AS open_link_token,
+  link.created_at AS open_link_created_at,
+  hm.joined_at,
+  hm.ended_at,
+  hm.created_at
+FROM household_member hm
+JOIN household_member_status ms ON ms.id = hm.status_id
+JOIN user_profile up ON up.id = hm.user_id
+LEFT JOIN user_type ut ON ut.id = up.user_type_id
+LEFT JOIN LATERAL (
+  SELECT array_agg(hr.code ORDER BY hr.sort_order) AS role_codes,
+         bool_or(hr.can_administer) AS can_administer, bool_or(hr.in_house_box) AS in_house_box,
+         bool_or(hr.self_manages_cycle) AS self_manages_cycle, bool_or(hr.may_turn_dials) AS may_turn_dials,
+         bool_or(hr.admin_may_set) AS admin_may_set, bool_or(hr.member_may_self_set) AS member_may_self_set
+  FROM household_member_role mr
+  JOIN household_role hr ON hr.id = mr.role_id
+  WHERE mr.member_id = hm.id AND mr.revoked_at IS NULL
+) r ON true
+LEFT JOIN LATERAL (
+  SELECT mp.first_name
+  FROM customer_identity_link cil
+  JOIN user_profile mp ON mp.id = cil.from_user_id
+  WHERE cil.to_user_id = hm.user_id AND cil.how = 'household_claim'
+    AND NOT EXISTS (SELECT 1 FROM customer_identity_unlink u WHERE u.link_id = cil.id)
+  ORDER BY cil.occurred_at DESC LIMIT 1
+) claimed ON true
+LEFT JOIN LATERAL (
+  SELECT hi.id, hi.token, hi.created_at
+  FROM household_invitation hi
+  JOIN household_invitation_status s ON s.id = hi.status_id AND s.code = 'open'
+  WHERE hi.member_id = hm.id
+  ORDER BY hi.created_at DESC LIMIT 1
+) link ON true;
+
+DROP VIEW IF EXISTS v_household CASCADE;
+CREATE VIEW v_household AS
+SELECT
+  h.id AS household_id,
+  h.household_name,
+  adm.user_id AS admin_user_id,
+  adm.first_name AS admin_first_name,
+  h.primary_billing_user_id AS pays_user_id,
+  payer.first_name AS pays_first_name,
+  COALESCE(mc.active_member_count, 0) AS active_member_count,
+  h.dissolved_at,
+  h.created_at,
+  h.updated_at
+FROM household h
+LEFT JOIN user_profile payer ON payer.id = h.primary_billing_user_id
+LEFT JOIN LATERAL (
+  SELECT vm.user_id, vm.first_name FROM v_household_member vm
+  WHERE vm.household_id = h.id AND vm.status_code = 'active' AND vm.can_administer
+  ORDER BY vm.joined_at LIMIT 1
+) adm ON true
+LEFT JOIN LATERAL (
+  SELECT COUNT(*)::int AS active_member_count
+  FROM household_member hm
+  JOIN household_member_status s ON s.id = hm.status_id AND s.code = 'active'
+  WHERE hm.household_id = h.id
+) mc ON true;
+
+DROP VIEW IF EXISTS v_household_invitation CASCADE;
+CREATE VIEW v_household_invitation AS
+SELECT
+  hi.id AS invitation_id,
+  hi.household_id,
+  h.household_name,
+  hi.member_id,
+  vm.first_name AS member_first_name,
+  s.code AS status_code,
+  s.label AS status_label,
+  s.customer_label AS status_customer_label,
+  hi.token,
+  hi.invited_by_id,
+  hi.created_at,
+  hi.accepted_by_user_id,
+  hi.declined_at,
+  hi.revoked_at
+FROM household_invitation hi
+JOIN household h ON h.id = hi.household_id
+LEFT JOIN household_invitation_status s ON s.id = hi.status_id
+LEFT JOIN v_household_member vm ON vm.member_id = hi.member_id;
+
+DROP VIEW IF EXISTS v_household_event CASCADE;
+CREATE VIEW v_household_event AS
+SELECT
+  e.id AS event_id,
+  e.household_id,
+  e.member_id,
+  k.code AS kind_code,
+  k.label AS kind_label,
+  src.code AS source_code,
+  src.label AS source_label,
+  e.actor_user_id,
+  actor.first_name AS actor_first_name,
+  vm.first_name AS member_first_name,
+  e.detail,
+  e.created_at
+FROM household_event e
+JOIN household_event_kind k ON k.id = e.kind_id
+JOIN household_event_source src ON src.id = e.source_id
+LEFT JOIN user_profile actor ON actor.id = e.actor_user_id
+LEFT JOIN v_household_member vm ON vm.member_id = e.member_id;
+
 -- D7 drinker-attribution rule. "Company-gift subscription context" (Part A2's
 -- own wording) is read here as: the order's buyer has a company_gift_id on
 -- their profile (b2b_company_subscriptions) — an individually-sponsored seat,
@@ -6110,10 +6470,12 @@ LEFT JOIN user_profile buyer ON buyer.id = o.user_id
 LEFT JOIN LATERAL (
   SELECT cbc.user_id
   FROM customer_bag_claim cbc
-  JOIN user_profile claimant ON claimant.id = cbc.user_id
   WHERE cbc.coffee_id = rb.coffee_id
     AND o.household_id IS NOT NULL
-    AND claimant.household_id = o.household_id
+    -- Family Household 1 (2026-11-07): membership from v_household_member,
+    -- not the retired user_profile.household_id. CASE order unchanged (D24 is brief 3).
+    AND EXISTS (SELECT 1 FROM v_household_member vm
+                WHERE vm.user_id = cbc.user_id AND vm.household_id = o.household_id AND vm.status_code = 'active')
   ORDER BY cbc.occurred_at ASC
   LIMIT 1
 ) claim ON true;
@@ -9857,6 +10219,13 @@ REVOKE UPDATE, DELETE, TRUNCATE ON commerce_parameter FROM ab_app;
 GRANT UPDATE (superseded_at) ON commerce_parameter TO ab_app;
 -- Commerce 2 (2026-10-31): subscription_event is insert-only, like order_event.
 REVOKE UPDATE, DELETE, TRUNCATE ON subscription_event FROM ab_app;
+-- Family Household 1 (2026-11-07): household_event is insert-only (G2.13);
+-- household_parameter is superseded only, like commerce_parameter. No
+-- household_* row is ever deleted (T5): the request pool loses DELETE on all.
+REVOKE UPDATE, DELETE, TRUNCATE ON household_event FROM ab_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON household_parameter FROM ab_app;
+GRANT UPDATE (superseded_at) ON household_parameter TO ab_app;
+REVOKE DELETE, TRUNCATE ON household, household_member, household_member_role, household_invitation FROM ab_app;
 GRANT SELECT ON v_roastery_remark, v_cupping_session, v_cupping_session_coffee TO reporting_ro;
 
 -- Quiz content is master data with one writer, the V7 seed in this file,

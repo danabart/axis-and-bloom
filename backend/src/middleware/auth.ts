@@ -2,6 +2,13 @@ import type { Request, Response, NextFunction } from 'express';
 import admin from '../services/firebase-admin.js';
 import { db } from '../db/client.js';
 import { hasLiamAccess } from '../services/liamAccess.js';
+import { MANAGED_UID_PREFIX } from '../services/householdManaged.js';
+
+// Family Household 1 (2026-11-07): a profile a household admin set up has a
+// firebase_uid of 'managed:<uuid>' and must never act as a signed-in user.
+// Only our own Admin SDK could mint a token for such a uid; refusing the
+// prefix here costs no database round trip on every request.
+const isManagedUid = (uid: string) => uid.startsWith(MANAGED_UID_PREFIX);
 
 export interface AuthRequest extends Request {
   uid?: string;
@@ -14,6 +21,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   if (!token) { res.status(401).json({ error: 'Unauthorized' }); return; }
   try {
     const decoded = await admin.auth().verifyIdToken(token);
+    if (isManagedUid(decoded.uid)) { res.status(403).json({ error: 'Forbidden' }); return; }
     req.uid = decoded.uid;
     req.email = decoded.email;
     req.isAnonymous = decoded.firebase?.sign_in_provider === 'anonymous';
@@ -36,6 +44,7 @@ export async function requireAdmin(req: AuthRequest, res: Response, next: NextFu
   if (!token) { res.status(401).json({ error: 'Unauthorized' }); return; }
   try {
     const decoded = await admin.auth().verifyIdToken(token);
+    if (isManagedUid(decoded.uid)) { res.status(403).json({ error: 'Forbidden' }); return; }
     req.uid = decoded.uid;
     req.email = decoded.email;
     req.isAnonymous = decoded.firebase?.sign_in_provider === 'anonymous';
@@ -73,6 +82,7 @@ export async function optionalAuth(req: AuthRequest, _res: Response, next: NextF
   if (token) {
     try {
       const decoded = await admin.auth().verifyIdToken(token);
+      if (isManagedUid(decoded.uid)) return next();
       req.uid = decoded.uid;
       req.email = decoded.email;
       req.isAnonymous = decoded.firebase?.sign_in_provider === 'anonymous';

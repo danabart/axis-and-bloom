@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { trackEvent } from '../lib/analytics';
+import { shareOrCopy } from '../lib/share';
 
 const SITE_ORIGIN = 'https://www.axisandbloomcoffee.com';
 
@@ -23,25 +24,11 @@ export function ShareMatchRow({ archetypeName, shareSlug }: Props) {
   async function handleShare() {
     trackEvent('share_match', { archetype: archetypeName });
 
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `My coffee archetype: ${archetypeName}`,
-          text: `I'm ${archetypeName} — find your match too.`,
-          url: shareUrl,
-        });
-      } catch {
-        // user cancelled the native sheet — not an error
-      }
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(shareUrl);
+    // Family Household 1 (2026-11-07): one share helper, lib/share.ts.
+    const outcome = await shareOrCopy(shareUrl, `My coffee archetype: ${archetypeName}`, `I'm ${archetypeName} — find your match too.`);
+    if (outcome === 'copied') {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard unavailable — silently do nothing rather than throw
     }
   }
 

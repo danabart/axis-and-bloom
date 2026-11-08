@@ -6622,6 +6622,22 @@ Brief `backend/src/features/website_handoff/CLAUDE_CODE_PROMPT_WEBSITE_10_CLOSEO
 
 ---
 
+### 263. Family Household 1: foundation and join links (2026-11-07)
+
+Brief `backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_1_FOUNDATION_AND_JOIN_LINKS.md` (design `DESIGN_HOUSEHOLD.md`, D1 to D34); full record `backend/src/features/household/CLOSING_REPORT_1.md`.
+
+**Schema (additive, `schema.sql`):** lookups `household_role` (the six capability columns: `can_administer`, `in_house_box`, `self_manages_cycle`, `may_turn_dials`, `admin_may_set`, `member_may_self_set`), `household_member_status`, `household_invitation_status`, `household_event_kind`, `household_event_source`; tables `household_member` (one active membership per person: partial unique on the active status id, created in a `DO` block), `household_member_role`, `household_event` (insert-only), `household_parameter` (`commerce_parameter` shape: `max_members` 6, `quiz_for_member_enabled` 1, `house_box_bags_per_member` 1, `household_handover_discount_pct` 5, `household_handover_window_days` 7), `customer_identity_unlink` (D25; `v_customer_identity` skips an unlinked link). `household_invitation` gains `status_id`, `member_id`, `declined_at`, `revoked_at`, `accepted_by_user_id` (one open link per member); `invited_email`, `status`, `expires_at` lose NOT NULL / defaults and are no longer written. `household.dissolved_at`. `user_type` `household_managed`. Views `v_household`, `v_household_member` (the one read path for membership), `v_household_invitation`, `v_household_event`; `v_customer_bag_attribution`'s claim join reads `v_household_member`. `user_profile.household_id` / `is_household_admin` retired (comments; never written). Grants: `household_event` insert-only, `household_parameter` supersede-only, no DELETE on any household table for the request pool. Migration `backend/src/db/migrations/household_2026_11_07.sql` (2026-05 memberships and invitations).
+
+**Backend:** `services/householdService.ts` (the one writer: create, addMember, createLink, revokeLink, accept, decline, grantRole, revokeRole, transferAdmin, leave, removeMember, dissolve; one transaction each, household row locked, every change a `household_event`), `householdReads.ts`, `householdParameters.ts`, `householdManaged.ts`. `routes/household.ts` rewritten (zod, no SQL, no email; the Resend call is gone; 2026-05 paths answer 410); `routes/householdAdmin.ts` (`/api/admin/household`). Readers moved to `v_household_member`: `checkoutService.resolveIntendedFor`, `customerReads.getCustomerIdentity`, `liamAccess`, `users` `/homepage-state`, `userSignals` (subscription and household size). `staleGuestCleanup` skips `household_managed` (it would have deleted them). `middleware/auth` refuses a `managed:` uid.
+
+**Frontend:** Family Household tab (`FamilyTab.tsx`) on the handoff tokens; `JoinHousehold.tsx` (signed out, signed in, Join / Decline, "moves you out of" line); `/join-household` outside the curtain (no session bypass, T13 dropped); `admin/AdminHouseholds.tsx` + sidebar; Privacy page Family Household paragraph; `lib/share.ts` shared by `ShareMatchRow` and the tab.
+
+**Tests:** `services/householdService.test.ts` (19), `staleGuestCleanup.test.ts` (+1), fixtures in `liamAccess`, `liamProfile`, `palateReads` tests moved to `household_member`.
+
+**Verified:** see `CLOSING_REPORT_1.md`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

@@ -87,10 +87,19 @@ async function loadFixtures(client: Tx): Promise<void> {
   // "vitest-<cid>" is stable and obviously a fixture.
   for (const cid of Object.keys(fixture.customers)) {
     const r = await client.query<{ id: string }>(
-      `INSERT INTO user_profile (firebase_uid, household_id) VALUES ($1, $2) RETURNING id`,
-      [`vitest-${cid}`, cid === 'fiona' || cid === 'gary' ? householdId.value : null]
+      `INSERT INTO user_profile (firebase_uid) VALUES ($1) RETURNING id`,
+      [`vitest-${cid}`]
     );
     profileIdByCid[cid] = r.rows[0].id;
+  }
+  // Family Household 1 (2026-11-07): membership is a household_member row, not user_profile.household_id.
+  for (const cid of ['fiona', 'gary']) {
+    if (!profileIdByCid[cid]) continue;
+    await client.query(
+      `INSERT INTO household_member (household_id, user_id, status_id)
+       VALUES ($1, $2, (SELECT id FROM household_member_status WHERE code = 'active'))`,
+      [householdId.value, profileIdByCid[cid]]
+    );
   }
 
   // 3. Dimension ids (already seeded — just look them up).

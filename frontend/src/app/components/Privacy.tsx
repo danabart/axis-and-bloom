@@ -59,6 +59,19 @@ export default function Privacy() {
           </p>
         </div>
 
+        {/* Family Household 1 (2026-11-07, D33): design §11, verbatim. */}
+        <div style={section} data-testid="privacy-family-household">
+          <h2 style={h2}>Family Household</h2>
+          <p style={p}>
+            A customer can set up a Family Household and add the people they buy coffee for by first name, so each
+            person's taste is matched on its own. We hold nothing else about a person added this way: no email, no
+            age, nothing typed in by someone else. If the household's admin shares a join link with them and they
+            open it, they create their own account with their own email, and from then on they control their
+            profile, their notifications and their place in the household, including leaving it. Until then, the
+            admin can order coffee for them and see only what they set up themselves.
+          </p>
+        </div>
+
         <div style={section}>
           <h2 style={h2}>Newsletter</h2>
           <p style={p}>

@@ -434,7 +434,7 @@ export default function Profile() {
         <div className="flex w-full mb-12 border-b border-[var(--ab-ink)]/20 relative gap-8">
           {(['memory', 'orders', 'settings', 'family'] as Tab[]).map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={`pb-4 text-[11px] uppercase tracking-[0.2em] font-normal transition-colors relative ${activeTab === tab ? 'text-[var(--ab-mark-b)]' : 'text-[var(--ab-ink)]/40 hover:text-[var(--ab-ink)]/70'}`}>
-              {tab === 'memory' ? 'Flavor Memory' : tab === 'orders' ? 'Past Orders' : tab === 'settings' ? 'Settings' : 'Family'}
+              {tab === 'memory' ? 'Flavor Memory' : tab === 'orders' ? 'Past Orders' : tab === 'settings' ? 'Settings' : 'Family Household'}
               {activeTab === tab && <motion.div layoutId="profile-tab-indicator" className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--ab-mark-b)]" />}
             </button>
           ))}

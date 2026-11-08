@@ -57,6 +57,12 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    label: 'Family Households',
+    items: [
+      { to: '/admin/households', label: 'Households' },
+    ],
+  },
+  {
     label: 'Observability',
     items: [
       { to: '/admin/system-health', label: 'System Health' },

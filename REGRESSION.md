@@ -265,3 +265,15 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 
 - [ ] **Order status words are facts only (D14):** Profile orders and `/checkout/return` show "Paid" / "Paid · sent to the roastery" / "On its way" / "Delivered" from `v_order_status.customer_label`; nothing about roasting, freshness or timing. A boot never overwrites a hand-edited label.
 - [ ] **`/about` lands on Home and `/how-it-works` on The Axis**, query string kept (`?preview=true`).
+
+## Family Household 1: foundation and join links (2026-11-07)
+
+- [ ] **No household email:** adding a member asks for a first name only; nothing is sent; the admin gets Share / Copy for `/join-household?token=…`.
+- [ ] **Join link works three ways:** signed out (sign in or sign up, back to the join page), signed in, new account; Join lands on `/profile?tab=family`; Decline closes the link and the member stays in the household.
+- [ ] **`/join-household` is outside the curtain** with `VITE_PRELAUNCH_MODE` on, and sets no session bypass (`/shop` stays curtained).
+- [ ] **A claim moves the member, not the roles:** the member's badge turns to "Has their own sign-in", `v_customer_identity` resolves the managed profile to the new account, one `member_claimed` event.
+- [ ] **One household per person (D23):** joining another household leaves the current one first; a sole admin with other members is told to hand the admin role over first.
+- [ ] **Never deleted:** leave / remove end the member row, dissolve sets `dissolved_at`, revoke closes the link; `household_event` is insert-only.
+- [ ] **Managed profiles are safe:** the stale-guest purge never touches a `household_managed` profile; a `managed:` uid never authenticates.
+- [ ] **Readers use `v_household_member`:** checkout recipient check, Liam access, homepage next delivery, user signals, Liam's member count. Nothing reads `user_profile.household_id`.
+- [ ] **Privacy page** shows the Family Household paragraph.

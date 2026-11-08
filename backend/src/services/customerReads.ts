@@ -401,10 +401,11 @@ export async function getCustomerIdentity(uid: string, runner: Runner = db): Pro
     `SELECT (SELECT up.first_name FROM user_profile up WHERE up.id = $1) AS first_name,
             (SELECT MIN(up.created_at) FROM user_profile up JOIN v_customer_identity vci ON vci.user_id = up.id
               WHERE vci.canonical_user_id = $1) AS member_since,
-            (SELECT COUNT(*) FROM user_profile other
-              WHERE other.household_id IS NOT NULL
-                AND other.household_id = (SELECT household_id FROM user_profile WHERE id = $1)
-                AND other.id <> $1) AS household_members`,
+            -- Family Household 1 (2026-11-07): other active members, from v_household_member.
+            (SELECT COUNT(*) FROM v_household_member other
+              JOIN v_household_member me ON me.household_id = other.household_id
+               AND me.user_id = $1 AND me.status_code = 'active'
+              WHERE other.status_code = 'active' AND other.user_id <> $1) AS household_members`,
     [canonicalId]
   );
   const row = r.rows[0];

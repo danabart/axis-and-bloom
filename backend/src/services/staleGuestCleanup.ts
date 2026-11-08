@@ -22,7 +22,15 @@ import admin, { firestoreDb } from './firebase-admin.js';
 //     untouched; only the ability to sign back in as that specific anonymous
 //     uid is gone. Raw data is never deleted — mirrors the api_event
 //     decision in api_event_log/REPLAY.md.
+//
+// Family Household 1 (2026-11-07): a household_managed profile (a member the
+// admin added by first name, firebase_uid 'managed:<uuid>') has no quiz, no
+// order and no Firebase record by design. Without the exclusion below the
+// empty-guest rule matched it, getUser answered user-not-found, and the loop
+// deleted the profile as "already gone". Both candidate queries skip that
+// user_type explicitly.
 const BATCH_SIZE = 500;
+const SKIP_MANAGED = `AND NOT EXISTS (SELECT 1 FROM user_type ut WHERE ut.id = up.user_type_id AND ut.name = 'household_managed')`;
 
 interface Candidate {
   firebase_uid: string;
@@ -44,6 +52,7 @@ export async function purgeStaleAnonymousGuests(): Promise<{
        AND NOT EXISTS (SELECT 1 FROM quiz_session qs WHERE qs.user_id = up.id)
        AND NOT EXISTS (SELECT 1 FROM "order" o WHERE o.user_id = up.id)
        AND NOT EXISTS (SELECT 1 FROM user_email ue WHERE ue.user_id = up.id AND ue.is_verified = true)
+       ${SKIP_MANAGED}
      LIMIT $1`,
     [BATCH_SIZE]
   );
@@ -62,6 +71,7 @@ export async function purgeStaleAnonymousGuests(): Promise<{
      WHERE q.last_quiz < now() - interval '90 days'
        AND NOT EXISTS (SELECT 1 FROM "order" o WHERE o.user_id = up.id)
        AND NOT EXISTS (SELECT 1 FROM user_email ue WHERE ue.user_id = up.id AND ue.is_verified = true)
+       ${SKIP_MANAGED}
      LIMIT $1`,
     [BATCH_SIZE]
   );

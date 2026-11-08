@@ -69,16 +69,20 @@ async function resolveShipTo(userId: string, shippingAddressId?: string | null):
 // is for: the same for every line, and the buyer or a member of the buyer's
 // household; the buyer when the client names nobody (this path never sets
 // "order".household_id and there is no company-gift order path, so D7's
-// default always applies).
-async function resolveIntendedFor(userId: string, householdId: string | null, items: Array<{ intendedForUserId?: string | null }>): Promise<string> {
+// default always applies). Family Household 1 (2026-11-07): membership is
+// read from v_household_member (both active in the same household), not the
+// retired user_profile.household_id; brief 3 makes the recipient per line.
+export async function resolveIntendedFor(userId: string, items: Array<{ intendedForUserId?: string | null }>): Promise<string> {
   const named = items.filter(it => it.intendedForUserId !== undefined).map(it => it.intendedForUserId ?? null);
   if (!named.length) return userId;
   if (new Set(named).size > 1) throw new CheckoutError(400, 'invalid_recipient', 'intendedForUserId must be the same for every line in one order');
   const target = named[0];
   if (!target || target === userId) return userId;
-  const member = householdId
-    ? (await db.query(`SELECT 1 FROM user_profile WHERE id = $1 AND household_id = $2`, [target, householdId])).rows.length > 0
-    : false;
+  const member = (await db.query(
+    `SELECT 1 FROM v_household_member t
+     JOIN v_household_member b ON b.household_id = t.household_id AND b.user_id = $2 AND b.status_code = 'active'
+     WHERE t.user_id = $1 AND t.status_code = 'active'`, [target, userId]
+  )).rows.length > 0;
   if (!member) throw new CheckoutError(400, 'invalid_recipient', "intendedForUserId must be the buyer or a member of the buyer's household");
   return target;
 }
@@ -153,8 +157,8 @@ export interface CreateCheckoutResult { clientSecret: string; checkoutSessionId:
 
 export async function createCheckoutSession(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
   if (!STRIPE_ENABLED) throw new CheckoutError(503, 'checkout_unavailable', 'Checkout is not available yet.');
-  const profile = (await db.query<{ id: string; household_id: string | null; first_name: string | null; last_name: string | null }>(
-    `SELECT id, household_id, first_name, last_name FROM user_profile WHERE firebase_uid = $1`, [input.uid]
+  const profile = (await db.query<{ id: string; first_name: string | null; last_name: string | null }>(
+    `SELECT id, first_name, last_name FROM user_profile WHERE firebase_uid = $1`, [input.uid]
   )).rows[0];
   if (!profile) throw new CheckoutError(404, 'profile_not_found', 'User profile not found');
 
@@ -168,7 +172,7 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
   }
 
   const shipTo = await resolveShipTo(profile.id, input.shippingAddressId);
-  const intendedFor = await resolveIntendedFor(profile.id, profile.household_id, input.items ?? []);
+  const intendedFor = await resolveIntendedFor(profile.id, input.items ?? []);
   const resolved = await resolveCart(input.items);
   const cart = intent ? await priceForSubscription(resolved) : resolved;
   const print = fingerprint(cart, shipTo, intendedFor, intent);
