@@ -6668,6 +6668,25 @@ Brief `backend/src/features/household/CLAUDE_CODE_PROMPT_HOUSEHOLD_3_ORDER_FOR_T
 
 **Verified:** see `CLOSING_REPORT_3.md`.
 
+### 266. Cupping evidence, brief 8: the Fruity cupping of 2026-11-06, then Utopian retired (2026-11-08)
+
+Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_8_FRUITY_CUPPING.md`. Closing report: `CLOSING_REPORT_8.md`. Transcription check: `TRANSCRIPTION_CHECK_BRIEF_8_2026-11-08.md`. Data only, plus Dana's deactivation button.
+
+**What it is.** Dana and Camila cupped the fruity end of the dial side by side: Flying Jewel and Pearl (Utopian), Geometric Filter Coffee (Joe Bean), The Village and Cafè Feminista: Montze Olvera (Joe Coffee). It is loaded on prod as **session 42**.
+- `load/loadCuppingEvidence8.ts` (`npm run load:cupping-evidence-8`): loader 7's shape, services only, idempotent; the second run says `already loaded` at every step.
+- It wrote 14 cupper word mappings, 5 session coffees with brew rows, 10 cupper rows (155–168) and 5 rule merges. Most of Dana's values are spans.
+- **Rulings:** Dana ruled her call is fruity on all five (her rows and the merged rows; Camila's rows carry no call). Camila / Pearl / Sweetness is 4.
+- **Disagreements:** Flying Jewel and Pearl on Fragrance, Flavor, Acidity, Body and Finish Length; Geometric on Finish Length; The Village and Feminista none.
+- **Signals:** dial signals 30–34 were recorded by the merges. Each has `suggested_slot_id` null, because the fruity and balanced slots have no spec bands (the coffee presentation 3 rule).
+- `evidence_newer_than_decision` is true for four coffees. For Flying Jewel it is null: its assignment has no basis.
+
+**Utopian retired** (Part C; G2.11, and the new G2.20 "we never touch data we received"). Dana pressed Deactivate on `/admin/roasters` at 2026-11-09 02:33 UTC.
+- **The cascade matches the preview:** 10 coffees, 11 SKUs and 2 home placements went inactive, every row stamped `deactivation_reason = 'roaster'`.
+- **Empty slots:** balanced_sweet slot 3 "Bright & Balanced" (Union) went empty. Flying Jewel's fruity slot 4 "Jammy & Aromatic" had no 12 oz price, so it was not sellable before, and the preview rightly did not count it.
+- **Kept as received (G2.20):** the portal link stays live. Sessions, scores, remarks, the portal lineup and answers are unchanged.
+- **Integrity:** catalog integrity passes. Evidence check #6 now lists only Tiger Stripe.
+- **Loaders:** loaders 5, 7 and 8 now refuse on their active-roaster precondition, as designed.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)
