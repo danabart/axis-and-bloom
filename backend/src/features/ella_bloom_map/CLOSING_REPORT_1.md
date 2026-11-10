@@ -239,7 +239,7 @@ Additive and idempotent. It is in `schema.sql` (block "ELLA'S BLOOM MAP 1", befo
 ### Part C — none (brief 2).
 
 ### Part D — Tests
-- **`services/dialMap.test.ts` (10, all pass)** runs inside rolled-back transactions; real coffees are set inactive in the transaction so ranks are the fixture's own. It covers:
+- **`services/dialMap.test.ts` (11, all pass)** runs inside rolled-back transactions; real coffees are set inactive in the transaction so ranks are the fixture's own. It covers:
   - ring banding at, under and over each cut, the center at 0, no ruler value → not placeable, and the near-cut flag;
   - lean: middle plus a flag with no decision; a decision beats the suggestion; `setLean` twice supersedes once; the stored suggestion equals the preview's;
   - portal order read by split;
@@ -268,7 +268,7 @@ Additive and idempotent. It is in `schema.sql` (block "ELLA'S BLOOM MAP 1", befo
 | Benchmark | balanced_sweet | center | 0 | middle (none) | side_a (0.72 chocolate_nutty / 0 fruity) | 3 (6.57) | B (2, 2) | yes | no_lean_decision |
 | Cafè Feminista: Montze Olvera | fruity | 8.04 | 3 | middle (none) | side_a (0.69 chocolate_nutty / 0 floral) | 3 (8.31) | B (2, 2) | yes | no_lean_decision |
 | Geometric Filter Coffee | fruity | 4.66 | 2 | middle (none) | side_a (0.38 chocolate_nutty / 0 floral) | 3 (7.04) | A (3, 2) | no | no_lean_decision |
-| Nightcap Decaf | fruity | 7 | 3 | middle (none) | side_a (1 chocolate_nutty / 0 floral) | 2 (6) | D (1, 1) | no | no_family_word, no_lean_decision, provisional |
+| Nightcap Decaf | fruity | 7 | 3 | middle (none) | side_a (1 chocolate_nutty / 0 floral) | 2 (6) | D (0, 0) | no | no_family_word, no_lean_decision, provisional |
 | The Village | fruity | 4.38 | 2 | middle (none) | side_b (0.38 chocolate_nutty / 1 floral) | 2 (6) | B (2, 2) | yes | no_lean_decision |
 | Big City | earthy | 8.61 | 3 | middle (none) | side_a (0.69 chocolate_nutty / 0 floral) | 1 (4.39) | B (2, 2) | no | no_family_word, no_lean_decision |
 | Colombia La Familia Guarnizo | floral | 5 | 2 | middle (none) | side_a (0.5 fruity / 0 earthy) | 3 (8.5) | C (1, 1) | yes | no_family_word, no_lean_decision |
@@ -340,7 +340,7 @@ Additive and idempotent. It is in `schema.sql` (block "ELLA'S BLOOM MAP 1", befo
 5. **`v_dial_coffee_availability` and `v_dial_point` (extra views):** one sellable rule for the preview and the active version, and one point set for the edges.
 6. **Hop views keep every eligible target ranked,** with `in_hop_set` (rank 1 for bolder/gentler, `within_cap` for different, all siblings). The brief's "nearest one" alone would leave `matchService` (brief 3) nothing to fall back to after the customer's decaf or stock filter. The view is still unfiltered, as the brief says.
 7. **A center with lane middle has no bolder:** the brief says bolder from the center is the wedge on its lean side, so with no decision there is no lean side. This is the brief's rule, not a deviation; I flag it because acceptance shows it.
-8. **Provisional = any scored sample of the coffee matches a pattern** (the brief's "D when provisional"). A later non-provisional session does not lift the D. Flag for Dana if it should.
+8. **Provisional samples** (changed after review, Dana 2026-11-10): a scored sample matching a provisional pattern leaves the session and cupper counts; it stays in the pooled values. Grade D only when no non-provisional current merged row exists. Test added: a provisional session followed by a clean one gets the clean rows' grade. On the test DB the only change is Nightcap: still D, with counts now 0 / 0. Commit `fbe7396`.
 
 ## What brief 2 needs
 - **API:**
@@ -356,3 +356,22 @@ Additive and idempotent. It is in `schema.sql` (block "ELLA'S BLOOM MAP 1", befo
   - Refresh the test DB first (OT-121).
   - Geometric (unpriced slot) and Nightcap (no slot) are out of the graph until they are priced.
 - **Test-DB state left behind:** draft version `test-dry-run` (id 10, 12 placements) on `axisandbloom_test`. Production has no version.
+
+## Deploy
+
+- **Commits:** `26d4312` (the brief) and `fbe7396` (deviation 8 after review: provisional samples leave the grade counts), pushed to `main` 2026-11-10 by path, with no unrelated files staged.
+- **Deploy run 42883166147:** green (backend and frontend). Revision `axis-bloom-backend-00851-dtr`.
+- **Startup log:**
+  - `[db-comments] applied 1924 statements`.
+  - `[data-catalog] report only: 187 tables, 97 views, 1640 columns; 2 of 10 checks with findings`.
+  - The **new checks 7 to 10 pass** (no active version, no placement on an inactive coffee, every lookup seed present, all 25 `dial_` keys present).
+  - The two findings are #4 (CATALOG.md stale, expected before the regenerate below) and #6 (the 25 dead-table candidates from before this brief, none of them `dial_`).
+  - No ERROR lines.
+- **Boot seeds on prod (read-only check):**
+  - Lookups: lanes 3, moves 7, grades 4, statuses 3, first-match statuses 2, pattern 1, dark roast levels 2, readings 4, scale weights 4.
+  - Config: seams 4, wedges 5, phrases 8.
+  - First match: balanced_sweet × side_a → Benchmark (founder_pick).
+  - 25 `dial_` parameters.
+  - 0 versions and 0 lean decisions, so production was written only by the boot seeds.
+  - The preview on prod places 12 coffees, 7 of them sellable.
+- **`npm run catalog:md -- --expect-db axisandbloom`** from prod: catalog-hash `dd4f4faae4c5…`, equal to the live hash in the startup log. `CATALOG.md` is committed with this section.
