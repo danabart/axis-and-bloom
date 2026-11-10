@@ -251,3 +251,6 @@ The admin was a marked test user, "Zzz Test Admin (Ella map 2)" (Firebase uid `U
   - `dial_lane` labels moved to "Leans {side}" / "Middle" by the guarded update.
   - 0 versions and 0 lean decisions, so production was written only by the boot seeds.
 - **`npm run catalog:md -- --expect-db axisandbloom`** from prod: catalog-hash `c4886970949a…`, equal to the live hash in the startup log. Committed with this section.
+
+## Follow-up (Dana 2026-11-10): names on the face
+- Coffee names now sit beside the face dots in place of the grade letters (family colour, cut to 16 characters, full name as tooltip and tap target, offset with their dots in fanned cells; `labelMode` 'name' | 'none', with 'none' on the thumb; grades only in the table). Commit `7396688`, deploy run 42908321249 green (revision `axis-bloom-backend-00855-zbb`); map geometry 6 and frontend 151 tests pass; see `map2_face_names.png`.
