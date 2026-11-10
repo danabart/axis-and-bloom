@@ -596,7 +596,14 @@ export async function saveCupperScore(input: CupperScoreInput): Promise<number> 
 
 // ── Merges ─────────────────────────────────────────────────────────────────
 
-async function loadCupperRows(tx: Tx, sessionCoffeeId: number): Promise<UnionRow[]> {
+/**
+ * The current cupper rows of a session coffee as the merge sees them. Brief 9
+ * (2026-11-09): the one path into the merge, so the dispute filter lives here
+ * only. A row with an open whole-row dispute is left out (values, descriptors
+ * and calls with it); a value with an open dispute on its dimension is left
+ * out of that row. `disputed` lists what was left out, for the merge note.
+ */
+async function loadCupperRows(tx: Tx, sessionCoffeeId: number): Promise<{ rows: UnionRow[]; disputed: string[] }> {
   const heads = await tx.query<{
     id: number; cupper_name: string; scale_code: string; archetype_call: string | null; archetype_call_secondary: string | null;
     position_call: string | null; slot_call_id: number | null; call_note: string | null; overall_notes: string | null;
@@ -606,10 +613,29 @@ async function loadCupperRows(tx: Tx, sessionCoffeeId: number): Promise<UnionRow
             cs.call_note, cs.overall_notes
      FROM cupping_scores cs JOIN cupper cu ON cu.id = cs.cupper_id
      WHERE cs.session_coffee_id = $1 AND NOT cs.is_merged AND cs.superseded_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM cupping_score_dispute dz
+                        WHERE dz.cupping_score_id = cs.id AND dz.dimension_id IS NULL AND dz.withdrawn_at IS NULL)
      ORDER BY cu.name`,
     [sessionCoffeeId]
   );
-  if (!heads.rows.length) return [];
+  const disputes = await tx.query<{ cupper_name: string; dimension_name: string | null }>(
+    `SELECT cu.name AS cupper_name, d.name AS dimension_name
+     FROM cupping_score_dispute dz
+     JOIN cupping_scores cs ON cs.id = dz.cupping_score_id
+     JOIN cupper cu         ON cu.id = cs.cupper_id
+     LEFT JOIN coffee_dimensions d ON d.id = dz.dimension_id
+     WHERE cs.session_coffee_id = $1 AND NOT cs.is_merged AND cs.superseded_at IS NULL AND dz.withdrawn_at IS NULL
+     ORDER BY (dz.dimension_id IS NOT NULL), cu.name, d.display_order`,
+    [sessionCoffeeId]
+  );
+  const rowNames = disputes.rows.filter(x => x.dimension_name === null).map(x => x.cupper_name);
+  const valueNames = disputes.rows.filter(x => x.dimension_name !== null && !rowNames.includes(x.cupper_name))
+    .map(x => `${x.cupper_name} ${x.dimension_name}`);
+  const disputed = [
+    ...(valueNames.length ? [`disputed: ${valueNames.join(', ')}`] : []),
+    ...(rowNames.length ? [`disputed row: ${rowNames.join(', ')}`] : []),
+  ];
+  if (!heads.rows.length) return { rows: [], disputed };
   const ids = heads.rows.map(h => h.id);
   const vals = await tx.query<{ cupping_score_id: number; dimension_id: number; dimension_name: string; is_numeric: boolean; ab_min: string | null; ab_max: string | null; notes: string | null }>(
     `SELECT csv.cupping_score_id, csv.dimension_id, d.name AS dimension_name, d.is_numeric, ab.ab_min, ab.ab_max, csv.notes
@@ -618,6 +644,9 @@ async function loadCupperRows(tx: Tx, sessionCoffeeId: number): Promise<UnionRow
      JOIN coffee_dimensions d   ON d.id = csv.dimension_id
      CROSS JOIN LATERAL cupping_to_ab(cs.scale_code, csv.value_min, csv.value_max, csv.raw_value) ab
      WHERE csv.cupping_score_id = ANY($1::int[])
+       AND NOT EXISTS (SELECT 1 FROM cupping_score_dispute dz
+                        WHERE dz.cupping_score_id = csv.cupping_score_id AND dz.dimension_id = csv.dimension_id
+                          AND dz.withdrawn_at IS NULL)
      ORDER BY d.display_order`,
     [ids]
   );
@@ -625,7 +654,7 @@ async function loadCupperRows(tx: Tx, sessionCoffeeId: number): Promise<UnionRow
     `SELECT cupping_score_id, cupping_note_id, intensity, custom_notes FROM cupping_score_descriptors WHERE cupping_score_id = ANY($1::int[])`,
     [ids]
   );
-  return heads.rows.map(h => ({
+  const rows: UnionRow[] = heads.rows.map(h => ({
     cupperName: h.cupper_name,
     scaleCode: h.scale_code,
     archetypeCall: h.archetype_call, archetypeCallSecondary: h.archetype_call_secondary,
@@ -638,6 +667,7 @@ async function loadCupperRows(tx: Tx, sessionCoffeeId: number): Promise<UnionRow
       cuppingNoteId: d.cupping_note_id, intensity: d.intensity === null ? null : Number(d.intensity), customNotes: d.custom_notes,
     })),
   }));
+  return { rows, disputed };
 }
 
 async function insertMergedRow(tx: Tx, sessionCoffeeId: number, row: {
@@ -662,9 +692,9 @@ async function insertMergedRow(tx: Tx, sessionCoffeeId: number, row: {
   return newId;
 }
 
-async function mergeInTx(tx: Tx, sessionCoffeeId: number, opts: { n?: number } = {}): Promise<{ mergedScoreId: number; coffeeId: number; union: UnionResult }> {
+async function mergeInTx(tx: Tx, sessionCoffeeId: number, opts: { n?: number; supersedeReason?: string } = {}): Promise<{ mergedScoreId: number; coffeeId: number; union: UnionResult }> {
   const sc = await lockSessionCoffee(tx, sessionCoffeeId);
-  const rows = await loadCupperRows(tx, sessionCoffeeId);
+  const { rows, disputed } = await loadCupperRows(tx, sessionCoffeeId);
   if (!rows.length) throw new CuppingError(409, 'CUPPING_NO_CUPPER_ROWS', `session coffee ${sessionCoffeeId} has no current cupper row to merge`);
   let n = opts.n;
   if (n === undefined) {
@@ -673,12 +703,14 @@ async function mergeInTx(tx: Tx, sessionCoffeeId: number, opts: { n?: number } =
     n = Number(p.rows[0].v);
   }
   const union = unionScores(rows, n);
+  // brief 9: the merged row says what it left out
+  if (disputed.length) union.mergeNote = [union.mergeNote, ...disputed].join('; ');
   const mergedScoreId = await insertMergedRow(tx, sessionCoffeeId, {
     mergeRule: 'union_v1', mergeNote: union.mergeNote, overallNotes: union.overallNotes,
     archetypeCall: union.archetypeCall, archetypeCallSecondary: union.archetypeCallSecondary,
     positionCall: union.positionCall, slotCallId: union.slotCallId, callNote: union.callNote,
     values: union.values, descriptors: union.descriptors,
-  }, 'merged by rule again');
+  }, opts.supersedeReason ?? 'merged by rule again');
   return { mergedScoreId, coffeeId: sc.coffee_id, union };
 }
 
@@ -714,6 +746,122 @@ export async function saveManualMerge(sessionCoffeeId: number, input: ManualMerg
   });
   await refreshDialSignalSafely(result.coffeeId);
   return result.id;
+}
+
+// ── Disputes (brief 9, 2026-11-09) ────────────────────────────────────────
+// A dispute marks one cupper value (dimensionId) or a whole cupper row
+// (dimensionId null) as not to be trusted, with a reason. The sheet row and
+// its values never change: the dispute is its own insert-only row with one
+// withdraw transition (guard trigger). Raising or withdrawing re-runs the
+// rule merge of that session coffee in the same transaction (loadCupperRows
+// skips open disputes), so the pooled range, the dial signal and everything
+// downstream follow. A manual merge in place is never re-merged: the dispute
+// is recorded and the caller is told.
+
+export interface DisputeRow {
+  id: number; cupping_score_id: number; dimension_id: number | null; reason: string; raised_by_uid: string;
+  created_at: string; withdrawn_at: string | null; withdrawn_by_uid: string | null; withdrawn_reason: string | null;
+}
+export interface DisputeResult {
+  dispute: DisputeRow;
+  alreadyOpen: boolean;
+  mergedScoreId: number | null;
+  manualMergeInPlace: boolean;
+  union: UnionResult | null;
+}
+
+/** The re-merge rule shared by raise and withdraw: by rule unless the current merged row is a manual merge. */
+async function remergeForDispute(tx: Tx, sessionCoffeeId: number, reason: string):
+  Promise<{ mergedScoreId: number | null; manualMergeInPlace: boolean; union: UnionResult | null; coffeeId: number | null }> {
+  const cur = await tx.query<{ merge_rule: string | null }>(
+    `SELECT merge_rule FROM cupping_scores WHERE session_coffee_id = $1 AND is_merged AND superseded_at IS NULL`, [sessionCoffeeId]
+  );
+  if (cur.rows[0]?.merge_rule === 'manual') return { mergedScoreId: null, manualMergeInPlace: true, union: null, coffeeId: null };
+  const m = await mergeInTx(tx, sessionCoffeeId, { supersedeReason: reason });
+  return { mergedScoreId: m.mergedScoreId, manualMergeInPlace: false, union: m.union, coffeeId: m.coffeeId };
+}
+
+const DISPUTE_COLS = `id, cupping_score_id, dimension_id, reason, raised_by_uid, created_at, withdrawn_at, withdrawn_by_uid, withdrawn_reason`;
+
+export async function raiseDispute(input: { cuppingScoreId: number; dimensionId: number | null; reason: string; raisedByUid: string }): Promise<DisputeResult> {
+  const reason = cleanText(input.reason);
+  if (!reason) throw invalid('a dispute needs a reason');
+  if (!cleanText(input.raisedByUid)) throw invalid('raisedByUid is required');
+  if (!Number.isInteger(input.cuppingScoreId) || input.cuppingScoreId <= 0) throw invalid('cuppingScoreId must be a positive integer');
+  const dimensionId = input.dimensionId ?? null;
+  if (dimensionId !== null && (!Number.isInteger(dimensionId) || dimensionId <= 0)) throw invalid('dimensionId must be a positive integer or null');
+
+  const result = await withTransaction(async tx => {
+    const score = (await tx.query<{ id: number; session_coffee_id: number; is_merged: boolean; superseded_at: string | null }>(
+      `SELECT id, session_coffee_id, is_merged, superseded_at FROM cupping_scores WHERE id = $1`, [input.cuppingScoreId]
+    )).rows[0];
+    if (!score) throw notFound(`score ${input.cuppingScoreId}`);
+    if (score.is_merged) throw invalid('a merged row cannot be disputed: dispute a cupper row and the merge follows');
+    await lockSessionCoffee(tx, score.session_coffee_id);
+    if (score.superseded_at) throw new CuppingError(409, 'CUPPING_SUPERSEDED', `score ${score.id} has been superseded; dispute its current row`);
+
+    // idempotent: an open dispute on the same target comes back unchanged
+    const open = (await tx.query<DisputeRow>(
+      `SELECT ${DISPUTE_COLS} FROM cupping_score_dispute
+       WHERE cupping_score_id = $1 AND dimension_id IS NOT DISTINCT FROM $2 AND withdrawn_at IS NULL`, [score.id, dimensionId]
+    )).rows[0];
+    if (open) return { dispute: open, alreadyOpen: true, mergedScoreId: null, manualMergeInPlace: false, union: null, coffeeId: null };
+
+    if (dimensionId !== null) {
+      const has = await tx.query(`SELECT 1 FROM cupping_score_values WHERE cupping_score_id = $1 AND dimension_id = $2`, [score.id, dimensionId]);
+      if (!has.rowCount) throw invalid(`score ${score.id} has no value on dimension ${dimensionId}`);
+    } else {
+      // decision 5: a whole-row dispute needs another undisputed cupper row on the same sample
+      const others = await tx.query(
+        `SELECT 1 FROM cupping_scores cs
+         WHERE cs.session_coffee_id = $1 AND cs.id <> $2 AND NOT cs.is_merged AND cs.superseded_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM cupping_score_dispute dz
+                            WHERE dz.cupping_score_id = cs.id AND dz.dimension_id IS NULL AND dz.withdrawn_at IS NULL)`,
+        [score.session_coffee_id, score.id]
+      );
+      if (!others.rowCount) throw new CuppingError(409, 'LAST_CUPPER_ROW', 'this is the last undisputed cupper row on the sample: dispute the values, or supersede the row');
+    }
+
+    const dispute = (await tx.query<DisputeRow>(
+      `INSERT INTO cupping_score_dispute (cupping_score_id, dimension_id, reason, raised_by_uid)
+       VALUES ($1, $2, $3, $4) RETURNING ${DISPUTE_COLS}`,
+      [score.id, dimensionId, reason, input.raisedByUid]
+    )).rows[0];
+    const m = await remergeForDispute(tx, score.session_coffee_id, `merged by rule again (dispute ${dispute.id} raised)`);
+    return { dispute, alreadyOpen: false, ...m };
+  });
+  if (result.coffeeId !== null) await refreshDialSignalSafely(result.coffeeId);
+  const { coffeeId: _c, ...out } = result;
+  return out;
+}
+
+export async function withdrawDispute(input: { disputeId: number; withdrawnByUid: string; reason: string }): Promise<DisputeResult> {
+  const reason = cleanText(input.reason);
+  if (!reason) throw invalid('withdrawing a dispute needs a reason');
+  if (!cleanText(input.withdrawnByUid)) throw invalid('withdrawnByUid is required');
+  if (!Number.isInteger(input.disputeId) || input.disputeId <= 0) throw invalid('disputeId must be a positive integer');
+
+  const result = await withTransaction(async tx => {
+    const head = (await tx.query<{ session_coffee_id: number; superseded_at: string | null }>(
+      `SELECT cs.session_coffee_id, cs.superseded_at FROM cupping_score_dispute dz
+       JOIN cupping_scores cs ON cs.id = dz.cupping_score_id WHERE dz.id = $1`, [input.disputeId]
+    )).rows[0];
+    if (!head) throw notFound(`dispute ${input.disputeId}`);
+    await lockSessionCoffee(tx, head.session_coffee_id);
+    const dispute = (await tx.query<DisputeRow>(
+      `UPDATE cupping_score_dispute SET withdrawn_at = timezone('utc', now()), withdrawn_by_uid = $2, withdrawn_reason = $3
+       WHERE id = $1 AND withdrawn_at IS NULL RETURNING ${DISPUTE_COLS}`,
+      [input.disputeId, input.withdrawnByUid, reason]
+    )).rows[0];
+    if (!dispute) throw new CuppingError(409, 'CUPPING_DISPUTE_WITHDRAWN', `dispute ${input.disputeId} is already withdrawn`);
+    // a dispute on a row that has since been superseded no longer reaches the merge: nothing to re-merge
+    if (head.superseded_at) return { dispute, alreadyOpen: false, mergedScoreId: null, manualMergeInPlace: false, union: null, coffeeId: null };
+    const m = await remergeForDispute(tx, head.session_coffee_id, `merged by rule again (dispute ${dispute.id} withdrawn)`);
+    return { dispute, alreadyOpen: false, ...m };
+  });
+  if (result.coffeeId !== null) await refreshDialSignalSafely(result.coffeeId);
+  const { coffeeId: _c, ...out } = result;
+  return out;
 }
 
 // ── The dial signal ────────────────────────────────────────────────────────

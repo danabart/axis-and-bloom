@@ -3331,6 +3331,70 @@ CREATE TRIGGER cupping_scores_guard
   BEFORE UPDATE OR DELETE ON cupping_scores
   FOR EACH ROW EXECUTE FUNCTION cupping_scores_guard();
 
+-- Cupping evidence brief 9 (2026-11-09): disputes. A dispute is an
+-- observation beside a cupper row, never a change to it: "this value (or this
+-- whole row) is not to be trusted", with a written reason. dimension_id NULL =
+-- the whole cupper row (values, descriptors, calls). Only cupper rows
+-- (NOT is_merged) can be disputed; the merged row is re-merged instead.
+-- Insert-only with one transition (withdrawn_at + withdrawn_by_uid +
+-- withdrawn_reason, set once from NULL), deletes raise: same pattern as the
+-- supersede on cupping_scores. One open dispute per target (partial unique
+-- index). Writer: cuppingService.raiseDispute / withdrawDispute, which re-run
+-- mergeByRule; the merge skips open disputes, so the pooled range, the dial
+-- signal and the consensus follow. Read through v_cupping_score_dispute.
+CREATE TABLE IF NOT EXISTS cupping_score_dispute (
+  id                 SERIAL PRIMARY KEY,
+  cupping_score_id   INTEGER NOT NULL REFERENCES cupping_scores(id) ON DELETE RESTRICT,
+  dimension_id       INTEGER REFERENCES coffee_dimensions(id) ON DELETE RESTRICT,
+  reason             TEXT NOT NULL CHECK (btrim(reason) <> ''),
+  raised_by_uid      TEXT NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  withdrawn_at       TIMESTAMPTZ,
+  withdrawn_by_uid   TEXT,
+  withdrawn_reason   TEXT,
+  CONSTRAINT cupping_score_dispute_withdrawn_shape CHECK (
+    (withdrawn_at IS NULL AND withdrawn_by_uid IS NULL AND withdrawn_reason IS NULL)
+    OR (withdrawn_at IS NOT NULL AND withdrawn_by_uid IS NOT NULL AND btrim(COALESCE(withdrawn_reason, '')) <> ''))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cupping_score_dispute_open_uq
+  ON cupping_score_dispute (cupping_score_id, COALESCE(dimension_id, 0)) WHERE withdrawn_at IS NULL;
+CREATE INDEX IF NOT EXISTS cupping_score_dispute_score_idx ON cupping_score_dispute (cupping_score_id);
+
+-- A dispute points at a cupper row (the service checks too).
+CREATE OR REPLACE FUNCTION cupping_score_dispute_target() RETURNS trigger AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM cupping_scores s WHERE s.id = NEW.cupping_score_id AND NOT s.is_merged) THEN
+    RAISE EXCEPTION 'cupping_score_dispute: score % is not a cupper row (a merged row is re-merged, not disputed)', NEW.cupping_score_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS cupping_score_dispute_target ON cupping_score_dispute;
+CREATE TRIGGER cupping_score_dispute_target
+  BEFORE INSERT ON cupping_score_dispute
+  FOR EACH ROW EXECUTE FUNCTION cupping_score_dispute_target();
+
+-- The one transition: withdraw, once. Anything else (an edited reason, a
+-- second withdraw, a DELETE) raises.
+CREATE OR REPLACE FUNCTION cupping_score_dispute_guard() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'cupping evidence is immutable (DELETE on cupping_score_dispute, id %); withdraw it instead', OLD.id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF OLD.withdrawn_at IS NULL AND NEW.withdrawn_at IS NOT NULL AND NEW.withdrawn_by_uid IS NOT NULL
+     AND (to_jsonb(OLD) - 'withdrawn_at' - 'withdrawn_by_uid' - 'withdrawn_reason')
+       = (to_jsonb(NEW) - 'withdrawn_at' - 'withdrawn_by_uid' - 'withdrawn_reason') THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'cupping evidence is immutable (UPDATE on cupping_score_dispute, id %): the only change allowed is one withdraw', OLD.id
+    USING ERRCODE = 'integrity_constraint_violation';
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS cupping_score_dispute_guard ON cupping_score_dispute;
+CREATE TRIGGER cupping_score_dispute_guard
+  BEFORE UPDATE OR DELETE ON cupping_score_dispute
+  FOR EACH ROW EXECUTE FUNCTION cupping_score_dispute_guard();
+
 -- Brew params are header-like: editable while no score exists under the
 -- session coffee, immutable once one does. DELETE follows the same rule
 -- (not an unconditional raise) so cuppingService.removeEmptySessionCoffee can
@@ -6656,7 +6720,10 @@ behind_merged AS (
          COUNT(cu.score_id)                                    AS n_cupper_rows,
          COALESCE(bool_and(cu.scale_code = 'ab_0_15'), false)  AS all_ab_scale
   FROM cur m
+  -- brief 9: a cupper row with an open whole-row dispute is not behind the merge (mergeByRule left it out)
   LEFT JOIN cur cu ON cu.session_coffee_id = m.session_coffee_id AND NOT cu.is_merged
+   AND NOT EXISTS (SELECT 1 FROM cupping_score_dispute dz
+                    WHERE dz.cupping_score_id = cu.score_id AND dz.dimension_id IS NULL AND dz.withdrawn_at IS NULL)
   WHERE m.is_merged
   GROUP BY m.session_coffee_id
 ),
@@ -6802,6 +6869,9 @@ LEFT JOIN LATERAL (
          bool_and(cu.scale_code = 'ab_0_15') AS all_ab_scale
   FROM cupping_scores cu
   WHERE cu.session_coffee_id = cs.session_coffee_id AND NOT cu.is_merged AND cu.superseded_at IS NULL
+    -- brief 9: same cupper rows as the merge (an open whole-row dispute is left out)
+    AND NOT EXISTS (SELECT 1 FROM cupping_score_dispute dz
+                     WHERE dz.cupping_score_id = cu.id AND dz.dimension_id IS NULL AND dz.withdrawn_at IS NULL)
 ) bc ON true
 WHERE cs.is_merged AND cs.superseded_at IS NULL;
 
@@ -6839,6 +6909,10 @@ cupper_vals AS (
   CROSS JOIN LATERAL cupping_to_ab(cu.scale_code, csv.value_min, csv.value_max, csv.raw_value) ab
   LEFT JOIN cupper_calibration_offset o
          ON o.cupper_id = cu.cupper_id AND o.dimension_id = csv.dimension_id AND o.superseded_at IS NULL
+  -- brief 9: an open dispute (on this value or on the whole row) leaves the value out
+  WHERE NOT EXISTS (SELECT 1 FROM cupping_score_dispute dz
+                     WHERE dz.cupping_score_id = cu.id AND dz.withdrawn_at IS NULL
+                       AND (dz.dimension_id IS NULL OR dz.dimension_id = csv.dimension_id))
 )
 SELECT r.coffee_id, r.dimension_id, r.dimension_name, r.session_id,
        lr.value_min, lr.value_max, ROUND((lr.value_min + lr.value_max) / 2.0, 2) AS midpoint,
@@ -6987,7 +7061,11 @@ CREATE VIEW v_cupping_scores_readable AS
     cs.overall_notes,
     cs_sess.transcribed_by,
     cs_sess.checked_by,
-    sc.coffee_id
+    sc.coffee_id,
+    -- brief 9: shown, flagged. An open dispute on this value or on the whole cupper row.
+    (dz.id IS NOT NULL)  AS is_disputed,
+    dz.reason            AS dispute_reason,
+    dz.id                AS dispute_id
   FROM cupping_score_values csv
   JOIN cupping_scores          cs      ON cs.id      = csv.cupping_score_id AND cs.superseded_at IS NULL
   JOIN cupping_session_coffees sc      ON sc.id      = cs.session_coffee_id
@@ -6998,6 +7076,13 @@ CREATE VIEW v_cupping_scores_readable AS
   JOIN cupping_scale           scl     ON scl.code   = cs.scale_code
   LEFT JOIN cupper             cu      ON cu.id      = cs.cupper_id
   CROSS JOIN LATERAL cupping_to_ab(cs.scale_code, csv.value_min, csv.value_max, csv.raw_value) ab
+  LEFT JOIN LATERAL (
+    -- the value's own dispute first, else the row's
+    SELECT x.id, x.reason FROM cupping_score_dispute x
+    WHERE x.cupping_score_id = cs.id AND x.withdrawn_at IS NULL
+      AND (x.dimension_id = csv.dimension_id OR x.dimension_id IS NULL)
+    ORDER BY (x.dimension_id IS NULL), x.id LIMIT 1
+  ) dz ON true
   ORDER BY cs_sess.session_date, sc.display_order, cs.is_merged, cupper_name, d.display_order;
 
 -- One row per session: Score Entry's session list. brew_device comes from
@@ -7055,10 +7140,13 @@ SELECT cs.id, cs.session_coffee_id, sc.session_id, sc.coffee_id, cs.is_merged, c
        CASE WHEN cs.is_merged THEN 'merged' ELSE COALESCE(cu.name, cs.taster_name) END AS cupper_name,
        cs.taster_name, cs.scale_code, cs.overall_notes,
        cs.archetype_call, cs.archetype_call_secondary, cs.position_call, cs.slot_call_id, cs.call_note,
-       cs.merge_rule, cs.merge_note, cs.created_at
+       cs.merge_rule, cs.merge_note, cs.created_at,
+       -- brief 9: shown, flagged. An open whole-row dispute on this cupper row.
+       (dz.id IS NOT NULL) AS is_disputed, dz.reason AS dispute_reason, dz.id AS dispute_id
 FROM cupping_scores cs
 JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
 LEFT JOIN cupper cu ON cu.id = cs.cupper_id
+LEFT JOIN cupping_score_dispute dz ON dz.cupping_score_id = cs.id AND dz.dimension_id IS NULL AND dz.withdrawn_at IS NULL
 WHERE cs.superseded_at IS NULL;
 
 -- One row per descriptor on a CURRENT score row (cupper or merged), with the
@@ -7067,11 +7155,36 @@ DROP VIEW IF EXISTS v_cupping_score_descriptor;
 CREATE VIEW v_cupping_score_descriptor AS
 SELECT csd.id, csd.cupping_score_id, cs.session_coffee_id, sc.coffee_id, cs.is_merged,
        csd.cupping_note_id, cn.descriptor, cn.wheel_category, cn.wheel_subcategory, cn.tier,
-       csd.intensity, csd.custom_notes
+       csd.intensity, csd.custom_notes,
+       -- brief 9: shown, flagged. A descriptor is disputed with its whole cupper row.
+       EXISTS (SELECT 1 FROM cupping_score_dispute dz
+                WHERE dz.cupping_score_id = cs.id AND dz.dimension_id IS NULL AND dz.withdrawn_at IS NULL) AS is_disputed
 FROM cupping_score_descriptors csd
 JOIN cupping_scores cs          ON cs.id = csd.cupping_score_id AND cs.superseded_at IS NULL
 JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
 JOIN cupping_note cn            ON cn.id = csd.cupping_note_id;
+
+-- Cupping evidence brief 9 (2026-11-09): the read path of cupping_score_dispute.
+-- One row per dispute, open or withdrawn, with the cupper, session, coffee and
+-- dimension it names; scope 'value' (one dimension) or 'row' (the whole cupper
+-- row). Read by cuppingReads.getDisputesForCoffee (the workbench and the
+-- Coffees page Evidence panel) and by cuppingService before a raise.
+DROP VIEW IF EXISTS v_cupping_score_dispute;
+CREATE VIEW v_cupping_score_dispute AS
+SELECT dz.id, dz.cupping_score_id, dz.dimension_id, d.name AS dimension_name,
+       CASE WHEN dz.dimension_id IS NULL THEN 'row' ELSE 'value' END AS scope,
+       cs.cupper_id, cu.name AS cupper_name,
+       cs.session_coffee_id, sc.session_id, sc.coffee_id, c.name AS coffee_name,
+       (cs.superseded_at IS NULL) AS score_is_current,
+       dz.reason, dz.raised_by_uid, dz.created_at,
+       dz.withdrawn_at, dz.withdrawn_by_uid, dz.withdrawn_reason,
+       (dz.withdrawn_at IS NULL) AS is_open
+FROM cupping_score_dispute dz
+JOIN cupping_scores cs          ON cs.id = dz.cupping_score_id
+JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
+JOIN coffees c                  ON c.id = sc.coffee_id
+LEFT JOIN cupper cu             ON cu.id = cs.cupper_id
+LEFT JOIN coffee_dimensions d   ON d.id = dz.dimension_id;
 
 -- ── Part A5 — The reads (v_palate_*, read_version = 'v1') ────────────────
 
@@ -8575,7 +8688,9 @@ WITH cupper_latest AS (
          r.coffee_id, r.dimension_id, r.cupper_id, r.cupper_name,
          r.value_min AS cupper_min, r.value_max AS cupper_max,
          ROUND((r.value_min + r.value_max) / 2.0, 2) AS cupper_midpoint,
-         r.scale_code AS cupper_scale_code, r.session_id AS cupper_session_id, r.session_date AS cupper_session_date
+         r.scale_code AS cupper_scale_code, r.session_id AS cupper_session_id, r.session_date AS cupper_session_date,
+         -- brief 9: the cell is shown, flagged; the agreement below leaves it out
+         r.score_id AS cupper_score_id, r.is_disputed, r.dispute_reason, r.dispute_id
   FROM v_cupping_scores_readable r
   WHERE NOT r.is_merged AND r.cupper_id IS NOT NULL AND r.is_numeric
     AND r.value_min IS NOT NULL AND r.value_max IS NOT NULL
@@ -8587,6 +8702,7 @@ cupper_pairs AS (
          bool_and(GREATEST(a.cupper_min - b.cupper_max, b.cupper_min - a.cupper_max, 0) <= param('cupper_gap')) AS cuppers_agree
   FROM cupper_latest a
   JOIN cupper_latest b ON b.coffee_id = a.coffee_id AND b.dimension_id = a.dimension_id AND b.cupper_id > a.cupper_id
+  WHERE NOT a.is_disputed AND NOT b.is_disputed
   GROUP BY a.coffee_id, a.dimension_id
 ),
 merged AS (
@@ -8643,7 +8759,8 @@ assembled AS (
     CASE WHEN rk.rank_gap IS NULL THEN NULL ELSE rk.rank_gap < param('roaster_rank_gap') END AS roaster_agrees,
     s.is_blind, s.roaster_present, sc.is_control,
     m.n_sessions_pooled, m.session_weights AS merged_session_weights,
-    COALESCE(m.sessions_disagree, false) AS sessions_disagree
+    COALESCE(m.sessions_disagree, false) AS sessions_disagree,
+    cl.cupper_score_id, cl.is_disputed, cl.dispute_reason, cl.dispute_id
   FROM cupper_latest cl
   JOIN v_coffee vc ON vc.id = cl.coffee_id
   JOIN coffee_dimensions d ON d.id = cl.dimension_id
@@ -8691,6 +8808,7 @@ named AS (
   FROM v_cupping_score_descriptor d
   JOIN v_cupping_score s ON s.id = d.cupping_score_id
   WHERE NOT d.is_merged AND s.cupper_id IS NOT NULL
+    AND NOT s.is_disputed  -- brief 9: a whole-row dispute takes the row's descriptors out
   UNION ALL
   SELECT pn.coffee_id, pn.cupping_note_id, 'roaster_form', NULL FROM portal_note pn WHERE pn.cupping_note_id IS NOT NULL
   UNION ALL
@@ -8749,6 +8867,7 @@ WITH cupper_rows AS (
   FROM v_cupping_score s
   JOIN v_cupping_session ss ON ss.id = s.session_id
   WHERE NOT s.is_merged AND s.cupper_id IS NOT NULL
+    AND NOT s.is_disputed  -- brief 9: a whole-row dispute takes the row out of the consensus
 ),
 sessions_total AS (
   SELECT coffee_id, count(DISTINCT session_id) AS sessions_total FROM cupper_rows GROUP BY coffee_id
@@ -8968,7 +9087,9 @@ JOIN total_coffees t ON t.canonical_user_id = d.canonical_user_id AND d.n_coffee
 CREATE VIEW v_evidence_archetype_call AS
 SELECT DISTINCT ON (s.coffee_id, s.cupper_id)
        s.coffee_id, s.cupper_id, s.cupper_name, s.session_id, ss.session_date, ss.is_blind,
-       s.archetype_call, s.archetype_call_secondary, s.position_call, s.slot_call_id, s.call_note
+       s.archetype_call, s.archetype_call_secondary, s.position_call, s.slot_call_id, s.call_note,
+       -- brief 9: shown, flagged; v_evidence_archetype leaves a disputed call out
+       s.id AS score_id, s.is_disputed, s.dispute_reason
 FROM v_cupping_score s
 JOIN v_cupping_session ss ON ss.id = s.session_id
 WHERE NOT s.is_merged AND s.cupper_id IS NOT NULL
@@ -8982,6 +9103,7 @@ WITH calls AS (
          CASE WHEN count(c.archetype_call) < 2 THEN NULL
               ELSE count(DISTINCT c.archetype_call) = 1 END AS cupper_calls_agree
   FROM v_evidence_archetype_call c
+  WHERE NOT c.is_disputed  -- brief 9
   GROUP BY c.coffee_id
 ),
 merged_call AS (
@@ -9162,6 +9284,7 @@ WITH rows_ab AS (
   FROM v_cupping_scores_readable r
   WHERE NOT r.is_merged AND r.cupper_id IS NOT NULL AND r.scale_code = 'ab_0_15' AND r.is_numeric
     AND r.value_min IS NOT NULL AND r.value_max IS NOT NULL
+    AND NOT r.is_disputed  -- brief 9: a disputed value is not calibration evidence
 ),
 vs_other AS (
   SELECT a.cupper_id, a.dimension_id, a.session_coffee_id, a.is_blind,
@@ -10402,6 +10525,8 @@ END $$;
 -- row (its guard trigger refuses once a score exists).
 REVOKE UPDATE, DELETE, TRUNCATE ON cupping_score_values, cupping_score_descriptors FROM ab_app;
 REVOKE DELETE, TRUNCATE ON cupping_scores FROM ab_app;
+-- brief 9 (2026-11-09): a dispute keeps UPDATE for its one withdraw (the guard trigger allows nothing else)
+REVOKE DELETE, TRUNCATE ON cupping_score_dispute FROM ab_app;
 REVOKE TRUNCATE ON cupping_brew_params FROM ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
 -- Liam brand answers (2026-10-24): supersede only. The one UPDATE the writer

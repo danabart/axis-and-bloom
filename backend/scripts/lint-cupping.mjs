@@ -9,7 +9,8 @@
 //
 // Rule 1: INSERT / UPDATE / DELETE / TRUNCATE on a cupping evidence table
 //         (cupping_sessions, cupping_session_coffees, cupping_brew_params,
-//         cupping_scores, cupping_score_values, cupping_score_descriptors)
+//         cupping_scores, cupping_score_values, cupping_score_descriptors,
+//         and since brief 9 cupping_score_dispute)
 //         outside services/cuppingService.ts fails. The reference tables are
 //         seed-only (schema.sql, not scanned), except cupper, whose admin door
 //         is cuppingService.addCupper; DML on them anywhere else fails too.
@@ -87,6 +88,8 @@ const READS = 'services/cuppingReads.ts';
 const EVIDENCE_TABLES = [
   'cupping_sessions', 'cupping_session_coffees', 'cupping_brew_params',
   'cupping_scores', 'cupping_score_values', 'cupping_score_descriptors',
+  // brief 9 (2026-11-09): disputes, written by cuppingService.raiseDispute / withdrawDispute
+  'cupping_score_dispute',
 ];
 const REFERENCE_TABLES = [
   'cupper', 'cupping_scale', 'cupping_scale_step', 'cupping_sheet_format', 'cupping_sheet_line',

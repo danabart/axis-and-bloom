@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { reportError } from '../../lib/errorReporter';
 import { useArchetypes } from './useArchetypes';
-import { DimensionsTab, DescriptorsTab, ArchetypeTab, BasisText } from './EvidencePanel';
+import { DimensionsTab, DescriptorsTab, ArchetypeTab, BasisText, type DisputeTarget } from './EvidencePanel';
 import {
   setMatch, previewPlacement, placeCoffee, moveCoffee, certifyPlacement, getAcceptancePreview, acceptResponse,
+  raiseDispute, withdrawDispute,
   type ApiFetch, type CatalogWarning,
 } from '../../lib/catalogWrites';
 import { composeBasis, finalizeBasis, ruleRequired, bandCheck, type BasisInput, type BasisPlacement } from '../../lib/evidenceBasis';
@@ -35,6 +36,7 @@ interface Bundle {
   sessions: Row[]; roasterResponse: Row | null; websiteDescriptors: Row[]; accepted: Row[];
   consensus?: Row[]; history?: Row[]; // brief 6: display only
   customerVoice?: Row[]; // coffee presentation brief 1: every customer-voice row with customer_sees
+  disputes?: Row[]; // cupping evidence brief 9: the coffee's disputes, open and withdrawn
 }
 interface Slot {
   id: number; archetype: string; sort_order: number; name: string | null; position_label: string; dimension_id: number | null;
@@ -119,6 +121,17 @@ export default function AdminCalibrationWorkbench({ roasterId, apiFetch, onBack,
     if (selected) await loadCoffee(selected);
   }, [loadQueue, loadCoffee, selected]);
 
+  // Cupping evidence brief 9: raise or withdraw a dispute from the Dimensions tab, then reload the bundle.
+  const submitDispute = useCallback(async (t: DisputeTarget, reason: string): Promise<string | null> => {
+    const r = t.kind === 'raise'
+      ? await raiseDispute(apiFetch, { cuppingScoreId: t.cuppingScoreId, dimensionId: t.dimensionId, reason })
+      : await withdrawDispute(apiFetch, t.disputeId, reason);
+    await refresh();
+    if (r.manualMergeInPlace) return 'Recorded. The current merged row is a manual merge; re-merge it from the Archetype tab if you want the pool to follow.';
+    if (r.alreadyOpen) return 'This dispute is already open.';
+    return null;
+  }, [apiFetch, refresh]);
+
   const counters = useMemo(() => ({
     flagged: (queue ?? []).filter(q => q.flag_unreconciled).length,
     noBasis: (queue ?? []).filter(q => q.assignment_basis_present === false).length,
@@ -198,7 +211,10 @@ export default function AdminCalibrationWorkbench({ roasterId, apiFetch, onBack,
               </button>
             ))}
           </div>
-          {tab === 'dimensions' && <DimensionsTab rows={bundle.dimensions} history={bundle.history} />}
+          {tab === 'dimensions' && (
+            <DimensionsTab rows={bundle.dimensions} history={bundle.history}
+              dispute={{ disputes: bundle.disputes ?? [], submit: submitDispute }} />
+          )}
           {tab === 'descriptors' && (
             <DescriptorsTab rows={bundle.descriptors} consensus={bundle.consensus} customerVoice={bundle.customerVoice}
               website={websiteRows.map(w => ({ id: w.id, remark: String(w.remark), node: w.cupping_note_descriptor ?? null }))}

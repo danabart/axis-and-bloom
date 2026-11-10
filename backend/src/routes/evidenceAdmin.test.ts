@@ -141,7 +141,7 @@ describe('GET /api/admin/evidence/workbench/*', () => {
     const res = await fetch(`${base}/evidence/workbench/coffee/${blossomId}`);
     expect(res.status).toBe(200);
     const b = await res.json();
-    expect(Object.keys(b).sort()).toEqual(['accepted', 'archetype', 'calls', 'coffee', 'consensus', 'customerVoice', 'descriptors', 'dimensions', 'history', 'roasterResponse', 'sessions', 'websiteDescriptors']);
+    expect(Object.keys(b).sort()).toEqual(['accepted', 'archetype', 'calls', 'coffee', 'consensus', 'customerVoice', 'descriptors', 'dimensions', 'disputes', 'history', 'roasterResponse', 'sessions', 'websiteDescriptors']);
     expect(b.coffee.name).toBe('Blossom Dark Roast');
     expect(b.sessions.map((s: any) => s.session_id)).toContain(b.archetype.latest_session_id);
     expect(b.roasterResponse.response_id).toBeTruthy();

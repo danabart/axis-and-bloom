@@ -297,3 +297,12 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **The holder of the house subscription cannot be removed** by another admin.
 - [ ] **Build the house box** adds one bag per in-box member with a quiz; others show Take the quiz for; own plans are marked.
 - [ ] **Attribution:** a member's bag-claim scan beats the line's recipient (D24); the buyer's own bag reads `buyer`.
+
+## Cupping evidence 9: disputes (2026-11-09)
+
+- [ ] **An open dispute leaves the merge:** a disputed value (or whole cupper row) leaves the sample's merged row, so it also leaves the pooled range, the dial signal and the consensus; the merged row's `merge_note` names it.
+- [ ] **A withdrawn dispute returns:** withdrawing re-merges, and the previous union comes back exactly (values, descriptors, calls).
+- [ ] **The sheet row never changes:** `cupping_scores` / `cupping_score_values` are untouched by a raise or a withdraw. A dispute is never deleted, and its reason is never edited.
+- [ ] **A manual merge is never re-merged by a dispute** (`manualMergeInPlace`).
+- [ ] **The last undisputed cupper row cannot be disputed whole** (409 `LAST_CUPPER_ROW`); a merged row cannot be disputed at all.
+- [ ] **Views show, they do not hide:** the readable and per-cupper views keep the disputed value with `is_disputed`; no view or code filters on a reason text.

@@ -6687,6 +6687,31 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 - **Integrity:** catalog integrity passes. Evidence check #6 now lists only Tiger Stripe.
 - **Loaders:** loaders 5, 7 and 8 now refuse on their active-roaster precondition, as designed.
 
+### 267. Cupping evidence, brief 9: disputes (2026-11-09)
+
+Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_9_DISPUTES.md`. Closing report: `CLOSING_REPORT_9.md`.
+
+**What it is.** A way to say "this cupper value (or this whole cupper row) is not to be trusted" without touching the sheet. First case: Dana's Body on Cafè Feminista in session 42 was scored against a flight of five light coffees (8-10). In a French press on 2026-11-09 it read as the thinnest coffee in the catalog.
+
+**Why a dispute is not a supersede.** A supersede replaces a row with a successor, so it rewrites what the paper says. A calibration offset corrects every value of a cupper on a dimension. A dispute does neither. It is its own insert-only observation beside the row (`cupping_score_dispute`), and the sheet row and its values stay as written. Withdrawing is a timestamp, never a delete (guard trigger, `REVOKE DELETE`).
+
+**The re-merge rule.** Raising or withdrawing re-runs `mergeByRule` for that sample in the same transaction.
+- `loadCupperRows` (the one path into the merge) skips open disputes: a value dispute drops that value; a whole-row dispute drops the row's values, descriptors and calls.
+- The new merged row's `merge_note` says what it left out (`disputed: <Cupper> <Dimension>` / `disputed row: <Cupper>`). The old merged row is superseded with `merged by rule again (dispute <id> raised|withdrawn)`.
+- The pooled range, the dial signal and the consensus follow by themselves.
+- A whole-row dispute needs another undisputed cupper row on the sample (409 `LAST_CUPPER_ROW`). A merged row cannot be disputed (400, and a trigger).
+- Raising the same open dispute twice returns it (`alreadyOpen`).
+
+**The manual-merge exception.** If the sample's current merged row is a manual merge, the dispute is recorded and nothing is re-merged. The response says `manualMergeInPlace`, and the workbench says "re-merge is yours".
+
+**Views show, they do not hide.** Where cupper values are shown, they get `is_disputed` / `dispute_reason`: `v_cupping_scores_readable`, `v_cupping_score`, `v_cupping_score_descriptor`, and the cells of `v_evidence_dimension` and `v_evidence_archetype_call`. Where they are aggregated, open disputes are left out: the agreement of `v_evidence_dimension`, `v_evidence_cupper_calibration`, `v_evidence_descriptor`, `v_evidence_descriptor_consensus`, the calls of `v_evidence_archetype`, `v_coffee_dimension_range_calibrated`, and the cupper rows behind a merge in `v_coffee_dimension_range` and `v_coffee_dimension_history`. New read view: `v_cupping_score_dispute`.
+
+**Surfaces.** `POST /api/admin/evidence/disputes` and `/disputes/:id/withdraw` (admin only). In the workbench Dimensions tab, "Mark inaccurate" sits on each cupper cell and "Mark row inaccurate" on each column header. Both take a required reason; a disputed cell is struck through with its reason on hover, and "Withdraw" sits in the same place. The Coffees page Evidence panel lists open disputes, one line each.
+
+**Tests:** `services/cuppingDispute.test.ts` (6).
+
+**Verified:** see `CLOSING_REPORT_9.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

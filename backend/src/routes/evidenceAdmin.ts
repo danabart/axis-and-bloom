@@ -3,13 +3,17 @@
 // evidenceReads (the only reader of the v_evidence_* views) and
 // evidenceIntegrity. Brief 6, E3 (2026-10-21): one write, PUT
 // /parameters/:key, a thin caller of evidenceParameterService.setParameter
-// (a new evidence_parameter row superseding the current one). Nothing else
-// here writes.
+// (a new evidence_parameter row superseding the current one). Brief 9
+// (2026-11-09): POST /disputes and POST /disputes/:id/withdraw, thin callers
+// of cuppingService.raiseDispute / withdrawDispute (api_event logs them).
+// Nothing else here writes.
 import { Router } from 'express';
+import { z } from 'zod';
 import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { getCoffeeEvidence, getRoasteryEvidence, getEvidenceSummary, getUnmappedWords, getWorkbenchQueue, getWorkbenchCoffee, getParameters } from '../services/evidenceReads.js';
 import { runEvidenceIntegrityChecks } from '../services/evidenceIntegrity.js';
 import { setParameter, EvidenceParameterError } from '../services/evidenceParameterService.js';
+import { raiseDispute, withdrawDispute, CuppingError } from '../services/cuppingService.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -96,6 +100,45 @@ router.put('/parameters/:key', async (req: AuthRequest, res) => {
     if (err instanceof EvidenceParameterError) return res.status(err.status).json({ error: err.message, code: err.code });
     console.error('[admin/evidence/parameters PUT]', err);
     res.status(500).json({ error: 'Failed to save the evidence parameter' });
+  }
+});
+
+// Brief 9: disputes, raised and withdrawn from the Calibration workbench.
+const RaiseBody = z.object({
+  cuppingScoreId: z.number().int().positive(),
+  dimensionId: z.number().int().positive().nullable().optional(),
+  reason: z.string().trim().min(1),
+});
+const WithdrawBody = z.object({ reason: z.string().trim().min(1) });
+
+function disputeError(err: unknown, res: import('express').Response, label: string) {
+  if (err instanceof CuppingError) return res.status(err.status).json({ error: err.message, code: err.code });
+  console.error(`[admin/evidence/${label}]`, err);
+  return res.status(500).json({ error: `Failed: ${label}` });
+}
+
+router.post('/disputes', async (req: AuthRequest, res) => {
+  const body = RaiseBody.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: 'cuppingScoreId and reason are required; dimensionId is a positive integer or null', code: 'CUPPING_INVALID' });
+  if (!req.uid) return res.status(401).json({ error: 'no admin uid' });
+  try {
+    const result = await raiseDispute({ cuppingScoreId: body.data.cuppingScoreId, dimensionId: body.data.dimensionId ?? null, reason: body.data.reason, raisedByUid: req.uid });
+    res.status(result.alreadyOpen ? 200 : 201).json(result);
+  } catch (err) {
+    disputeError(err, res, 'disputes POST');
+  }
+});
+
+router.post('/disputes/:id/withdraw', async (req: AuthRequest, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id must be a positive integer', code: 'CUPPING_INVALID' });
+  const body = WithdrawBody.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: 'reason is required', code: 'CUPPING_INVALID' });
+  if (!req.uid) return res.status(401).json({ error: 'no admin uid' });
+  try {
+    res.json(await withdrawDispute({ disputeId: id, withdrawnByUid: req.uid, reason: body.data.reason }));
+  } catch (err) {
+    disputeError(err, res, 'disputes withdraw');
   }
 });
 

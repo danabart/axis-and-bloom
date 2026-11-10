@@ -20,8 +20,18 @@ import { reportError } from '../../lib/errorReporter';
 // from; a merged cell opens the per-session history with each session's
 // weight; sessions_disagree is a pill. The Descriptors tab shows our cupping
 // notes as a consensus per node (k of n sessions) under the family table.
+// Brief 9 (2026-11-09): a disputed cupper value is greyed and struck, its
+// reason on hover; this panel lists the coffee's open disputes, one line
+// each. The workbench passes `dispute` to the Dimensions tab to raise and
+// withdraw them; without it the tab stays read-only.
 type Row = Record<string, any>;
-interface CoffeeEvidence { dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[]; consensus?: Row[]; history?: Row[]; customerVoice?: Row[] }
+interface CoffeeEvidence { dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[]; consensus?: Row[]; history?: Row[]; customerVoice?: Row[]; disputes?: Row[] }
+
+/** One line per open dispute: who, what, which session, why. */
+export function disputeLine(d: Row): string {
+  const what = d.scope === 'row' ? 'whole row' : d.dimension_name;
+  return `${d.cupper_name} · ${what} · s${d.session_id} · ${d.reason}`;
+}
 
 const TAB = 'px-3 py-1.5 text-xs uppercase tracking-wide border-b-2';
 const EYEBROW = 'text-xs uppercase tracking-wide text-stone-400';
@@ -84,6 +94,13 @@ export default function EvidencePanel({ coffeeId, apiFetch, onDecideMatch, onDec
         ))}
         <span className="ml-auto text-xs text-stone-400">Read-only. Decisions go through the existing dialogs.</span>
       </div>
+      {(data.disputes ?? []).some(d => d.is_open) && (
+        <ul className="mb-3 text-xs text-stone-600 space-y-0.5">
+          {(data.disputes ?? []).filter(d => d.is_open).map(d => (
+            <li key={d.id}><span className={EYEBROW}>Disputed</span> {disputeLine(d)}</li>
+          ))}
+        </ul>
+      )}
       {tab === 'dimensions' && <DimensionsTab rows={data.dimensions} history={data.history} />}
       {tab === 'descriptors' && <DescriptorsTab rows={data.descriptors} consensus={data.consensus} customerVoice={data.customerVoice} />}
       {tab === 'archetype' && (
@@ -94,10 +111,42 @@ export default function EvidencePanel({ coffeeId, apiFetch, onDecideMatch, onDec
 }
 
 // ── Dimensions ─────────────────────────────────────────────────────────────
-export function DimensionsTab({ rows, history = [] }: { rows: Row[]; history?: Row[] }) {
+/** Brief 9: what the workbench lets the Dimensions tab do. `submit` calls the route and reloads; it returns a line to show, if any. */
+export type DisputeTarget =
+  | { kind: 'raise'; cuppingScoreId: number; dimensionId: number | null; label: string }
+  | { kind: 'withdraw'; disputeId: number; label: string };
+export interface DisputeControls { disputes: Row[]; submit: (target: DisputeTarget, reason: string) => Promise<string | null> }
+
+export function DimensionsTab({ rows, history = [], dispute }: { rows: Row[]; history?: Row[]; dispute?: DisputeControls }) {
   const [open, setOpen] = useState<number | null>(null);
+  const [pending, setPending] = useState<DisputeTarget | null>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
   if (!rows.length) return <p className="text-stone-400">No numeric cupping rows for this coffee.</p>;
   const cuppers = [...new Map(rows.map(r => [r.cupper_id, r.cupper_name])).entries()];
+  const openDisputes = (dispute?.disputes ?? []).filter(d => d.is_open);
+  /** a cupper's column is one score row: the latest session among that cupper's cells */
+  const columnScore = (cupperId: number) => {
+    const mine = rows.filter(r => r.cupper_id === cupperId);
+    return mine.reduce<Row | null>((best, r) => (!best || String(r.cupper_session_date) > String(best.cupper_session_date) ? r : best), null);
+  };
+  const rowDispute = (scoreId: unknown) => openDisputes.find(d => d.scope === 'row' && d.cupping_score_id === scoreId);
+  const ask = (t: DisputeTarget) => { setPending(t); setReason(''); setNote(''); };
+  async function confirm() {
+    if (!dispute || !pending || !reason.trim()) return;
+    setBusy(true); setNote('');
+    try {
+      const line = await dispute.submit(pending, reason.trim());
+      setPending(null);
+      if (line) setNote(line);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setBusy(false);
+    }
+  }
+  const ACTION = 'block text-[11px] text-stone-400 underline hover:text-stone-700';
   const dims = [...new Map(rows.map(r => [r.dimension_id, r])).values()];
   const cell = (dimensionId: number, cupperId: number) => rows.find(r => r.dimension_id === dimensionId && r.cupper_id === cupperId);
   const nSessions = Math.max(0, ...dims.map(d => Number(d.n_sessions ?? 0)));
@@ -120,7 +169,20 @@ export function DimensionsTab({ rows, history = [] }: { rows: Row[]; history?: R
         <thead>
           <tr className="text-left">
             <th className={TH}>Dimension</th>
-            {cuppers.map(([id, name]) => <th key={id} className={`${TH} min-w-[56px]`}>{name}</th>)}
+            {cuppers.map(([id, name]) => {
+              const col = columnScore(id);
+              const rd = col ? rowDispute(col.cupper_score_id) : undefined;
+              return (
+                <th key={id} className={`${TH} min-w-[56px] ${rd ? 'text-stone-300' : ''}`} title={rd ? `Row disputed: ${rd.reason}` : undefined}>
+                  <span className={rd ? 'line-through' : ''}>{name}</span>
+                  {dispute && col && (rd
+                    ? <button type="button" className={`${ACTION} normal-case tracking-normal`}
+                        onClick={() => ask({ kind: 'withdraw', disputeId: rd.id, label: `${name}'s row, s${col.cupper_session_id}` })}>Withdraw</button>
+                    : <button type="button" className={`${ACTION} normal-case tracking-normal`}
+                        onClick={() => ask({ kind: 'raise', cuppingScoreId: col.cupper_score_id, dimensionId: null, label: `${name}'s whole row, s${col.cupper_session_id}` })}>Mark row inaccurate</button>)}
+                </th>
+              );
+            })}
             <th className={`${TH} min-w-[56px] whitespace-nowrap`}>Pooled · {nSessions} {nSessions === 1 ? 'session' : 'sessions'}</th>
             <th className={`${TH} min-w-[56px]`}>Roaster 1–5</th>
             <th className={TH}>Rank (ours / theirs) of n</th>
@@ -138,13 +200,23 @@ export function DimensionsTab({ rows, history = [] }: { rows: Row[]; history?: R
                   <td className={`${TD} whitespace-nowrap`}>{d.dimension_name}</td>
                   {cuppers.map(([id]) => {
                     const c = cell(d.dimension_id, id);
+                    const own = c?.is_disputed ? openDisputes.find(x => x.id === c.dispute_id && x.scope === 'value') : undefined;
                     return (
-                      <td key={id} className={`${TD} whitespace-nowrap`}>
-                        {c ? range(c.cupper_min, c.cupper_max) : '—'}
+                      <td key={id} className={`${TD} whitespace-nowrap ${c?.is_disputed ? 'text-stone-400' : ''}`}
+                        title={c?.is_disputed ? `Disputed: ${c.dispute_reason}` : undefined}>
+                        <span className={c?.is_disputed ? 'line-through' : ''}>{c ? range(c.cupper_min, c.cupper_max) : '—'}</span>
                         {c && (
                           <span className="block text-xs text-stone-400">
                             s{c.cupper_session_id}{c.cupper_scale_code !== 'ab_0_15' ? ` · ${c.cupper_scale_code}` : ''}
                           </span>
+                        )}
+                        {dispute && c && !c.is_disputed && (
+                          <button type="button" className={ACTION}
+                            onClick={() => ask({ kind: 'raise', cuppingScoreId: c.cupper_score_id, dimensionId: d.dimension_id, label: `${c.cupper_name} · ${d.dimension_name} · s${c.cupper_session_id}` })}>Mark inaccurate</button>
+                        )}
+                        {dispute && c && own && (
+                          <button type="button" className={ACTION}
+                            onClick={() => ask({ kind: 'withdraw', disputeId: own.id, label: `${c.cupper_name} · ${d.dimension_name} · s${c.cupper_session_id}` })}>Withdraw</button>
                         )}
                       </td>
                     );
@@ -191,6 +263,32 @@ export function DimensionsTab({ rows, history = [] }: { rows: Row[]; history?: R
           })}
         </tbody>
       </table>
+      {dispute && pending && (
+        <div className="mt-3 border-t border-stone-200 px-4 py-4 bg-stone-50 space-y-3">
+          <p className="text-sm text-stone-800">
+            {pending.kind === 'raise' ? `Mark ${pending.label} as inaccurate?` : `Withdraw the dispute on ${pending.label}?`}
+          </p>
+          <p className="text-xs text-stone-500">
+            {pending.kind === 'raise'
+              ? 'The sheet stays as written. The merge for this sample runs again without it; the pooled range and the dial signal follow.'
+              : 'The merge for this sample runs again with it; the pooled range and the dial signal follow.'}
+          </p>
+          <div>
+            <label className="block text-xs text-stone-500 mb-1">Reason <span className="opacity-60">(required)</span></label>
+            <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2}
+              className="w-full border border-stone-300 rounded px-3 py-2 text-sm bg-white" />
+          </div>
+          <div className="flex gap-2">
+            <button type="button" disabled={busy || !reason.trim()} onClick={() => void confirm()}
+              className="px-4 py-1.5 rounded text-xs uppercase tracking-wide text-white disabled:opacity-50" style={{ backgroundColor: '#a33726' }}>
+              {busy ? 'Saving…' : pending.kind === 'raise' ? 'Mark inaccurate' : 'Withdraw'}
+            </button>
+            <button type="button" disabled={busy} onClick={() => setPending(null)}
+              className="px-3 py-1.5 rounded text-xs uppercase tracking-wide border border-stone-300 text-stone-600 hover:bg-stone-50">Cancel</button>
+          </div>
+        </div>
+      )}
+      {dispute && note && <p className="mt-2 text-xs text-stone-700">{note}</p>}
       <p className="mt-2 text-xs text-stone-500">Pooled: every session's merged range, the latest counting most (weights from the evidence parameters); open a pooled cell for each session. Cupper cells show that cupper's latest session. Rank: among this roastery's coffees scored by both sides; a gap of 2 or more flags. Values on the 0 to 15 line; the roaster's 1 to 5 is relative to its own lineup.</p>
     </div>
   );

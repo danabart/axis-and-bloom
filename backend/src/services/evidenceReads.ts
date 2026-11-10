@@ -5,7 +5,7 @@
 // backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_3_RECONCILIATION.md
 import { db } from '../db/client.js';
 import { getCoffeeHint } from './roasteryPortalReads.js';
-import { getDimensionHistory, getCustomerDescriptorsAll, type CustomerDescriptorAll } from './cuppingReads.js';
+import { getDimensionHistory, getCustomerDescriptorsAll, getDisputesForCoffee, type CustomerDescriptorAll } from './cuppingReads.js';
 
 type Row = Record<string, unknown>;
 
@@ -16,9 +16,9 @@ type Row = Record<string, unknown>;
  */
 export async function getCoffeeEvidence(coffeeId: number): Promise<{
   dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[]; consensus: Row[]; history: Row[];
-  customerVoice: CustomerDescriptorAll[];
+  customerVoice: CustomerDescriptorAll[]; disputes: Row[];
 }> {
-  const [dimensions, descriptors, archetype, calls, consensus, history, customerVoice] = await Promise.all([
+  const [dimensions, descriptors, archetype, calls, consensus, history, customerVoice, disputes] = await Promise.all([
     db.query(`SELECT * FROM v_evidence_dimension WHERE coffee_id = $1 ORDER BY dimension_id, cupper_name`, [coffeeId]),
     db.query(`SELECT * FROM v_evidence_descriptor WHERE coffee_id = $1 ORDER BY n_sources DESC, family`, [coffeeId]),
     db.query(`SELECT * FROM v_evidence_archetype WHERE coffee_id = $1`, [coffeeId]),
@@ -27,10 +27,12 @@ export async function getCoffeeEvidence(coffeeId: number): Promise<{
     getDimensionHistory(coffeeId),
     // coffee presentation brief 1, E3: every customer-voice row with customer_sees (Descriptors tab column)
     getCustomerDescriptorsAll(coffeeId),
+    // brief 9: the coffee's disputes, open and withdrawn (workbench Dimensions tab, Coffees page panel)
+    getDisputesForCoffee(coffeeId),
   ]);
   return {
     dimensions: dimensions.rows, descriptors: descriptors.rows, archetype: archetype.rows[0] ?? null, calls: calls.rows,
-    consensus, history, customerVoice,
+    consensus, history, customerVoice, disputes,
   };
 }
 
@@ -118,7 +120,7 @@ export async function getWorkbenchQueue(roasterId: string): Promise<WorkbenchQue
  */
 export async function getWorkbenchCoffee(coffeeId: number): Promise<{
   coffee: Row | null; dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[]; consensus: Row[]; history: Row[];
-  customerVoice: CustomerDescriptorAll[]; sessions: Row[]; roasterResponse: Row | null; websiteDescriptors: Row[]; accepted: Row[];
+  customerVoice: CustomerDescriptorAll[]; disputes: Row[]; sessions: Row[]; roasterResponse: Row | null; websiteDescriptors: Row[]; accepted: Row[];
 }> {
   const [base, coffee, sessions, response, website, accepted] = await Promise.all([
     getCoffeeEvidence(coffeeId),

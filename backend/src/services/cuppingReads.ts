@@ -100,6 +100,15 @@ export async function getDimensionHistory(coffeeId: number, runner: Runner = db)
   return result.rows;
 }
 
+/** Brief 9 (2026-11-09): every dispute (open and withdrawn) on a coffee's cupper rows, open first, newest first. */
+export async function getDisputesForCoffee(coffeeId: number, runner: Runner = db) {
+  const result = await runner.query(
+    `SELECT * FROM v_cupping_score_dispute WHERE coffee_id = $1 ORDER BY is_open DESC, created_at DESC, id DESC`,
+    [coffeeId]
+  );
+  return result.rows;
+}
+
 /** The decision-layer descriptors of a coffee (current merged + accepted roaster + customer), with tier. */
 export async function getDescriptors(coffeeId: number, runner: Runner = db) {
   const result = await runner.query(

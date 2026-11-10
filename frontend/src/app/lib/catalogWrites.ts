@@ -54,6 +54,21 @@ export function certifyPlacement(apiFetch: ApiFetch, coffeeId: number, slotId: n
   return call(apiFetch, `/api/admin/catalog/coffees/${coffeeId}/placements/${slotId}/certify`, json('POST', body));
 }
 
+/** Cupping evidence brief 9 (2026-11-09): what a raise or a withdraw answers. */
+export interface DisputeResponse {
+  dispute: { id: number }; alreadyOpen: boolean; mergedScoreId: number | null; manualMergeInPlace: boolean;
+}
+
+/** POST /api/admin/evidence/disputes (cuppingService.raiseDispute). dimensionId null = the whole cupper row. */
+export function raiseDispute(apiFetch: ApiFetch, body: { cuppingScoreId: number; dimensionId: number | null; reason: string }): Promise<DisputeResponse> {
+  return call(apiFetch, '/api/admin/evidence/disputes', json('POST', body));
+}
+
+/** POST /api/admin/evidence/disputes/:id/withdraw (cuppingService.withdrawDispute). */
+export function withdrawDispute(apiFetch: ApiFetch, disputeId: number, reason: string): Promise<DisputeResponse> {
+  return call(apiFetch, `/api/admin/evidence/disputes/${disputeId}/withdraw`, json('POST', { reason }));
+}
+
 /** GET /api/admin/roastery-portal/responses/:id/acceptance-preview (read-only). */
 export function getAcceptancePreview<T = Record<string, unknown>>(apiFetch: ApiFetch, responseId: string): Promise<T> {
   return call(apiFetch, `/api/admin/roastery-portal/responses/${responseId}/acceptance-preview`);
