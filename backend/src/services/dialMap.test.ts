@@ -390,6 +390,11 @@ describe('Ella map 2: words, history, first-match floor', () => {
     const v = await vocabulary();
     expect(v.sizes.map((x: any) => [x.code, x.label])).toEqual([[1, 'less sweet'], [2, 'sweet'], [3, 'sweeter']]);
     expect(v.rings.map((x: any) => x.label)).toEqual(['the base', 'one step out', 'two steps out', 'the edge']);
+    // OT-123: lane words resolved per wedge from dial_lane's {side} template and coffee_archetype.name
+    const words = (arch: string) => v.laneWords.filter((x: any) => x.archetype_code === arch).map((x: any) => x.label);
+    const name = async (code: string) => (await db.query(`SELECT name FROM coffee_archetype WHERE code = $1`, [code])).rows[0].name;
+    expect(words('chocolate_nutty')).toEqual([`Leans ${await name('fruity')}`, 'Middle', `Leans ${await name('earthy')}`]);
+    expect(v.laneWords.some((x: any) => x.label.includes('{side}'))).toBe(false);
     expect(v.deltaPhrases.length).toBe(8);
     const flagCodes = new Set(v.flags.map((f: any) => f.code));
     const emitted = (await db.query(`SELECT DISTINCT unnest(flags) AS code FROM v_dial_placement_preview`)).rows.map(r => r.code);

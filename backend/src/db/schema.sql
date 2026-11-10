@@ -10492,10 +10492,15 @@ CREATE TABLE IF NOT EXISTS dial_lane (
   sort_order     SMALLINT NOT NULL
 );
 INSERT INTO dial_lane (code, label, sort_order) VALUES
-  ('side_a', 'Leans to the wedge on side A', 1),
-  ('middle', 'Middle of the wedge',          2),
-  ('side_b', 'Leans to the wedge on side B', 3)
+  ('side_a', 'Leans {side}', 1),
+  ('middle', 'Middle',       2),
+  ('side_b', 'Leans {side}', 3)
 ON CONFLICT (code) DO NOTHING;
+-- Ella map 2 (Dana 2026-11-10, OT-123): the label is a template; {side} is the
+-- wedge's side archetype name (dialReads.vocabulary resolves it per wedge).
+-- One-time move from the brief 1 seed text, only while a row still has it.
+UPDATE dial_lane SET label = 'Leans {side}' WHERE code IN ('side_a', 'side_b') AND label IN ('Leans to the wedge on side A', 'Leans to the wedge on side B');
+UPDATE dial_lane SET label = 'Middle' WHERE code = 'middle' AND label = 'Middle of the wedge';
 
 CREATE TABLE IF NOT EXISTS dial_move (
   id               SERIAL PRIMARY KEY,

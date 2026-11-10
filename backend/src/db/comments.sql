@@ -2165,7 +2165,7 @@ COMMENT ON VIEW v_axis_origin_region_count IS $c$Purpose: Sellable coffees per o
 COMMENT ON TABLE dial_lane IS $c$Purpose: Lookup of a map placement's lane inside its wedge: side_a, middle, side_b (the sides are dial_wedge.side_a_archetype / side_b_archetype) | Class: master | Writer: seed | Readers: v_dial_placement_preview, v_dial_placement, dialReads, catalogService.setLeanInTx | Since: 2026-11-10 (Ella map 1)$c$;
 COMMENT ON COLUMN dial_lane.id IS $c$Surrogate primary key (SERIAL); referenced by coffee_lean_assignment, dial_placement and dial_first_match.$c$;
 COMMENT ON COLUMN dial_lane.code IS $c$Stable code (side_a, middle, side_b); UNIQUE.$c$;
-COMMENT ON COLUMN dial_lane.label IS $c$Admin label for the lane.$c$;
+COMMENT ON COLUMN dial_lane.label IS $c$Lane words as a template: {side} is replaced per wedge by the side archetype's coffee_archetype.name (Leans {side}, Middle); resolved by dialReads.vocabulary (laneWords).$c$;
 COMMENT ON COLUMN dial_lane.customer_label IS $c$Customer wording for the lane; NULL by design, a lane is never shown to a customer (Rev 3 section 7).$c$;
 COMMENT ON COLUMN dial_lane.sort_order IS $c$Display order, side_a first.$c$;
 COMMENT ON TABLE dial_move IS $c$Purpose: Lookup of map moves: quiz_result, stay, bolder, gentler, different, liam, sibling; is_customer_move marks the four buttons (R3.4) | Class: master | Writer: seed | Readers: dial_hop_phrase, dialReads, dialPlacementService.setHopPhrase | Since: 2026-11-10 (Ella map 1)$c$;

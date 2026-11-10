@@ -89,7 +89,8 @@ export default function AdminEllaMap() {
   }, [user, apiFetch, mode, selected, rows]);
 
   const label = useMemo(() => ({
-    lane: (c?: string | null) => vocab?.lanes.find(l => l.code === c)?.label ?? c ?? '–',
+    // OT-123: the lane's words for this family (dial_lane's {side} template resolved by the API)
+    lane: (c: string | null | undefined, archetype: string) => vocab?.laneWords.find(l => l.archetype_code === archetype && l.lane_code === c)?.label ?? c ?? '–',
     ring: (c?: number | null) => vocab?.rings.find(r => r.code === c)?.label ?? (c ?? '–'),
     size: (c?: number | null) => vocab?.sizes.find(s => s.code === c)?.label ?? (c ?? '–'),
     grade: (c?: string | null) => vocab?.grades.find(g => g.code === c),
@@ -177,7 +178,7 @@ export default function AdminEllaMap() {
 }
 
 type Labels = {
-  lane: (c?: string | null) => string; ring: (c?: number | null) => string | number; size: (c?: number | null) => string | number;
+  lane: (c: string | null | undefined, archetype: string) => string; ring: (c?: number | null) => string | number; size: (c?: number | null) => string | number;
   grade: (c?: string | null) => { code: string; label: string; rank: number; description: string } | undefined;
   gradeByRank: (r: number) => string; flag: (c: string) => { code: string; label: string; description: string } | undefined;
   status: (c: string) => string; fmStatus: (c: string) => string; move: (c: string) => string; family: (c: string) => string;
@@ -278,10 +279,10 @@ function PlacementRow({ r, mode, vocab, label, selected, onSelect, apiFetch, onC
         <td className="p-2 tabular-nums">{r.is_center ? '–' : num(r.ruler_value)}</td>
         <td className="p-2">{r.ring === null ? '–' : <>{r.ring} · <span className="text-stone-500">{label.ring(r.ring)}</span></>}</td>
         <td className="p-2 min-w-[260px]">
-          <div>{label.lane(r.lane_code)}{r.decided_lane_code ? '' : mode === 'preview' ? ' · no decision' : ''}</div>
+          <div>{label.lane(r.lane_code, r.archetype_code)}{r.decided_lane_code ? '' : mode === 'preview' ? ' · no decision' : ''}</div>
           {r.suggested_lane_code !== undefined && (
             <div className="text-xs text-stone-500 mt-0.5">
-              Suggests {label.lane(r.suggested_lane_code)} · A {label.family(ss.side_a?.archetype ?? '')} {num(ss.side_a?.score)} / B {label.family(ss.side_b?.archetype ?? '')} {num(ss.side_b?.score)}
+              Suggests {label.lane(r.suggested_lane_code, r.archetype_code)} · A {label.family(ss.side_a?.archetype ?? '')} {num(ss.side_a?.score)} / B {label.family(ss.side_b?.archetype ?? '')} {num(ss.side_b?.score)}
             </div>
           )}
           {mode === 'preview' && r.is_placeable !== false && <LeanControl r={r} vocab={vocab} label={label} apiFetch={apiFetch} onChanged={onChanged} />}
@@ -294,7 +295,7 @@ function PlacementRow({ r, mode, vocab, label, selected, onSelect, apiFetch, onC
       {open && (
         <tr className="bg-stone-50">
           <td colSpan={9} className="p-3">
-            <LeanHistory coffeeId={r.coffee_id} apiFetch={apiFetch} label={label} />
+            <LeanHistory coffeeId={r.coffee_id} archetype={r.archetype_code} apiFetch={apiFetch} label={label} />
             <pre className="text-xs mt-2 whitespace-pre-wrap">{JSON.stringify(r.inputs_used, null, 2)}</pre>
           </td>
         </tr>
@@ -326,8 +327,8 @@ function LeanControl({ r, vocab, label, apiFetch, onChanged }: { r: MapRow; voca
     <div className="mt-2 p-2 rounded border border-stone-200 bg-stone-50" data-testid={`lean-${r.coffee_id}`}>
       <div className="flex flex-wrap gap-1">
         {vocab.lanes.map(l => (
-          <button key={l.code} className={lane === l.code ? BTN_PRIMARY : BTN} onClick={() => setLaneDraft(l.code)} title={l.label}>
-            {label.lane(l.code)}{r.suggested_lane_code === l.code ? ' ★' : ''}
+          <button key={l.code} className={lane === l.code ? BTN_PRIMARY : BTN} onClick={() => setLaneDraft(l.code)} title={label.lane(l.code, r.archetype_code)}>
+            {label.lane(l.code, r.archetype_code)}{r.suggested_lane_code === l.code ? ' ★' : ''}
           </button>
         ))}
       </div>
@@ -340,7 +341,7 @@ function LeanControl({ r, vocab, label, apiFetch, onChanged }: { r: MapRow; voca
   );
 }
 
-function LeanHistory({ coffeeId, apiFetch, label }: { coffeeId: number; apiFetch: ApiFetch; label: Labels }) {
+function LeanHistory({ coffeeId, archetype, apiFetch, label }: { coffeeId: number; archetype: string; apiFetch: ApiFetch; label: Labels }) {
   const [rows, setRows] = useState<LeanHistoryRow[] | null>(null);
   useEffect(() => { getLeanHistory(apiFetch, coffeeId).then(setRows).catch(() => setRows([])); }, [apiFetch, coffeeId]);
   if (!rows) return null;
@@ -351,7 +352,7 @@ function LeanHistory({ coffeeId, apiFetch, label }: { coffeeId: number; apiFetch
         {rows.map(h => (
           <tr key={h.id} className={h.is_current ? '' : 'text-stone-400 line-through'}>
             <td className="pr-3">{new Date(h.created_at).toLocaleString()}</td>
-            <td className="pr-3">{label.lane(h.lane_code)}</td>
+            <td className="pr-3">{label.lane(h.lane_code, archetype)}</td>
             <td className="pr-3">{h.notes}</td>
             <td>{h.decided_by}</td>
           </tr>
@@ -367,7 +368,7 @@ function HopsPanel({ row, hops, phrases, label, thumb }: { row: MapRow; hops: Ho
     <div className={`${CARD} p-3 text-sm`} data-testid="hops-panel">
       {thumb && <div className="mb-2" data-testid="face-thumb">{thumb}</div>}
       <p className="font-medium text-stone-900">{row.coffee_name}</p>
-      <p className="text-xs text-stone-500 mb-2">{label.family(row.archetype_code)} · {label.ring(row.ring)} · {label.lane(row.lane_code)}</p>
+      <p className="text-xs text-stone-500 mb-2">{label.family(row.archetype_code)} · {label.ring(row.ring)} · {label.lane(row.lane_code, row.archetype_code)}</p>
       {MOVE_ORDER.map(move => {
         const set = hops.filter(h => h.relation === move && h.in_hop_set).sort((a, b) => a.rank - b.rank);
         const phrase = phrases.find(p => p.archetype_code === row.archetype_code && p.move_code === move);
@@ -455,7 +456,7 @@ function FirstMatchPanel({ firstMatches, rows, vocab, wedges, label, apiFetch, o
           <tbody>
             {firstMatches.map(f => (
               <tr key={f.id} className="border-t border-stone-100">
-                <td>{label.family(f.archetype_code)}</td><td>{label.lane(f.lane_code)}</td><td>{f.coffee_name}</td><td>{label.fmStatus(f.status)}</td>
+                <td>{label.family(f.archetype_code)}</td><td>{label.lane(f.lane_code, f.archetype_code)}</td><td>{f.coffee_name}</td><td>{label.fmStatus(f.status)}</td>
                 <td>
                   {f.preview_grade ?? '–'}
                   {f.meets_grade_floor_preview === false && (
@@ -472,7 +473,7 @@ function FirstMatchPanel({ firstMatches, rows, vocab, wedges, label, apiFetch, o
             {wedges.map(w => <option key={w.archetype_code} value={w.archetype_code}>{w.archetype_name}</option>)}
           </select>
           <select className={sel} value={lane} onChange={e => setLaneSel(e.target.value)} aria-label="Lane">
-            {vocab.lanes.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+            {vocab.lanes.map(l => <option key={l.code} value={l.code}>{label.lane(l.code, archetype)}</option>)}
           </select>
           <select className={sel} value={coffeeId} onChange={e => setCoffeeId(e.target.value ? Number(e.target.value) : '')} aria-label="Coffee">
             <option value="">Coffee…</option>

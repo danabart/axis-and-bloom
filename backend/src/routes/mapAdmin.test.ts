@@ -55,7 +55,7 @@ describe('GET /api/admin/map/*', () => {
 
   it('vocabulary and lean history answer (Ella map 2)', async () => {
     const v = await (await fetch(`${base}/map/vocabulary`)).json();
-    expect(Object.keys(v)).toEqual(['lanes', 'grades', 'moves', 'versionStatuses', 'firstMatchStatuses', 'sizes', 'rings', 'flags', 'readings', 'deltaPhrases']);
+    expect(Object.keys(v)).toEqual(['lanes', 'laneWords', 'grades', 'moves', 'versionStatuses', 'firstMatchStatuses', 'sizes', 'rings', 'flags', 'readings', 'deltaPhrases']);
     const h = await fetch(`${base}/map/lean/2905/history`);
     expect(h.status).toBe(200);
     expect(Array.isArray(await h.json())).toBe(true);

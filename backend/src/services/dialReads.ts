@@ -105,6 +105,15 @@ export async function vocabulary(runner: Runner = db) {
   const q = async (sql: string) => (await runner.query(sql)).rows;
   return {
     lanes: await q(`SELECT code, label, customer_label, sort_order FROM dial_lane ORDER BY sort_order`),
+    // Ella map 2 (OT-123): dial_lane.label is a template; {side} is the wedge's side archetype name
+    laneWords: await q(
+      `SELECT w.archetype_code, l.code AS lane_code,
+              replace(l.label, '{side}', COALESCE(CASE l.code WHEN 'side_a' THEN sa.name WHEN 'side_b' THEN sb.name END, '')) AS label
+         FROM dial_wedge w
+         CROSS JOIN dial_lane l
+         LEFT JOIN coffee_archetype sa ON sa.code = w.side_a_archetype
+         LEFT JOIN coffee_archetype sb ON sb.code = w.side_b_archetype
+        ORDER BY w.angle_order, l.sort_order`),
     grades: await q(`SELECT code, label, rank, description FROM dial_evidence_grade ORDER BY rank DESC`),
     moves: await q(`SELECT code, label, is_customer_move, sort_order FROM dial_move ORDER BY sort_order`),
     versionStatuses: await q(`SELECT code, label FROM dial_map_version_status ORDER BY id`),

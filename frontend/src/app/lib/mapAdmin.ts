@@ -63,6 +63,8 @@ export interface PhraseResolved { archetype_code: string; move_code: string; but
 export interface PhraseRow { id: number; archetype_code: string | null; move_code: string; button_label: string; move_line_template: string | null; edge_phrase: string | null }
 export interface Vocabulary {
   lanes: Array<{ code: string; label: string }>;
+  /** OT-123: per wedge, each lane's words with {side} resolved (Leans Fruity, Middle, Leans Earthy) */
+  laneWords: Array<{ archetype_code: string; lane_code: string; label: string }>;
   grades: Array<{ code: string; label: string; rank: number; description: string }>;
   moves: Array<{ code: string; label: string; is_customer_move: boolean }>;
   versionStatuses: Array<{ code: string; label: string }>;

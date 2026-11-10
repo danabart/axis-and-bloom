@@ -227,3 +227,11 @@ The admin was a marked test user, "Zzz Test Admin (Ella map 2)" (Firebase uid `U
   - The test DB has `test-wb-1` active (12 placements, with Fabricator's middle lean recorded after the cut).
   - First match: only the Benchmark seed.
 - **OT-123** (long lane labels) is for Dana's words before customers see any lane-derived text.
+
+## After review (Dana 2026-11-10): lane words per wedge (OT-123 closed)
+- **The template:** `dial_lane.label` is now a template: "Leans {side}" for side_a and side_b, "Middle" for middle.
+  - The seed inserts the template when a row is missing.
+  - A guarded one-time `UPDATE` moves rows that still carry brief 1's text ("Leans to the wedge on side A/B", "Middle of the wedge") and touches nothing else.
+- **Resolved by the API:** `GET /map/vocabulary` adds `laneWords` [{archetype_code, lane_code, label}], with `{side}` resolved per wedge through `dial_wedge`'s side archetype and `coffee_archetype.name`. For Chocolate & Nutty that gives "Leans Fruity", "Middle", "Leans Earthy".
+- **The page uses the resolved words everywhere a lane appears:** the lane buttons, the row's lane and suggestion, the history, the hops panel, the first-match table and form. Nothing is typed in.
+- **Tests:** `dialMap.test.ts` asserts the resolved words for Chocolate & Nutty and that no `{side}` is left; `mapAdmin.test.ts` expects the `laneWords` key. All 29 pass, the frontend has 150 passing, the lints are clean, and frontend `tsc` still shows only the 7 known errors.
