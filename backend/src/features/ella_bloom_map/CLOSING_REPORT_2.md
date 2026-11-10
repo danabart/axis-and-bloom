@@ -235,3 +235,19 @@ The admin was a marked test user, "Zzz Test Admin (Ella map 2)" (Firebase uid `U
 - **Resolved by the API:** `GET /map/vocabulary` adds `laneWords` [{archetype_code, lane_code, label}], with `{side}` resolved per wedge through `dial_wedge`'s side archetype and `coffee_archetype.name`. For Chocolate & Nutty that gives "Leans Fruity", "Middle", "Leans Earthy".
 - **The page uses the resolved words everywhere a lane appears:** the lane buttons, the row's lane and suggestion, the history, the hops panel, the first-match table and form. Nothing is typed in.
 - **Tests:** `dialMap.test.ts` asserts the resolved words for Chocolate & Nutty and that no `{side}` is left; `mapAdmin.test.ts` expects the `laneWords` key. All 29 pass, the frontend has 150 passing, the lints are clean, and frontend `tsc` still shows only the 7 known errors.
+
+## Deploy
+- **Commits:** `98180c7` (the brief) and `ee8122b` (lane words per wedge, OT-123), pushed to `main` 2026-11-10 by path. The genova `.ttf` deletions and `commerce/README.md` stayed unstaged.
+- **Deploy run 42896805012:** green (backend and frontend). Revision `axis-bloom-backend-00853-92t`.
+- **Startup log:**
+  - `[db-comments] applied 1954 statements`.
+  - `[data-catalog] report only: 192 tables, 98 views, 1664 columns; 2 of 10 checks with findings`.
+  - Checks 7 to 10 pass: one active version or none, placements on active coffees, every map seed present (now including sizes, rings, delta directions, a delta phrase per reading × direction, and a `dial_flag` row for every emitted flag), and all 26 `dial_` keys.
+  - The two findings are #4 (CATALOG.md stale, expected before the regenerate below) and #6 (the same 25 dead-table candidates as before, none `dial_`).
+  - No ERROR lines.
+- **Seeds on prod (read-only check):**
+  - Lookups: `dial_size` 3, `dial_ring` 4, `dial_flag` 11, `dial_delta_direction` 2, current `dial_delta_phrase` 8.
+  - Parameters: 26 `dial_` parameters (`dial_delta_min_to_mention` added).
+  - `dial_lane` labels moved to "Leans {side}" / "Middle" by the guarded update.
+  - 0 versions and 0 lean decisions, so production was written only by the boot seeds.
+- **`npm run catalog:md -- --expect-db axisandbloom`** from prod: catalog-hash `c4886970949a…`, equal to the live hash in the startup log. Committed with this section.
