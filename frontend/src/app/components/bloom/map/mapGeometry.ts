@@ -152,3 +152,21 @@ export function sectorPath(g: FaceGeometry, angleOrder: number): string {
 
 /** A point at an angle and radius (labels). */
 export function pointAt(g: FaceGeometry, deg: number, r: number) { return polar(g, deg, r); }
+
+/** Follow-up (2026-11-10): the name label beside a dot, cut to `max` characters with an ellipsis. */
+export const LABEL_MAX = 16;
+export function shortLabel(name: string, max = LABEL_MAX): string {
+  const s = name.trim();
+  return s.length <= max ? s : `${s.slice(0, max - 1).trimEnd()}…`;
+}
+
+/**
+ * Where a dot's label sits: beside the dot, on the side away from its cell's
+ * point, so the names in a fanned-out cell move with their dots and spread
+ * apart rather than stacking. A lone dot (or one straight above or below the
+ * point) is labelled on its right.
+ */
+export function labelAnchor(d: DotLayout, gap = 6): { x: number; y: number; anchor: 'start' | 'end' } {
+  const left = d.x < d.cellX - 0.5;
+  return { x: left ? d.x - d.r - gap : d.x + d.r + gap, y: d.y, anchor: left ? 'end' : 'start' };
+}

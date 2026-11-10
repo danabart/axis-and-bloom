@@ -6,14 +6,13 @@
 // names come from the placements and the seams from dial_seam.
 import { ARCHETYPE_VISUALS } from '../bloomVisuals';
 import {
-  VIEW, faceGeometry, layoutDots, sectorPath, wedgeSpan, pointAt, ringRadius,
+  VIEW, faceGeometry, layoutDots, sectorPath, wedgeSpan, pointAt, ringRadius, shortLabel, labelAnchor,
   type PlacementGeo, type WedgeGeo,
 } from './mapGeometry';
 
 export interface FacePlacement extends PlacementGeo {
   coffee_name: string;
   is_sellable: boolean;
-  grade_code?: string | null;
 }
 export interface FaceSeam { archetype_a: string; archetype_b: string; label: string | null; is_labelled: boolean }
 export interface FaceWedge extends WedgeGeo { archetype_name?: string }
@@ -29,7 +28,13 @@ export interface EllaMapFaceProps {
   /** the highlighted coffee's hop set, drawn as lines from it */
   hops?: FaceHop[];
   size: 'thumb' | 'full';
-  showGrades?: boolean;
+  /**
+   * What is printed beside each dot: 'name' (the coffee's name, cut short; the
+   * full name is the dot's tooltip and the tap target) or 'none'. Defaults to
+   * 'name' on the full face and 'none' on the thumb. Grades are not drawn on
+   * the face; they live in the placement table.
+   */
+  labelMode?: 'name' | 'none';
   onTapCoffee?: (coffeeId: number) => void;
 }
 
@@ -39,9 +44,10 @@ const colorOf = (code: string) => ARCHETYPE_VISUALS[code]?.color ?? INK;
 const tintOf = (code: string) => ARCHETYPE_VISUALS[code]?.tint ?? '#e7e5e4';
 const HOP_DASH: Record<string, string | undefined> = { bolder: undefined, gentler: '10 8', different: '3 7', sibling: '1 5' };
 
-export default function EllaMapFace({ placements, wedges, seams = [], highlightCoffeeId = null, hops = [], size, showGrades = false, onTapCoffee }: EllaMapFaceProps) {
+export default function EllaMapFace({ placements, wedges, seams = [], highlightCoffeeId = null, hops = [], size, labelMode, onTapCoffee }: EllaMapFaceProps) {
   const g = faceGeometry(VIEW);
   const full = size === 'full';
+  const labels = (labelMode ?? (full ? 'name' : 'none')) === 'name';
   const dots = layoutDots(g, placements, wedges);
   const byId = new Map(placements.map(p => [p.coffee_id, p]));
   const dotById = new Map(dots.map(d => [d.coffee_id, d]));
@@ -111,9 +117,11 @@ export default function EllaMapFace({ placements, wedges, seams = [], highlightC
             {highlighted && <circle cx={d.x} cy={d.y} r={d.r + 9} fill="none" stroke={INK} strokeWidth={4} />}
             <circle cx={d.x} cy={d.y} r={d.r} fill={color} fillOpacity={p.is_sellable ? 1 : 0.3}
               stroke={p.is_sellable ? '#fff' : color} strokeWidth={3} strokeDasharray={p.is_sellable ? undefined : '4 4'} />
-            {full && showGrades && p.grade_code && (
-              <text x={d.x + d.r + 4} y={d.y - d.r} fontSize={18} fontWeight={700} fill={INK}>{p.grade_code}</text>
-            )}
+            {labels && (() => {
+              const a = labelAnchor(d, highlighted ? 16 : 6);
+              return <text x={a.x} y={a.y} textAnchor={a.anchor} dominantBaseline="middle" fontSize={17} fontWeight={700}
+                fill={color} stroke={PAPER} strokeWidth={4} paintOrder="stroke" strokeLinejoin="round">{shortLabel(p.coffee_name)}</text>;
+            })()}
           </g>
         );
       })}

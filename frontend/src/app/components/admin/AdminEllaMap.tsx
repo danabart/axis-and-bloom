@@ -144,13 +144,13 @@ export default function AdminEllaMap() {
       <Section title="Face">
         <div className="flex flex-wrap gap-6 items-start">
           <div className="flex-1 min-w-[320px] max-w-[760px]">
-            <EllaMapFace placements={placeable} wedges={wedges.wedges} seams={wedges.seams} size="full" showGrades
+            <EllaMapFace placements={placeable} wedges={wedges.wedges} seams={wedges.seams} size="full" labelMode="name"
               highlightCoffeeId={selected} hops={faceHops} onTapCoffee={tapCoffee} />
             <div className="mt-3"><EllaMapLegend sizes={vocab.sizes} families={wedges.wedges} /></div>
           </div>
           <div className="w-[360px] max-w-full">
             {selectedRow ? <HopsPanel row={selectedRow} hops={hops} phrases={phrases?.resolved ?? []} label={label}
-                thumb={<EllaMapFace placements={placeable} wedges={wedges.wedges} size="thumb" highlightCoffeeId={selected} />} /> :
+                thumb={<EllaMapFace placements={placeable} wedges={wedges.wedges} size="thumb" labelMode="none" highlightCoffeeId={selected} />} /> :
               <p className="text-sm text-stone-500">Tap a coffee to see its hops.</p>}
           </div>
         </div>

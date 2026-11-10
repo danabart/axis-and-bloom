@@ -2,7 +2,7 @@
 // wedge, the lane offsets toward each seam, and a fan-out that does not
 // depend on the order rows arrive in.
 import { describe, it, expect } from 'vitest';
-import { faceGeometry, wedgeSpan, sharedBoundary, laneAngle, layoutDots, ringRadius, LANE_INSET, type WedgeGeo, type PlacementGeo } from './mapGeometry';
+import { faceGeometry, wedgeSpan, sharedBoundary, laneAngle, layoutDots, ringRadius, LANE_INSET, shortLabel, labelAnchor, LABEL_MAX, type WedgeGeo, type PlacementGeo } from './mapGeometry';
 
 // the brief 1 seeds (dial_wedge): sides per Rev 3 section 2 and CTO call 4
 const WEDGES: WedgeGeo[] = [
@@ -55,5 +55,20 @@ describe('mapGeometry', () => {
 
   it('a placement with no ring draws nothing', () => {
     expect(layoutDots(g, [{ coffee_id: 1, archetype_code: 'fruity', is_center: false, ring: null, lane_code: 'middle', size: null }], WEDGES)).toEqual([]);
+  });
+
+  it('labels: names are cut with an ellipsis and sit on the side of the dot away from its cell point', () => {
+    expect(shortLabel('Benchmark')).toBe('Benchmark');
+    expect(shortLabel('Colombia La Familia Guarnizo')).toBe('Colombia La Fam…');
+    expect(shortLabel('Colombia La Familia Guarnizo').length).toBe(LABEL_MAX);
+    const ps: PlacementGeo[] = [1, 2, 3, 4].map(id => ({ coffee_id: id, archetype_code: 'fruity', is_center: false, ring: 2, lane_code: 'middle', size: 2 }));
+    const dots = layoutDots(g, ps, WEDGES);
+    for (const d of dots) {
+      const a = labelAnchor(d);
+      if (d.x < d.cellX - 0.5) { expect(a.anchor).toBe('end'); expect(a.x).toBeLessThan(d.x - d.r); }
+      else { expect(a.anchor).toBe('start'); expect(a.x).toBeGreaterThan(d.x + d.r); }
+      expect(a.y).toBe(d.y);
+    }
+    expect(new Set(dots.map(d => labelAnchor(d).anchor)).size).toBe(2);
   });
 });

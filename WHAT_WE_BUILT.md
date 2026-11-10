@@ -6784,6 +6784,8 @@ Brief: `backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_2_WORKBE
 - `test-wb-1` was cut and activated, and is left active on the test DB only.
 - La Familia (C) as a floral first match is refused with the floor message.
 
+**Follow-up (2026-11-10): names on the face.** `EllaMapFace` prints each coffee's name beside its dot, in the family's colour, instead of the grade letter. The name is cut to 16 characters with an ellipsis; the full name is the dot's tooltip and the tap target. The label sits on the side of the dot away from its cell's point, so names in a fanned-out cell move with their dots. The prop is generic, `labelMode: 'name' | 'none'` (default: name on the full face, none on the thumb; `showGrades` and `grade_code` are gone). The grade stays in the placement table only. `mapGeometry.shortLabel` / `labelAnchor` are tested in `mapGeometry.test.ts` (+1).
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)
