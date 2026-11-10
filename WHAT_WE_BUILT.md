@@ -6710,7 +6710,7 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 
 **Tests:** `services/cuppingDispute.test.ts` (6).
 
-**Verified:** see `CLOSING_REPORT_9.md`.
+**Verified on prod (2026-11-10, Part E).** Dana raised dispute 1 on her own Body value for Feminista in session 42. Merged row 170 replaced 169 with Body = Camila's 7 alone, pooled Body moved from 6.77 to 5.85, and dial signal 36 was re-recorded. Nothing else changed. See `CLOSING_REPORT_9.md`.
 
 ---
 

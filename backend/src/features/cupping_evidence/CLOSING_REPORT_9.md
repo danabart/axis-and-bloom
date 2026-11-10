@@ -1,6 +1,6 @@
 # Cupping Evidence, brief 9: disputes. Closing report
 
-> Brief: `CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_9_DISPUTES.md` · Run 2026-11-09 · Mode: test DB done; deploy and Part E wait for Dana's go (STOP 1).
+> Brief: `CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_9_DISPUTES.md` · Run 2026-11-09 to 2026-11-10 · **Done:** test DB, deployed, Part E passed on prod.
 
 ## Status
 
@@ -9,7 +9,7 @@
 - Startup log: no ERROR lines; `[db-comments]` applied 1773 statements; `[data-catalog]` reports 169 tables, 87 views and 1517 columns, with nothing uncommented.
 - The only boot finding beyond what was already open was CATALOG.md being stale, and that was expected. CATALOG.md was then regenerated from prod (catalog-hash `2b28a93…`, equal to the live hash) and committed.
 - Evidence integrity shows the same two known findings, #2 and #6 (Tiger Stripe). Quiz #10 and sommelier #3 were already open.
-- Part E: Dana's button is next.
+- Part E passed on production on 2026-11-10 (section below).
 
 **Before the deploy (2026-11-09):**
 
@@ -129,7 +129,7 @@ Bundle read on the test DB (prod copy), Feminista Body cells: Camila s42 score 1
 | Dial signal | id 34, fruity, **Acidity** (Fruity's dial dimension), 8.04, no slot (no bands) | a new row with the same content: re-recorded by the merge, value unchanged because Acidity did not move |
 | Sessions 35–42, other samples | 98 rows, 97 current, max id 166 | unchanged |
 
-## Part E (after the deploy, Dana's button)
+## Part E (after the deploy, Dana's button): passed 2026-11-10
 
 1. After deploy green and a clean startup log, I paste the "before" above (plus the s42 Body history row and the current signal row) and STOP.
 2. Dana goes to Roastery Feedback → Joe Coffee → workbench → Feminista → Dimensions, then Dana's Body cell → "Mark inaccurate", with the decision 7 reason.
@@ -141,6 +141,19 @@ Bundle read on the test DB (prod copy), Feminista Body cells: Camila s42 score 1
    - the signal row;
    - sessions 35-41 and every other s42 row unchanged;
    - the integrity checks.
+
+**Result on prod (read-only, after Dana's click):**
+- **The request:** one `api_event`, `POST /api/admin/evidence/disputes` at 2026-11-10 16:51:57 UTC, from Dana's uid (`cptmb666…`), response 201 in 522 ms. Nothing else was sent.
+- **The dispute:** **dispute 1** is open, on score 167 (Dana) / dimension 7 (Body), scope `value`, session 42, coffee 2902, with the decision 7 reason verbatim.
+- **The merged row:** **170**, `union_v1; scales: Camila ab_0_15, Dana ab_0_15; one cupper: Body; disputed: Dana Body`, call fruity. Row 169 was superseded by 170 with `merged by rule again (dispute 1 raised)`.
+- **Body values:** the sheet row is unchanged (`cupping_score_values` 167 / Body is still 8-10, raw `8-10`). The readable view flags it (`is_disputed` true, with the reason). Merged Body is **7** (`union of: Camila 7`). The other eight dimensions of 170 equal 169's union exactly.
+- **History, Body:** s36 3–5 (71) unchanged; s42 now 7 (170, midpoint 7.00), was 7–10 (169).
+- **Pooled Body:** **5.46–6.23, midpoint 5.85**, was 5.46–8.08 / 6.77. The weights are unchanged (s42 0.6157, s36 0.3843), and sessions_disagree is still true.
+- **Dial signal:** **36** replaces 34. It is fruity on Acidity, 8.04, sample 2, no slot, computed 16:51:58: re-recorded by the merge, and its value is unchanged because Acidity did not move.
+- **Sessions 35–42:** 102 score rows (was 101: plus merged 170), 100 current. Outside sample 77, 98 rows and 97 current, the same as before.
+- **Integrity on prod:** `runCatalogIntegrityChecks` all pass. `runEvidenceIntegrityChecks` fails #2 (Path seed merged rows) and #6 (Tiger Stripe), the same two as before the click; the other six pass.
+
+It matches the test-DB rehearsal value for value.
 
 ## What the next brief needs
 
