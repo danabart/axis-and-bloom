@@ -129,9 +129,10 @@ export default function AdminRoasteryPortal() {
         <CalibrationPanel key={`cal-${roasterId}`} roasterId={roasterId} roasterName={null} apiFetch={apiFetch}
           onBack={() => go({ roastery: roasterId })} />
       )}
-      {/* Cupping evidence brief 4: ?roastery=<id>&view=workbench, the Calibration workbench. */}
+      {/* Cupping evidence brief 4: ?roastery=<id>&view=workbench, the Calibration workbench; Ella map 2: &coffee=<catalog id> preselects a coffee. */}
       {roasterId && view === 'workbench' && !acceptId && (
         <AdminCalibrationWorkbench key={`wb-${roasterId}`} roasterId={roasterId} apiFetch={apiFetch}
+          initialCoffeeId={coffeeId && /^\d+$/.test(coffeeId) ? Number(coffeeId) : null}
           onBack={() => go({ roastery: roasterId })}
           onOpenAcceptance={portalCoffeeId => go({ roastery: roasterId, accept: portalCoffeeId })} />
       )}

@@ -204,6 +204,10 @@ export const DIAL_SEED_CODES: Record<string, string[]> = {
   dial_map_version_status: ['draft', 'active', 'retired'],
   dial_first_match_status: ['founder_pick', 'derived'],
   dial_reading: ['acidity', 'bitterness', 'body', 'sweetness'],
+  // Ella map 2 (2026-11-10)
+  dial_size: ['1', '2', '3'],
+  dial_ring: ['0', '1', '2', '3'],
+  dial_delta_direction: ['up', 'down'],
 };
 export const DIAL_PARAMETER_KEYS = [
   'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
@@ -212,7 +216,7 @@ export const DIAL_PARAMETER_KEYS = [
   'dial_grade_sessions_for_b', 'dial_grade_cuppers_for_b', 'dial_grade_sessions_for_a', 'dial_grade_cuppers_for_a',
   'dial_lean_promotion_n', 'dial_suggest_w_words', 'dial_suggest_w_body', 'dial_suggest_body_cut_light',
   'dial_suggest_body_cut_base', 'dial_suggest_word_pos1', 'dial_suggest_word_later', 'dial_suggest_dark_roast_add',
-  'dial_suggest_threshold',
+  'dial_suggest_threshold', 'dial_delta_min_to_mention',
 ];
 
 async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIntegrityCheck[]> {
@@ -234,7 +238,7 @@ async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIn
 
   const missingSeeds: string[] = [];
   for (const [table, codes] of Object.entries(DIAL_SEED_CODES)) {
-    const have = new Set((await runner.query<{ code: string }>(`SELECT code FROM ${table}`)).rows.map(r => r.code)); // table from the allow-list above (G3.2)
+    const have = new Set((await runner.query<{ code: string | number }>(`SELECT code FROM ${table}`)).rows.map(r => String(r.code))); // table from the allow-list above (G3.2)
     for (const code of codes) if (!have.has(code)) missingSeeds.push(`${table}.${code}`);
   }
   const extra = (await runner.query<{ finding: string }>(
@@ -246,6 +250,16 @@ async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIn
      SELECT 'dial_dark_roast_level (empty)' WHERE NOT EXISTS (SELECT 1 FROM dial_dark_roast_level)`)).rows.map(r => r.finding);
   const weighted = new Set((await runner.query<{ scale_code: string }>(`SELECT scale_code FROM dial_cupper_scale_weight`)).rows.map(r => r.scale_code));
   for (const s of await listScales(runner)) if (!weighted.has(s.code)) extra.push(`dial_cupper_scale_weight for ${s.code}`);
+  // Ella map 2: a delta phrase per reading x direction, and a dial_flag row for every flag code the preview emits
+  const more = (await runner.query<{ finding: string }>(
+    `SELECT 'dial_delta_phrase for ' || r.code || ' ' || d.code AS finding
+       FROM dial_reading r CROSS JOIN dial_delta_direction d
+      WHERE NOT EXISTS (SELECT 1 FROM dial_delta_phrase p WHERE p.reading_id = r.id AND p.direction_id = d.id AND p.superseded_at IS NULL)
+     UNION ALL
+     SELECT DISTINCT 'dial_flag for ' || f.code
+       FROM v_dial_placement_preview pv CROSS JOIN LATERAL unnest(pv.flags) AS f(code)
+      WHERE NOT EXISTS (SELECT 1 FROM dial_flag df WHERE df.code = f.code)`)).rows.map(r => r.finding);
+  extra.push(...more);
   const c9 = check(9, 'Ella map: every map lookup seed is present', [...missingSeeds, ...extra], '0 missing', n => `${n} missing`);
 
   const haveKeys = new Set((await getParameters('dial_', runner)).map(r => r.key));

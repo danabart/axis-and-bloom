@@ -14,8 +14,8 @@ import { withRollback, type RollbackTx } from '../test/withRollback.js';
 import { freeSlots } from '../test/freeSlots.js';
 import { setParameterInTx } from './evidenceParameterService.js';
 import { setLeanInTx } from './catalogService.js';
-import { cutVersionInTx, activateVersionInTx } from './dialPlacementService.js';
-import { graphCheck, computeGraphCheck } from './dialReads.js';
+import { cutVersionInTx, activateVersionInTx, setFirstMatchInTx } from './dialPlacementService.js';
+import { graphCheck, computeGraphCheck, composeMoveLine, moveLineContext, vocabulary, leanHistory, hopsPreview, type MoveLineContext } from './dialReads.js';
 
 // fixtures are many round trips to the Cloud SQL test DB
 vi.setConfig({ testTimeout: 240_000 });
@@ -364,6 +364,61 @@ describe('parameters (D7)', () => {
       const active = (await c.query(`SELECT ring FROM v_dial_placement WHERE coffee_id = $1`, [ids.cn1])).rows[0];
       expect(active.ring).toBe(1);
       expect((await c.query(`SELECT 1 FROM v_dial_face WHERE coffee_id = $1 AND ring = 1`, [ids.cn1])).rowCount).toBe(1);
+    });
+  });
+});
+
+describe('Ella map 2: words, history, first-match floor', () => {
+  it('composeMoveLine: deltas under the minimum are left out, the rest in reading order through the family template', () => {
+    const ctx: MoveLineContext = {
+      readings: ['acidity', 'bitterness', 'body', 'sweetness'],
+      phrases: { acidity: { '1': 'brighter', '-1': 'softer' }, bitterness: { '1': 'more bite', '-1': 'less bite' },
+                 body: { '1': 'more body', '-1': 'lighter' }, sweetness: { '1': 'a touch sweeter', '-1': 'a touch drier' } },
+      templates: { chocolate_nutty: { bolder: 'Bolder than {from}: {deltas}', sibling: null } },
+      minToMention: 1,
+    };
+    const line = composeMoveLine(ctx, { fromArchetype: 'chocolate_nutty', relation: 'bolder', fromName: 'Tiger Stripe', toName: 'Blossom',
+      deltas: { acidity: -0.4, bitterness: 3.3, body: 1.4, sweetness: null } });
+    expect(line!.text).toBe('Bolder than Tiger Stripe: more bite, more body');
+    expect(line!.mentioned.map(m => m.reading)).toEqual(['bitterness', 'body']);
+    const none = composeMoveLine(ctx, { fromArchetype: 'chocolate_nutty', relation: 'bolder', fromName: 'A', toName: 'B', deltas: { acidity: 0.2 } });
+    expect(none!.text).toBe('Bolder than A');                 // nothing to mention: no dangling colon
+    expect(composeMoveLine(ctx, { fromArchetype: 'chocolate_nutty', relation: 'sibling', fromName: 'A', toName: 'B', deltas: {} })).toBeNull();
+  });
+
+  it('the vocabulary carries the seeded words; the context reads the parameter and the delta phrases', async () => {
+    const v = await vocabulary();
+    expect(v.sizes.map((x: any) => [x.code, x.label])).toEqual([[1, 'less sweet'], [2, 'sweet'], [3, 'sweeter']]);
+    expect(v.rings.map((x: any) => x.label)).toEqual(['the base', 'one step out', 'two steps out', 'the edge']);
+    expect(v.deltaPhrases.length).toBe(8);
+    const flagCodes = new Set(v.flags.map((f: any) => f.code));
+    const emitted = (await db.query(`SELECT DISTINCT unnest(flags) AS code FROM v_dial_placement_preview`)).rows.map(r => r.code);
+    expect(emitted.filter(code => !flagCodes.has(code))).toEqual([]);
+    const ctx = await moveLineContext();
+    expect(ctx.minToMention).toBe(Number((await db.query(`SELECT param('dial_delta_min_to_mention') AS v`)).rows[0].v));
+    expect(ctx.phrases.body['1']).toBe('more body');
+    expect(ctx.templates.fruity.bolder).toBe(ctx.templates.chocolate_nutty.bolder); // the override's NULL line falls back
+  });
+
+  it('hops carry the move line; the lean history keeps the superseded row; first match is refused under the grade floor', async () => {
+    await withRollback(async (tx) => {
+      const c = tx.client;
+      const ids = await five(tx);
+      const hops = await hopsPreview(ids.cn1, c);
+      const bolder = hops.find((h: any) => h.relation === 'bolder' && h.in_hop_set);
+      expect(bolder.move_line).toMatch(/^Bolder than Zzz Map cn1/);
+      expect(bolder.deltas_mentioned.map((m: any) => m.reading)).toContain('bitterness');
+
+      await setLeanInTx(c, ids.cn1, 'middle', { notes: 'second', decidedBy: 'vitest' });
+      const hist = await leanHistory(ids.cn1, c);
+      expect(hist.map((h: any) => [h.lane_code, h.is_current])).toEqual([['middle', true], ['side_a', false]]);
+
+      const r = (await c.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Zzz Map Roastery 2', true) RETURNING id`)).rows[0].id;
+      const weak = await coffee(c, r, { tag: 'weak', archetype: 'balanced_sweet', values: { acidity: 1, bitterness: 1, sweetness: 5 } }); // 1 session, 1 cupper: C
+      await expect(tx.savepoint(() => setFirstMatchInTx(c, { archetypeCode: 'fruity', laneCode: 'side_b', coffeeId: weak, adminUid: 'vitest' })))
+        .rejects.toMatchObject({ status: 409, code: 'BELOW_GRADE_FLOOR' });
+      const ok = await setFirstMatchInTx(c, { archetypeCode: 'fruity', laneCode: 'side_b', coffeeId: ids.fr1, adminUid: 'vitest' }); // 2 cuppers: B
+      expect(ok.unchanged).toBe(false);
     });
   });
 });

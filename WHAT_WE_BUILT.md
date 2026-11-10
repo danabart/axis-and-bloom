@@ -6753,6 +6753,37 @@ Brief: `backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_1_SCHEMA
 
 **Preview on the test DB.** 12 coffees placed; 7 sellable, all reachable from the center. 4 coffees are at the bolder edge. The center has no bolder until Benchmark gets a lean decision. 3 of 5 cousin pairs are reproduced; the other two involve unsold coffees. Dry-run cut `test-dry-run` (12 placements) left as a draft. Tests: `services/dialMap.test.ts` (10), `routes/mapAdmin.test.ts` (3).
 
+### 269. Ella's Bloom Map, brief 2: the workbench (2026-11-10)
+
+Brief: `backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_2_WORKBENCH.md`. Closing report: `CLOSING_REPORT_2.md`.
+
+**What it is.** `/admin/map` ("Ella's Bloom Map", under Catalogue & Supply after Bloom Dial) is where Dana runs the Rev 3 section 9 gate.
+- A Preview / Active version toggle.
+- The face (`EllaMapFace`, full, with grades). Tapping a dot highlights its row and shows its hop set with deltas and move lines.
+- The placement table: lean decisions inline (three lanes, the suggestion starred, a required basis, the history underneath), filters by family, flag, grade and sellable.
+- The `dial_` parameters (`EvidenceParametersCard` with the new `prefix` and `onSaved` props).
+- The graph check, red when an eligible sellable coffee is unreachable.
+- First matches, phrases with a live example, and versions with Cut (Preview mode) and Activate (with a confirmation that names what is retired).
+
+**Built once for brief 3.** `components/bloom/map/EllaMapFace.tsx` is one SVG, tap only: center disc, four wedges by `angle_order`, three equal rings, lanes near their seams, dot size by class, dimmed unsellable dots, labelled seams, fan-out. The geometry is in `mapGeometry.ts` (5 unit tests), plus `EllaMapLegend.tsx`.
+
+**Dana's Task 0 decisions (2026-11-10).**
+- First match is refused at write under the grade floor (409 `BELOW_GRADE_FLOOR`), and the read check stays.
+- New lookups: `dial_size` (less sweet / sweet / sweeter), `dial_ring` (the base / one step out / two steps out / the edge; never for customers), `dial_flag` (11 codes), `dial_delta_direction` and `dial_delta_phrase` (acidity brighter / softer, bitterness more bite / less bite, body more body / lighter, sweetness a touch sweeter / a touch drier).
+- Parameter `dial_delta_min_to_mention` 1.0.
+- `v_coffee_lean_assignment_history` is the lean table's one read path.
+- `GET /api/admin/map/vocabulary` and `/lean/:coffeeId/history`.
+- Hops now carry `from_archetype`, `move_line` and `deltas_mentioned`, composed by `dialReads.composeMoveLine`.
+- The Calibration workbench takes `&coffee=`.
+
+**Acceptance (test DB, the marked Zzz test admin, Playwright).**
+- Every coffee rendered with the vocabulary's words.
+- A Fabricator lean of middle, saved twice, shows at once; the other eight Joe rows are unchanged, and the history shows the superseded row.
+- `dial_ring_cut_1` set to 3.7 moved Fabricator to ring 2 in Preview, and the Active version stayed at ring 1 (then back to 4).
+- The graph check equals brief 1's.
+- `test-wb-1` was cut and activated, and is left active on the test DB only.
+- La Familia (C) as a floral first match is refused with the floor message.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

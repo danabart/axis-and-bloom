@@ -155,6 +155,21 @@ export async function setFirstMatchInTx(tx: Tx, input: SetFirstMatchInput) {
   if (!coffee.rows[0]) throw new DialMapError(404, 'COFFEE_NOT_FOUND', `No active coffee ${input.coffeeId}`);
   const arch = await tx.query(`SELECT 1 FROM dial_wedge WHERE archetype_code::text = $1`, [input.archetypeCode]);
   if (!arch.rows[0]) throw invalid(`${input.archetypeCode} is not a map family`);
+  // Ella map 2 (Dana 2026-11-10, decision 1): refused at write under the
+  // grade floor; dialReads.firstMatches keeps the read-time check too, since
+  // a grade can drop after the row was written.
+  const floor = await tx.query<{ grade_code: string | null; grade_rank: number | null; min_rank: string | null; name: string }>(
+    `SELECT pv.grade_code, pv.grade_rank, param('dial_min_grade_rank_first_match') AS min_rank, c.name
+       FROM coffees c LEFT JOIN v_dial_placement_preview pv ON pv.coffee_id = c.id WHERE c.id = $1`, [input.coffeeId]);
+  const f = floor.rows[0];
+  const minRank = Number(f.min_rank);
+  if (f.grade_rank === null || Number(f.grade_rank) < minRank) {
+    const floorCode = (await tx.query<{ code: string }>(`SELECT code FROM dial_evidence_grade WHERE rank = $1`, [minRank])).rows[0]?.code ?? String(minRank);
+    throw new DialMapError(409, 'BELOW_GRADE_FLOOR',
+      f.grade_code === null
+        ? `${f.name} has no placement in the preview, so it has no grade; a first match needs grade ${floorCode} or better`
+        : `${f.name} is grade ${f.grade_code}; a first match needs grade ${floorCode} or better (dial_min_grade_rank_first_match)`);
+  }
   const cur = await tx.query<{ id: number; coffee_id: number; status_id: number; notes: string | null }>(
     `SELECT id, coffee_id, status_id, notes FROM dial_first_match
       WHERE archetype_code::text = $1 AND lane_id = $2 AND superseded_at IS NULL FOR UPDATE`, [input.archetypeCode, lane.rows[0].id]);

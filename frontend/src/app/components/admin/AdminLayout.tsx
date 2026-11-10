@@ -18,6 +18,7 @@ const NAV_SECTIONS = [
       { to: '/admin/coffees',   label: 'Coffees' },
       { to: '/admin/inventory', label: 'Blends & SKUs' },
       { to: '/admin/dial',      label: 'Bloom Dial' },
+      { to: '/admin/map',       label: "Ella's Bloom Map" }, // Ella map 2 (2026-11-10)
     ],
   },
   {

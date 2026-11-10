@@ -78,8 +78,10 @@ function useWidth<T extends HTMLElement>(): [React.RefObject<T>, number] {
   return [ref as React.RefObject<T>, width];
 }
 
-export default function AdminCalibrationWorkbench({ roasterId, apiFetch, onBack, onOpenAcceptance }: {
+export default function AdminCalibrationWorkbench({ roasterId, apiFetch, onBack, onOpenAcceptance, initialCoffeeId = null }: {
   roasterId: string; apiFetch: ApiFetch; onBack: () => void; onOpenAcceptance: (portalCoffeeId: string) => void;
+  /** Ella map 2 (2026-11-10): the coffee to open first (the map page's family link), when it is in the queue. */
+  initialCoffeeId?: number | null;
 }) {
   const { archetypes } = useArchetypes();
   const [queue, setQueue] = useState<QueueRow[] | null>(null);
@@ -97,9 +99,9 @@ export default function AdminCalibrationWorkbench({ roasterId, apiFetch, onBack,
       if (!res.ok) throw new Error('Failed to load the queue');
       const rows: QueueRow[] = await res.json();
       setQueue(rows);
-      setSelected(s => s ?? rows[0]?.coffee_id ?? null);
+      setSelected(s => s ?? (rows.some(r => r.coffee_id === initialCoffeeId) ? initialCoffeeId : rows[0]?.coffee_id ?? null));
     } catch (err) { reportError('[Workbench/queue]', err); setError('Failed to load the queue'); }
-  }, [apiFetch, roasterId]);
+  }, [apiFetch, roasterId, initialCoffeeId]);
 
   const loadCoffee = useCallback(async (coffeeId: number) => {
     try {

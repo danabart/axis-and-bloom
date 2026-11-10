@@ -48,6 +48,10 @@ router.get('/versions', read('versions', () => dialReads.versions()));
 router.get('/wedges', read('wedges', () => dialReads.wedges()));
 router.get('/first-match', read('first-match', () => dialReads.firstMatches()));
 router.get('/phrases', read('phrases', () => dialReads.phrases()));
+// Ella map 2 (2026-11-10): the workbench's words and the lean history
+router.get('/vocabulary', read('vocabulary', () => dialReads.vocabulary()));
+router.get('/lean/:coffeeId/history', read('lean history', req =>
+  dialReads.leanHistory(z.coerce.number().int().positive().parse(req.params.coffeeId))));
 
 const CutBody = z.object({ label: z.string().trim().min(1).max(60), reason: z.string().trim().max(2000).nullable().optional() });
 router.post('/versions', async (req: AuthRequest, res) => {

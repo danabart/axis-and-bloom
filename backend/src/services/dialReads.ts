@@ -45,6 +45,85 @@ async function hopsFrom(view: 'v_dial_hop_preview' | 'v_dial_hop', coffeeId: num
       WHERE ($1::int IS NULL OR h.from_coffee_id = $1)
       ORDER BY f.name, h.relation, h.rank`,
     [coffeeId ?? null]);
+  const ctx = await moveLineContext(runner);
+  return r.rows.map(h => {
+    const line = composeMoveLine(ctx, {
+      fromArchetype: h.from_archetype, relation: h.relation, fromName: h.from_coffee_name, toName: h.to_coffee_name,
+      deltas: Object.fromEntries(ctx.readings.map(rd => [rd, h[`delta_${rd}`] === null || h[`delta_${rd}`] === undefined ? null : Number(h[`delta_${rd}`])])),
+    });
+    return { ...h, move_line: line?.text ?? null, deltas_mentioned: line?.mentioned ?? [] };
+  });
+}
+
+// ── Ella map 2 (2026-11-10): move lines from dial_hop_phrase + dial_delta_phrase ──
+// Dana's decision 4: a delta smaller than dial_delta_min_to_mention is not
+// mentioned; the mentioned ones are listed in dial_reading order, joined by
+// commas, through the family x move template. Ring is carried by the move
+// word, never by a delta phrase.
+export interface MoveLineContext {
+  readings: string[];                                   // dial_reading codes in id order
+  phrases: Record<string, Record<'1' | '-1', string>>; // reading -> sign -> phrase
+  templates: Record<string, Record<string, string | null>>; // archetype -> move -> template (override, else default)
+  minToMention: number;
+}
+
+export async function moveLineContext(runner: Runner = db): Promise<MoveLineContext> {
+  const readings = (await runner.query<{ code: string }>(`SELECT code FROM dial_reading ORDER BY id`)).rows.map(r => r.code);
+  const ph = (await runner.query<{ reading: string; sign: number; phrase: string }>(
+    `SELECT r.code AS reading, d.sign, p.phrase FROM dial_delta_phrase p
+       JOIN dial_reading r ON r.id = p.reading_id JOIN dial_delta_direction d ON d.id = p.direction_id
+      WHERE p.superseded_at IS NULL`)).rows;
+  const phraseMap: MoveLineContext['phrases'] = {};
+  for (const x of ph) (phraseMap[x.reading] ??= {} as Record<'1' | '-1', string>)[String(x.sign) as '1' | '-1'] = x.phrase;
+  const templates: MoveLineContext['templates'] = {};
+  for (const t of (await phrases(runner)).resolved) (templates[t.archetype_code] ??= {})[t.move_code] = t.move_line_template;
+  const min = (await getParameters('dial_delta_min_to_mention', runner)).find(x => x.key === 'dial_delta_min_to_mention')?.value;
+  return { readings, phrases: phraseMap, templates, minToMention: min === undefined ? Number.POSITIVE_INFINITY : Number(min) };
+}
+
+/** The move line for one hop: the family's template with {from}, {to} and the mentioned deltas' words. Null when the move has no template (sibling). */
+export function composeMoveLine(ctx: MoveLineContext, hop: {
+  fromArchetype: string; relation: string; fromName: string; toName: string; deltas: Record<string, number | null>;
+}): { text: string; mentioned: Array<{ reading: string; delta: number; phrase: string }> } | null {
+  const template = ctx.templates[hop.fromArchetype]?.[hop.relation] ?? null;
+  if (!template) return null;
+  const mentioned: Array<{ reading: string; delta: number; phrase: string }> = [];
+  for (const reading of ctx.readings) {
+    const d = hop.deltas[reading];
+    if (d === null || d === undefined || Math.abs(d) < ctx.minToMention || d === 0) continue;
+    const phrase = ctx.phrases[reading]?.[d > 0 ? '1' : '-1'];
+    if (phrase) mentioned.push({ reading, delta: d, phrase });
+  }
+  const text = template.replaceAll('{from}', hop.fromName).replaceAll('{to}', hop.toName)
+    .replaceAll('{deltas}', mentioned.map(m => m.phrase).join(', '))
+    .replace(/[\s:,]+$/, '');
+  return { text, mentioned };
+}
+
+/** Every vocabulary the workbench shows, from the lookups (G4.2: the page types in no label). */
+export async function vocabulary(runner: Runner = db) {
+  const q = async (sql: string) => (await runner.query(sql)).rows;
+  return {
+    lanes: await q(`SELECT code, label, customer_label, sort_order FROM dial_lane ORDER BY sort_order`),
+    grades: await q(`SELECT code, label, rank, description FROM dial_evidence_grade ORDER BY rank DESC`),
+    moves: await q(`SELECT code, label, is_customer_move, sort_order FROM dial_move ORDER BY sort_order`),
+    versionStatuses: await q(`SELECT code, label FROM dial_map_version_status ORDER BY id`),
+    firstMatchStatuses: await q(`SELECT code, label FROM dial_first_match_status ORDER BY id`),
+    sizes: await q(`SELECT code, label, customer_label FROM dial_size ORDER BY code`),
+    rings: await q(`SELECT code, label FROM dial_ring ORDER BY code`),
+    flags: await q(`SELECT code, label, description FROM dial_flag ORDER BY id`),
+    readings: await q(`SELECT code, label, dimension_id FROM dial_reading ORDER BY id`),
+    deltaPhrases: await q(
+      `SELECT r.code AS reading, d.code AS direction, d.sign, p.phrase FROM dial_delta_phrase p
+         JOIN dial_reading r ON r.id = p.reading_id JOIN dial_delta_direction d ON d.id = p.direction_id
+        WHERE p.superseded_at IS NULL ORDER BY r.id, d.sign DESC`),
+  };
+}
+
+/** A coffee's lean decisions, newest first (v_coffee_lean_assignment_history, the table's one read path). */
+export async function leanHistory(coffeeId: number, runner: Runner = db) {
+  const r = await runner.query(
+    `SELECT * FROM v_coffee_lean_assignment_history WHERE coffee_id = $1 ORDER BY created_at DESC, id DESC`, [coffeeId]);
   return r.rows;
 }
 export const hopsPreview = (coffeeId?: number, runner: Runner = db) => hopsFrom('v_dial_hop_preview', coffeeId, runner);

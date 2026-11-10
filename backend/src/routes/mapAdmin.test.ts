@@ -53,6 +53,15 @@ describe('GET /api/admin/map/*', () => {
     expect(gc.parameters.dial_ring_cut_1).toBeTypeOf('number');
   });
 
+  it('vocabulary and lean history answer (Ella map 2)', async () => {
+    const v = await (await fetch(`${base}/map/vocabulary`)).json();
+    expect(Object.keys(v)).toEqual(['lanes', 'grades', 'moves', 'versionStatuses', 'firstMatchStatuses', 'sizes', 'rings', 'flags', 'readings', 'deltaPhrases']);
+    const h = await fetch(`${base}/map/lean/2905/history`);
+    expect(h.status).toBe(200);
+    expect(Array.isArray(await h.json())).toBe(true);
+    expect((await fetch(`${base}/map/lean/x/history`)).status).toBe(400);
+  });
+
   it('refuses a bad mode, a bad coffee id and a bad lane', async () => {
     expect((await fetch(`${base}/map/edges?mode=nope`)).status).toBe(400);
     expect((await fetch(`${base}/map/hops?mode=preview&coffeeId=x`)).status).toBe(400);

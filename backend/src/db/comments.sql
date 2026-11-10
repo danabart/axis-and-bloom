@@ -2197,7 +2197,7 @@ COMMENT ON TABLE dial_dark_roast_level IS $c$Purpose: The roast levels (lookup_v
 COMMENT ON COLUMN dial_dark_roast_level.id IS $c$Surrogate primary key (SERIAL).$c$;
 COMMENT ON COLUMN dial_dark_roast_level.code IS $c$A lookup_value roast_level value compared with v_coffee.roast_level (seeded dark, medium-dark); UNIQUE.$c$;
 COMMENT ON COLUMN dial_dark_roast_level.label IS $c$Admin label of the roast level.$c$;
-COMMENT ON TABLE dial_reading IS $c$Purpose: Which coffee_dimensions row is each of the map's four readings (acidity, bitterness, body, sweetness), so no view body names a dimension id | Class: master | Writer: seed | Readers: v_dial_placement_input | Since: 2026-11-10 (Ella map 1)$c$;
+COMMENT ON TABLE dial_reading IS $c$Purpose: Which coffee_dimensions row is each of the map's four readings (acidity, bitterness, body, sweetness), so no view body names a dimension id | Class: master | Writer: seed | Readers: v_dial_placement_input, dial_delta_phrase, dialReads (move lines) | Since: 2026-11-10 (Ella map 1)$c$;
 COMMENT ON COLUMN dial_reading.id IS $c$Surrogate primary key (SERIAL).$c$;
 COMMENT ON COLUMN dial_reading.code IS $c$Reading code (acidity, bitterness, body, sweetness); UNIQUE.$c$;
 COMMENT ON COLUMN dial_reading.label IS $c$Admin label; the seed matched it to coffee_dimensions.name.$c$;
@@ -2224,7 +2224,7 @@ COMMENT ON COLUMN dial_wedge.seam_family_note_id IS $c$References cupping_note.i
 COMMENT ON COLUMN dial_wedge.seam_uses_body IS $c$True when pooled Body also pulls toward this wedge (the chocolate seam, Rev 2 section 4); marks the chocolate side for the chocolate-word flag.$c$;
 COMMENT ON COLUMN dial_wedge.seam_uses_dark_roast IS $c$True when a dark roast (dial_dark_roast_level) adds dial_suggest_dark_roast_add toward this wedge (the roast seam).$c$;
 COMMENT ON COLUMN dial_wedge.updated_at IS $c$UTC timestamp of the last edit through dialPlacementService.setWedge.$c$;
-COMMENT ON TABLE coffee_lean_assignment IS $c$Purpose: Lean decision per coffee (side_a, middle, side_b) with the rule's suggestion stored beside it at decision time; current row has superseded_at NULL (R3.2) | Class: master | Writer: catalogService.setLeanInTx | Readers: v_dial_placement_preview, dialReads | Since: 2026-11-10 (Ella map 1)$c$;
+COMMENT ON TABLE coffee_lean_assignment IS $c$Purpose: Lean decision per coffee (side_a, middle, side_b) with the rule's suggestion stored beside it at decision time; current row has superseded_at NULL (R3.2) | Class: master | Writer: catalogService.setLeanInTx | Readers: v_dial_placement_preview, v_coffee_lean_assignment_history | Since: 2026-11-10 (Ella map 1)$c$;
 COMMENT ON COLUMN coffee_lean_assignment.id IS $c$Surrogate primary key (SERIAL); referenced by dial_placement.lean_assignment_id.$c$;
 COMMENT ON COLUMN coffee_lean_assignment.coffee_id IS $c$References coffees.id (ON DELETE RESTRICT): the coffee decided; one current row per coffee (partial unique index).$c$;
 COMMENT ON COLUMN coffee_lean_assignment.lane_id IS $c$References dial_lane.id: the decided lane.$c$;
@@ -2313,3 +2313,35 @@ COMMENT ON VIEW v_dial_edge IS $c$Purpose: The same edges over the active versio
 COMMENT ON VIEW v_dial_hop_preview IS $c$Purpose: Per preview coffee and relation the eligible targets (grade floor) ranked, with in_hop_set (nearest bolder and gentler, different within the cap, every sibling) and within_cap; unfiltered by category and stock (dial_hop_rows) | Class: view | Writer: none (derived) | Readers: dialReads.hopsPreview, dialReads.graphCheck | Since: 2026-11-10 (Ella map 1)$c$;
 COMMENT ON VIEW v_dial_hop IS $c$Purpose: The same hop ranking over the active version (dial_hop_rows('active')) | Class: view | Writer: none (derived) | Readers: dialReads.hops, dialReads.graphCheck (matchService in brief 3) | Since: 2026-11-10 (Ella map 1)$c$;
 COMMENT ON VIEW v_dial_face IS $c$Purpose: The active map's face: every placed coffee with family, center, ring, lane, size, availability, categories and grade (admin reads; brief 3's customer API strips grade) | Class: view | Writer: none (derived) | Readers: dialReads.face | Since: 2026-11-10 (Ella map 1)$c$;
+-- ── Ella's Bloom Map 2 (2026-11-10) ──
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_2_WORKBENCH.md
+COMMENT ON TABLE dial_size IS $c$Purpose: Words for a map dot's size class 1 to 3 (pooled Sweetness against the size cuts), Dana 2026-11-10 | Class: master | Writer: seed | Readers: dialReads.vocabulary | Since: 2026-11-10 (Ella map 2)$c$;
+COMMENT ON COLUMN dial_size.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN dial_size.code IS $c$The size class as stored on dial_placement.size (1, 2, 3); UNIQUE.$c$;
+COMMENT ON COLUMN dial_size.label IS $c$Workbench word for the size (less sweet, sweet, sweeter).$c$;
+COMMENT ON COLUMN dial_size.customer_label IS $c$The word a customer surface may use for the size; seeded the same as label.$c$;
+COMMENT ON TABLE dial_ring IS $c$Purpose: Workbench words for a ring 0 to 3 (the base, one step out, two steps out, the edge); customers never see ring words | Class: master | Writer: seed | Readers: dialReads.vocabulary | Since: 2026-11-10 (Ella map 2)$c$;
+COMMENT ON COLUMN dial_ring.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN dial_ring.code IS $c$The ring as stored on dial_placement.ring (0 center, 1 to 3); UNIQUE.$c$;
+COMMENT ON COLUMN dial_ring.label IS $c$Workbench word for the ring.$c$;
+COMMENT ON COLUMN dial_ring.customer_label IS $c$NULL by design: a ring is never shown to a customer (Dana 2026-11-10).$c$;
+COMMENT ON TABLE dial_flag IS $c$Purpose: Label and description of every flag code v_dial_placement_preview emits; a code with no row shows raw and is reported by dataCatalogIntegrity check 9 | Class: master | Writer: seed | Readers: dialReads.vocabulary, dataCatalogIntegrity | Since: 2026-11-10 (Ella map 2)$c$;
+COMMENT ON COLUMN dial_flag.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN dial_flag.code IS $c$The flag code as it appears in the preview's flags array; UNIQUE.$c$;
+COMMENT ON COLUMN dial_flag.label IS $c$Short chip label on the workbench.$c$;
+COMMENT ON COLUMN dial_flag.description IS $c$What raises the flag (shown as the chip's title).$c$;
+COMMENT ON TABLE dial_delta_direction IS $c$Purpose: Lookup of a delta's direction for the move-line words: up (the target has more), down (the target has less) | Class: master | Writer: seed | Readers: dial_delta_phrase, dialReads.vocabulary | Since: 2026-11-10 (Ella map 2)$c$;
+COMMENT ON COLUMN dial_delta_direction.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN dial_delta_direction.code IS $c$Direction code (up, down); UNIQUE.$c$;
+COMMENT ON COLUMN dial_delta_direction.label IS $c$Admin label of the direction.$c$;
+COMMENT ON COLUMN dial_delta_direction.sign IS $c$The sign of a delta (to minus from) this direction matches: 1 up, -1 down; UNIQUE.$c$;
+COMMENT ON TABLE dial_delta_phrase IS $c$Purpose: The words a move line uses for a reading's delta (acidity up brighter, body down lighter, ...), per reading x direction; current row has superseded_at NULL; brief 3 reuses them | Class: master | Writer: seed | Readers: dialReads (move lines, vocabulary) | Since: 2026-11-10 (Ella map 2)$c$;
+COMMENT ON COLUMN dial_delta_phrase.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN dial_delta_phrase.reading_id IS $c$References dial_reading.id: the reading the delta is on; one current row per reading and direction (partial unique index).$c$;
+COMMENT ON COLUMN dial_delta_phrase.direction_id IS $c$References dial_delta_direction.id: up or down.$c$;
+COMMENT ON COLUMN dial_delta_phrase.phrase IS $c$The words in the move line (for example more body).$c$;
+COMMENT ON COLUMN dial_delta_phrase.customer_label IS $c$Customer wording when it differs from phrase; NULL (the phrase is used).$c$;
+COMMENT ON COLUMN dial_delta_phrase.decided_by IS $c$Admin uid or actor string; seed for seeded rows.$c$;
+COMMENT ON COLUMN dial_delta_phrase.created_at IS $c$UTC timestamp the row was written (valid-from).$c$;
+COMMENT ON COLUMN dial_delta_phrase.superseded_at IS $c$UTC timestamp a newer row replaced this one; NULL marks the current row. The only column the request pool may UPDATE.$c$;
+COMMENT ON VIEW v_coffee_lean_assignment_history IS $c$Purpose: Every coffee_lean_assignment row, current and superseded, with lane codes and is_current: the table's one read path (G2.5) | Class: view | Writer: none (derived) | Readers: dialReads.leanHistory | Since: 2026-11-10 (Ella map 2)$c$;

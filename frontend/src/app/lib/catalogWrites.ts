@@ -81,3 +81,10 @@ export function acceptResponse<T = Record<string, unknown>>(apiFetch: ApiFetch, 
 }): Promise<T> {
   return call(apiFetch, `/api/admin/roastery-portal/responses/${responseId}/accept`, json('POST', { items }));
 }
+
+/** Ella map 2 (2026-11-10): PATCH /api/admin/map/lean/:coffeeId (catalogService.setLean), the lean decision with its basis. */
+export function setLean(apiFetch: ApiFetch, coffeeId: number, body: {
+  lane: string; notes: string; basis?: Record<string, unknown>;
+}): Promise<{ result: { coffeeId: number; unchanged: boolean; leanAssignmentId: number } }> {
+  return call(apiFetch, `/api/admin/map/lean/${coffeeId}`, json('PATCH', body));
+}

@@ -30,6 +30,10 @@ interface ParametersCardProps {
   intro?: string;
   footer?: string;
   testId?: string;
+  /** Ella map 2 (2026-11-10): list only the keys starting with this (GET ?prefix=); PUT stays {endpoint}/:key. */
+  prefix?: string;
+  /** Ella map 2: called after a value is saved (the map workbench re-fetches its preview). */
+  onSaved?: () => void;
 }
 
 const RANGE = /(?:Range|Format):\s*[^.|]*/;
@@ -41,6 +45,8 @@ export default function EvidenceParametersCard({
   intro = 'Cupping evidence thresholds and weights. A save writes a new row that supersedes the current one; nothing is overwritten.',
   footer = 'A change applies to every coffee at once: the pooled ranges, the session flags and the customer voice are views over these rows, re-read on the next page open.',
   testId = 'evidence-parameters',
+  prefix,
+  onSaved,
 }: ParametersCardProps = {}) {
   const { user } = useAuth();
   const [rows, setRows] = useState<Parameter[]>([]);
@@ -50,7 +56,8 @@ export default function EvidenceParametersCard({
 
   async function load() {
     try {
-      const res = await fetch(endpoint, { headers: { Authorization: `Bearer ${await user!.getIdToken()}` } });
+      const listUrl = prefix ? `${endpoint}?prefix=${encodeURIComponent(prefix)}` : endpoint;
+      const res = await fetch(listUrl, { headers: { Authorization: `Bearer ${await user!.getIdToken()}` } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: Parameter[] = await res.json();
       setRows(data);
@@ -75,6 +82,7 @@ export default function EvidenceParametersCard({
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
       setMessage({ key, text: body.unchanged ? 'Unchanged.' : `Saved: ${body.previousValue} → ${body.value}.`, ok: true });
       await load();
+      if (!body.unchanged) onSaved?.();
     } catch (err) {
       setMessage({ key, text: err instanceof Error ? err.message : 'Save failed', ok: false });
     } finally {

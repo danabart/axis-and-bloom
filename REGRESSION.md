@@ -316,3 +316,12 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **Portal order is read by split:** each portal note's text is split on commas in the roaster's order; the stored response is never rewritten (G2.20).
 - [ ] **No number in a view body:** every cut, weight, cap and grade threshold of the map is an `evidence_parameter` `dial_*` row (25 keys, boot check #10), every vocabulary a seeded lookup (boot check #9).
 - [ ] **The map reads no slot ladder and no `coffee_hop`** for placement, edges or hops; the one slot read is `is_sellable`, through `v_coffee_sellable_candidate`, until the commerce move (OT-120).
+
+## Ella's Bloom Map 2: the workbench (2026-11-10)
+
+- [ ] **The page never writes a placement directly:** `/admin/map` writes only through `catalogService.setLean` (lean), `dialPlacementService` (cut, activate, first match, phrases) and `evidenceParameterService` (the `dial_` parameters). `dial_placement` is written only by `cutVersion`.
+- [ ] **Parameters change the preview only:** a `dial_` parameter saved on the card moves the Preview (rings, edges, graph check); the Active version keeps its placements and its own snapshot.
+- [ ] **Cut and Activate are the only two version actions**, and Activate asks for a confirmation that names the version it retires.
+- [ ] **First match is refused under the grade floor at write (409 `BELOW_GRADE_FLOOR`), and the read still flags** a first match whose grade dropped later.
+- [ ] **Nothing typed in:** lane, ring, size, grade, flag, move and status words, and the move-line delta phrases come from `GET /api/admin/map/vocabulary` and the phrase tables.
+- [ ] **`EllaMapFace` is tap only:** no rotation, no drag; its layout is deterministic (`mapGeometry.test.ts`).

@@ -19,6 +19,7 @@ import AdminFlavorWheel from './components/admin/AdminFlavorWheel';
 import AdminRoasters from './components/admin/AdminRoasters';
 import AdminCupping from './components/admin/AdminCupping';
 import AdminDial from './components/admin/AdminDial';
+import AdminEllaMap from './components/admin/AdminEllaMap'; // Ella map 2 (2026-11-10)
 import AdminInventory from './components/admin/AdminInventory';
 import AdminSommelierConfig from './components/admin/AdminSommelierConfig';
 import AdminIntentEditor from './components/admin/AdminIntentEditor';
@@ -148,6 +149,7 @@ export default function App() {
               <Route path="roastery-portal" element={<AdminRoasteryPortal />} />
               <Route path="cupping" element={<AdminCupping />} />
               <Route path="dial" element={<AdminDial />} />
+              <Route path="map" element={<AdminEllaMap />} />
               <Route path="qr-door" element={<AdminQrDoor />} />
               <Route path="sommelier/config"  element={<AdminSommelierConfig />} />
               <Route path="sommelier/intents" element={<AdminIntentEditor />} />

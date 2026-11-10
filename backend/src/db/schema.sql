@@ -2885,6 +2885,7 @@ DROP VIEW IF EXISTS v_dial_placement;
 DROP VIEW IF EXISTS v_dial_placement_preview;
 DROP VIEW IF EXISTS v_dial_placement_input;
 DROP VIEW IF EXISTS v_dial_coffee_availability;
+DROP VIEW IF EXISTS v_coffee_lean_assignment_history;
 DROP FUNCTION IF EXISTS dial_hop_rows(TEXT);
 DROP FUNCTION IF EXISTS dial_edge_rows(TEXT);
 
@@ -11252,7 +11253,7 @@ FROM dial_edge_rows('active');
 -- every sibling by distance. Unfiltered by category and stock: matchService
 -- (brief 3) applies the customer's filters on top.
 CREATE OR REPLACE FUNCTION dial_hop_rows(p_mode TEXT) RETURNS TABLE (
-  mode TEXT, from_coffee_id INT, to_coffee_id INT, relation TEXT, distance NUMERIC, adjacency_rank INT,
+  mode TEXT, from_coffee_id INT, to_coffee_id INT, from_archetype archetype_enum, relation TEXT, distance NUMERIC, adjacency_rank INT,
   delta_ring INT, delta_body NUMERIC, delta_sweetness NUMERIC, delta_acidity NUMERIC, delta_bitterness NUMERIC,
   to_grade_rank SMALLINT, to_in_stock BOOLEAN, to_category_codes TEXT[], cap_different NUMERIC, rank INT, in_hop_set BOOLEAN
 ) LANGUAGE sql STABLE AS $fn$
@@ -11261,7 +11262,7 @@ SELECT x.*,
             WHEN x.relation = 'different' THEN x.rank <= x.cap_different
             ELSE true END AS in_hop_set
 FROM (
-  SELECT e.mode, e.from_coffee_id, e.to_coffee_id, e.relation, e.distance, e.adjacency_rank,
+  SELECT e.mode, e.from_coffee_id, e.to_coffee_id, e.from_archetype, e.relation, e.distance, e.adjacency_rank,
          e.delta_ring, e.delta_body, e.delta_sweetness, e.delta_acidity, e.delta_bitterness,
          e.to_grade_rank, e.to_in_stock, e.to_category_codes, e.cap_different,
          row_number() OVER (PARTITION BY e.from_coffee_id, e.relation
@@ -11272,13 +11273,13 @@ FROM (
 $fn$;
 
 CREATE VIEW v_dial_hop_preview AS
-SELECT from_coffee_id, to_coffee_id, relation, rank, in_hop_set, (relation = 'different' AND rank <= cap_different) AS within_cap,
+SELECT from_coffee_id, to_coffee_id, from_archetype, relation, rank, in_hop_set, (relation = 'different' AND rank <= cap_different) AS within_cap,
        distance, adjacency_rank, delta_ring, delta_body, delta_sweetness, delta_acidity, delta_bitterness,
        to_grade_rank, to_in_stock, to_category_codes
 FROM dial_hop_rows('preview');
 
 CREATE VIEW v_dial_hop AS
-SELECT from_coffee_id, to_coffee_id, relation, rank, in_hop_set, (relation = 'different' AND rank <= cap_different) AS within_cap,
+SELECT from_coffee_id, to_coffee_id, from_archetype, relation, rank, in_hop_set, (relation = 'different' AND rank <= cap_different) AS within_cap,
        distance, adjacency_rank, delta_ring, delta_body, delta_sweetness, delta_acidity, delta_bitterness,
        to_grade_rank, to_in_stock, to_category_codes
 FROM dial_hop_rows('active');
@@ -11288,6 +11289,107 @@ CREATE VIEW v_dial_face AS
 SELECT p.version_id, p.coffee_id, p.coffee_name, p.archetype_code, p.is_center, p.ring, p.lane_code, p.size,
        p.is_sellable, p.in_stock, p.category_codes, p.grade_code
 FROM v_dial_placement p;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Ella's Bloom Map 2 (2026-11-10): the workbench's words, Dana's Task 0
+-- decisions 2 to 4. Seeds insert if missing; the page reads them through
+-- dialReads.vocabulary (GET /api/admin/map/vocabulary).
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_2_WORKBENCH.md
+-- ═══════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS dial_size (
+  id             SERIAL PRIMARY KEY,
+  code           SMALLINT NOT NULL UNIQUE CHECK (code BETWEEN 1 AND 3),
+  label          TEXT NOT NULL,
+  customer_label TEXT
+);
+INSERT INTO dial_size (code, label, customer_label) VALUES
+  (1, 'less sweet', 'less sweet'), (2, 'sweet', 'sweet'), (3, 'sweeter', 'sweeter')
+ON CONFLICT (code) DO NOTHING;
+
+-- ring words are the workbench's only: customer_label stays NULL (Dana 2026-11-10)
+CREATE TABLE IF NOT EXISTS dial_ring (
+  id             SERIAL PRIMARY KEY,
+  code           SMALLINT NOT NULL UNIQUE CHECK (code BETWEEN 0 AND 3),
+  label          TEXT NOT NULL,
+  customer_label TEXT
+);
+INSERT INTO dial_ring (code, label) VALUES
+  (0, 'the base'), (1, 'one step out'), (2, 'two steps out'), (3, 'the edge')
+ON CONFLICT (code) DO NOTHING;
+
+-- every flag code v_dial_placement_preview emits; a code with no row shows
+-- raw on the page and is reported by dataCatalogIntegrity check 9
+CREATE TABLE IF NOT EXISTS dial_flag (
+  id          SERIAL PRIMARY KEY,
+  code        TEXT NOT NULL UNIQUE,
+  label       TEXT NOT NULL,
+  description TEXT NOT NULL
+);
+INSERT INTO dial_flag (code, label, description) VALUES
+  ('no_wedge',                         'No map family',          'The coffee''s family has no dial_wedge row, so it cannot be placed.'),
+  ('no_cupping_rows',                  'No cupping rows',        'No current merged cupping row: no ring, not placeable.'),
+  ('no_ruler_value',                   'No ruler value',         'The wedge''s ruler dimension has no pooled value: no ring, not placeable.'),
+  ('no_size_value',                    'No sweetness',           'No pooled Sweetness: the dot has no size.'),
+  ('center_ruler_ring_2_plus',         'Center reads strong',    'A center coffee whose acidity or bitterness would place it at ring 2 or higher on a wedge.'),
+  ('no_family_word',                   'No family word',         'No roaster word of the coffee''s own family in any source (Rev 3 finding 4).'),
+  ('ruler_near_cut',                   'Near a ring cut',        'The ruler value is within dial_cut_margin_flag of a ring cut.'),
+  ('chocolate_side_no_chocolate_word', 'No chocolate word',      'A chocolate-side coffee with no Nutty / Cocoa word in any source.'),
+  ('suggestion_differs',               'Suggestion differs',     'The lean decision is not what the rule suggests.'),
+  ('no_lean_decision',                 'No lean decision',       'No lean decision recorded: the map uses the middle lane.'),
+  ('provisional',                      'Provisional sample',     'A sample matches a provisional pattern; it is left out of the grade counts.')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS dial_delta_direction (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
+  sign  SMALLINT NOT NULL UNIQUE CHECK (sign <> 0)
+);
+INSERT INTO dial_delta_direction (code, label, sign) VALUES
+  ('up', 'Up (the target has more)', 1), ('down', 'Down (the target has less)', -1)
+ON CONFLICT (code) DO NOTHING;
+
+-- the words a move line uses for a reading's delta (brief 3 reuses them);
+-- ring is carried by the move word, never by a delta phrase; no roast words
+CREATE TABLE IF NOT EXISTS dial_delta_phrase (
+  id             SERIAL PRIMARY KEY,
+  reading_id     INT NOT NULL REFERENCES dial_reading(id),
+  direction_id   INT NOT NULL REFERENCES dial_delta_direction(id),
+  phrase         TEXT NOT NULL,
+  customer_label TEXT,
+  decided_by     TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at  TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dial_delta_phrase_one_current ON dial_delta_phrase (reading_id, direction_id) WHERE superseded_at IS NULL;
+INSERT INTO dial_delta_phrase (reading_id, direction_id, phrase, decided_by)
+SELECT r.id, d.id, v.phrase, 'seed'
+FROM (VALUES
+  ('acidity', 'up', 'brighter'),        ('acidity', 'down', 'softer'),
+  ('bitterness', 'up', 'more bite'),    ('bitterness', 'down', 'less bite'),
+  ('body', 'up', 'more body'),          ('body', 'down', 'lighter'),
+  ('sweetness', 'up', 'a touch sweeter'), ('sweetness', 'down', 'a touch drier')
+) v(reading, direction, phrase)
+JOIN dial_reading r ON r.code = v.reading
+JOIN dial_delta_direction d ON d.code = v.direction
+WHERE NOT EXISTS (SELECT 1 FROM dial_delta_phrase p WHERE p.reading_id = r.id AND p.direction_id = d.id);
+
+INSERT INTO evidence_parameter (key, value, note)
+SELECT 'dial_delta_min_to_mention', 1.0,
+       'Ella map move line: a reading''s delta (0 to 15 scale) smaller than this is not mentioned; the mentioned deltas are listed in dial_reading order. Range: numeric 0 <= value <= 15.'
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = 'dial_delta_min_to_mention');
+
+-- The one read path of coffee_lean_assignment (G2.5): every row, current and
+-- superseded, with lane codes, newest first per coffee.
+CREATE VIEW v_coffee_lean_assignment_history AS
+SELECT a.id, a.coffee_id, c.name AS coffee_name,
+       l.code AS lane_code, sl.code AS suggested_lane_code, a.suggested_scores,
+       a.basis, a.notes, a.source::text AS source, a.decided_by, a.created_at, a.superseded_at,
+       (a.superseded_at IS NULL) AS is_current
+FROM coffee_lean_assignment a
+JOIN coffees c ON c.id = a.coffee_id
+JOIN dial_lane l ON l.id = a.lane_id
+LEFT JOIN dial_lane sl ON sl.id = a.suggested_lane_id;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END ELLA'S BLOOM MAP 1 block
@@ -11377,8 +11479,8 @@ REVOKE TRUNCATE ON cupping_brew_params FROM ab_app;
 -- deleted; the decision and phrase tables keep only their supersede UPDATE.
 REVOKE UPDATE, DELETE, TRUNCATE ON dial_placement, dial_ring_cut, dial_size_cut FROM ab_app;
 REVOKE DELETE, TRUNCATE ON dial_map_version FROM ab_app;
-REVOKE UPDATE, DELETE, TRUNCATE ON coffee_lean_assignment, dial_first_match, dial_hop_phrase FROM ab_app;
-GRANT UPDATE (superseded_at) ON coffee_lean_assignment, dial_first_match, dial_hop_phrase TO ab_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON coffee_lean_assignment, dial_first_match, dial_hop_phrase, dial_delta_phrase FROM ab_app;
+GRANT UPDATE (superseded_at) ON coffee_lean_assignment, dial_first_match, dial_hop_phrase, dial_delta_phrase TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
 -- Liam brand answers (2026-10-24): supersede only. The one UPDATE the writer
 -- makes sets superseded_at; nothing is ever deleted (lint:customer rule 8 is
