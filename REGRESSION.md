@@ -306,3 +306,13 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **A manual merge is never re-merged by a dispute** (`manualMergeInPlace`).
 - [ ] **The last undisputed cupper row cannot be disputed whole** (409 `LAST_CUPPER_ROW`); a merged row cannot be disputed at all.
 - [ ] **Views show, they do not hide:** the readable and per-cupper views keep the disputed value with `is_disputed`; no view or code filters on a reason text.
+
+## Ella's Bloom Map 1: schema, rules, preview (2026-11-10)
+
+- [ ] **At most one active map version:** `dial_map_version_one_active` (activated and not retired); `activateVersion` retires the old one and activates a draft in one transaction, and refuses anything that is not a draft. Boot check #7 reports a drift.
+- [ ] **Placement rows are never changed:** `dial_placement`, `dial_ring_cut` and `dial_size_cut` are written once, by `cutVersion`, while the version is a draft. The guard trigger refuses any later insert, update or delete, and a version row is never deleted.
+- [ ] **The preview moves with the parameters, the active version does not:** changing a `dial_` parameter (`setParameterInTx`) changes `v_dial_placement_preview` and the preview edges; `v_dial_placement`, `v_dial_face` and `v_dial_edge` keep the cut's placements and the version's own parameter snapshot.
+- [ ] **`cutVersion` is idempotent on its label:** a second call returns the same version and writes nothing.
+- [ ] **Portal order is read by split:** each portal note's text is split on commas in the roaster's order; the stored response is never rewritten (G2.20).
+- [ ] **No number in a view body:** every cut, weight, cap and grade threshold of the map is an `evidence_parameter` `dial_*` row (25 keys, boot check #10), every vocabulary a seeded lookup (boot check #9).
+- [ ] **The map reads no slot ladder and no `coffee_hop`** for placement, edges or hops; the one slot read is `is_sellable`, through `v_coffee_sellable_candidate`, until the commerce move (OT-120).

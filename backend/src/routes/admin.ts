@@ -42,6 +42,7 @@ import {
 import { runEvals } from '../services/sommelierEval.js';
 import { FIXTURE_KEYS } from '../fixtures/liam_eval/index.js';
 import { evidenceSummaryWithIntegrity } from './evidenceAdmin.js';
+import mapAdminRouter from './mapAdmin.js'; // Ella's Bloom Map 1 (2026-11-10)
 import { getDescriptorConsensus } from '../services/evidenceReads.js';
 import { getCustomerDescriptorsAll } from '../services/cuppingReads.js';
 import {
@@ -3177,6 +3178,9 @@ catalogRouter.put('/archetypes/:code/descriptor-families', async (req: AuthReque
 });
 
 router.use('/catalog', catalogRouter);
+
+// Ella's Bloom Map 1 (2026-11-10): /api/admin/map/*, behind requireAdmin above.
+router.use('/map', mapAdminRouter);
 
 // ── Newsletter consent (unsubscribe sync, 2026-10-01) ────────────────────────
 // The hello@ inbox path: someone asks by email to stop. Same service as

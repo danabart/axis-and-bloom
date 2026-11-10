@@ -876,6 +876,51 @@ export async function setMatchArchetype(input: SetMatchArchetypeInput, ctx: Ctx)
   return result;
 }
 
+// Ella's Bloom Map 1 (2026-11-10), B3: the lean decision, sister of the match
+// archetype (same supersede shape). The rule's suggestion is read from
+// v_dial_placement_preview at this moment and stored on the row beside the
+// decision. source is assignment_source_enum, manual from the workbench (Dana
+// 2026-11-10, decision 7). The one writer of coffee_lean_assignment.
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_1_SCHEMA_RULES_PREVIEW.md
+export interface SetLeanOptions { basis?: Record<string, unknown> | null; notes?: string | null; decidedBy?: string | null }
+
+export async function setLeanInTx(tx: Tx, coffeeId: number, laneCode: string, opts: SetLeanOptions = {}): Promise<{
+  coffeeId: number; unchanged: boolean; before: Record<string, unknown> | null; after: Record<string, unknown>;
+}> {
+  assertBasis(opts.basis);
+  await fetchCoffeeRow(tx, coffeeId);
+  const lane = await tx.query<{ id: number }>(`SELECT id FROM dial_lane WHERE code = $1`, [laneCode]);
+  if (!lane.rows[0]) throw new CatalogError(400, 'INVALID_INPUT', `Unknown lane '${laneCode}'`);
+  const sugg = await tx.query<{ suggested_lane_id: number | null; suggested_scores: unknown }>(
+    `SELECT suggested_lane_id, suggested_scores FROM v_dial_placement_preview WHERE coffee_id = $1`, [coffeeId]);
+  const current = (await tx.query(
+    `SELECT * FROM coffee_lean_assignment WHERE coffee_id = $1 AND superseded_at IS NULL FOR UPDATE`, [coffeeId])).rows[0] ?? null;
+  const sameBasis = opts.basis === undefined || canonicalJson(opts.basis) === canonicalJson(current?.basis ?? null);
+  const sameNotes = opts.notes === undefined || (opts.notes ?? null) === (current?.notes ?? null);
+  if (current && current.lane_id === lane.rows[0].id && sameBasis && sameNotes) {
+    return { coffeeId, unchanged: true, before: current, after: current };
+  }
+  if (current) await tx.query(`UPDATE coffee_lean_assignment SET superseded_at = now() WHERE id = $1`, [current.id]);
+  const after = (await tx.query(
+    `INSERT INTO coffee_lean_assignment (coffee_id, lane_id, suggested_lane_id, suggested_scores, basis, notes, source, decided_by)
+     VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7) RETURNING *`,
+    [coffeeId, lane.rows[0].id, sugg.rows[0]?.suggested_lane_id ?? null,
+     sugg.rows[0]?.suggested_scores == null ? null : JSON.stringify(sugg.rows[0].suggested_scores),
+     opts.basis == null ? null : JSON.stringify(opts.basis), opts.notes ?? null, opts.decidedBy ?? null])).rows[0];
+  return { coffeeId, unchanged: false, before: current, after };
+}
+
+export async function setLean(coffeeId: number, laneCode: string, opts: SetLeanOptions, ctx: Ctx): Promise<CatalogWriteResult<{ coffeeId: number; unchanged: boolean; leanAssignmentId: number }>> {
+  return withTransaction(async (tx) => {
+    const r = await setLeanInTx(tx, coffeeId, laneCode, { ...opts, decidedBy: opts.decidedBy ?? ctx.actor });
+    if (!r.unchanged) {
+      await logCatalogChange(tx, { entity: 'coffee', entityId: coffeeId, action: 'setLean', before: r.before, after: r.after, changedBy: ctx.actor });
+    }
+    console.info('[catalog] setLean', { actor: ctx.actor, coffeeId, lane: laneCode, unchanged: r.unchanged });
+    return { result: { coffeeId, unchanged: r.unchanged, leanAssignmentId: Number(r.after.id) }, warnings: [], integrity: [] };
+  });
+}
+
 // Cupping evidence brief 2, Part 0.2 (2026-10-18): catalogImport sets a match
 // archetype through setMatchArchetypeInTx inside its batch transaction; after
 // that transaction commits it calls this for every coffee it created, so the

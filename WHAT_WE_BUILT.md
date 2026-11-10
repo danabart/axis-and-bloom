@@ -6712,6 +6712,47 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 
 **Verified on prod (2026-11-10, Part E).** Dana raised dispute 1 on her own Body value for Feminista in session 42. Merged row 170 replaced 169 with Body = Camila's 7 alone, pooled Body moved from 6.77 to 5.85, and dial signal 36 was re-recorded. Nothing else changed. See `CLOSING_REPORT_9.md`.
 
+
+### 268. Ella's Bloom Map, brief 1: schema, rules, preview (2026-11-10)
+
+Brief: `backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_1_SCHEMA_RULES_PREVIEW.md`. Closing report: `CLOSING_REPORT_1.md`. Design: `misc/palate_model/BLOOM_DIAL_HUB_MODEL_REV3_2026-11-09.md` (Rev 3).
+
+**What it is.** The hub map now exists as data, beside the lane dial. Nothing existing was altered, and no customer surface reads it yet.
+- Every active coffee of a map family gets four reads in `v_dial_placement_preview`:
+  - the family, from the existing archetype decision
+  - the ring: the wedge's ruler (bitterness on the chocolate side, acidity on the fruit side) against one band set, cuts 4 / 6.5
+  - the lean: the new `coffee_lean_assignment` decision, with the rule's suggestion and both seam scores beside it
+  - the size: pooled Sweetness against cuts 4.5 / 6.5
+- Each coffee also gets an evidence grade A–D (merged sessions, cuppers weighted by scale, provisional sample notes), the workbench flags and `inputs_used`.
+- Pairwise edges (`v_dial_edge_preview` / `v_dial_edge`) carry the Rev 3 section 4 relation, the weighted distance over shared readings and the signed deltas.
+- Hops (`v_dial_hop_preview` / `v_dial_hop`) rank each relation, with `in_hop_set` (nearest bolder and gentler, different within the cap, every sibling) and the grade floor.
+- A version is cut by `dialPlacementService.cutVersion` (idempotent on its label; parameter snapshot, band rows, placements copied from the preview) and activated by `activateVersion`.
+
+**Dana's Task 0 decisions (2026-11-10).**
+- Portal words are read by splitting each note on commas. The roasters typed whole lists into one note; the writer keeps the order, so it is unchanged.
+- Website words count as presence only.
+- `is_sellable` is the slot candidate view at 12 oz until the commerce move (OT-120).
+- Grade A = 3 sessions and 2 cuppers.
+- The dark roast set is a lookup.
+- The lean source reuses `assignment_source_enum`.
+- `?prefix=` was added on `GET /api/admin/evidence/parameters`.
+
+**Nothing hard-coded.**
+- 25 `evidence_parameter` keys `dial_*`, each with a range note the admin card can edit.
+- Lookups `dial_lane`, `dial_move`, `dial_evidence_grade`, `dial_map_version_status`, `dial_first_match_status`, `dial_provisional_sample_pattern` (`%last cup%`), `dial_dark_roast_level`, `dial_reading` (which dimension is which reading) and `dial_cupper_scale_weight`.
+- Config `dial_wedge` (ruler, sides, the seam evidence family) and `dial_seam` (face labels).
+- Seeds: first match balanced_sweet × side_a → Benchmark (founder pick), and the neutral phrases (fruity and floral say Brighter / Softer).
+
+**Locks.**
+- A version's cuts and placements are insert-only, and only while it is a draft (guard trigger `dial_version_row_guard`).
+- A version is never deleted.
+- At most one version is active (partial unique index).
+- The decision and phrase tables keep only their supersede UPDATE.
+
+**Reads and writes.** One writer, `dialPlacementService`, for the `dial_` tables, and `catalogService.setLeanInTx` for the lean. One read path, `dialReads`, which also holds the graph check (BFS from the center, dead ends, roaster cousin pairs). The admin API is `/api/admin/map/*` (`routes/mapAdmin.ts`, mounted in `admin.ts`). Boot integrity `dataCatalogIntegrity` checks 7–10 (report only): one active version, placements on active coffees, lookup seeds, parameter keys.
+
+**Preview on the test DB.** 12 coffees placed; 7 sellable, all reachable from the center. 4 coffees are at the bolder edge. The center has no bolder until Benchmark gets a lean decision. 3 of 5 cousin pairs are reproduced; the other two involve unsold coffees. Dry-run cut `test-dry-run` (12 placements) left as a draft. Tests: `services/dialMap.test.ts` (10), `routes/mapAdmin.test.ts` (3).
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

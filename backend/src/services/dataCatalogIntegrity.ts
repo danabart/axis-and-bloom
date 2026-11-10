@@ -16,6 +16,8 @@ import { fileURLToPath } from 'url';
 import type pg from 'pg';
 import { db } from '../db/client.js';
 import type { CatalogIntegrityCheck, CatalogIntegrityReport } from './catalogIntegrity.js';
+import { getParameters } from './evidenceReads.js';
+import { listScales } from './cuppingReads.js';
 import {
   appWriterModules,
   computeCatalogHash,
@@ -163,7 +165,7 @@ export async function runDataCatalogIntegrityChecks(
     deadCandidates.map(d => `${d.table} (${[d.static ? 'static' : null, d.observed ? 'observed' : null].filter(Boolean).join(', ')})`),
     '0 dead candidates', n => `${n} dead candidate(s)`);
 
-  const checks = [c1, c2, c3, c4, c5, c6];
+  const checks = [c1, c2, c3, c4, c5, c6, ...(await dialMapChecks(runner))];
   return {
     ranAt: new Date().toISOString(),
     allPass: checks.every(c => c.pass),
@@ -189,6 +191,67 @@ export async function runDataCatalogIntegrityChecks(
       statsReset: activity[0]?.stats_reset ? new Date(activity[0].stats_reset).toISOString() : null,
     },
   };
+}
+
+// Ella's Bloom Map 1 (2026-11-10), B5: the map's integrity lines, report only
+// (G2.18). The codes and keys below are the contract the v_dial_* views and
+// dialPlacementService rely on, listed so a missing seed row shows here
+// instead of as a silent NULL (param() returns NULL for a missing key).
+export const DIAL_SEED_CODES: Record<string, string[]> = {
+  dial_lane: ['side_a', 'middle', 'side_b'],
+  dial_move: ['quiz_result', 'stay', 'bolder', 'gentler', 'different', 'liam', 'sibling'],
+  dial_evidence_grade: ['A', 'B', 'C', 'D'],
+  dial_map_version_status: ['draft', 'active', 'retired'],
+  dial_first_match_status: ['founder_pick', 'derived'],
+  dial_reading: ['acidity', 'bitterness', 'body', 'sweetness'],
+};
+export const DIAL_PARAMETER_KEYS = [
+  'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
+  'dial_w_ring', 'dial_w_body', 'dial_w_sweet', 'dial_w_lane', 'dial_cap_different',
+  'dial_min_grade_rank_first_match', 'dial_min_grade_rank_hop_target',
+  'dial_grade_sessions_for_b', 'dial_grade_cuppers_for_b', 'dial_grade_sessions_for_a', 'dial_grade_cuppers_for_a',
+  'dial_lean_promotion_n', 'dial_suggest_w_words', 'dial_suggest_w_body', 'dial_suggest_body_cut_light',
+  'dial_suggest_body_cut_base', 'dial_suggest_word_pos1', 'dial_suggest_word_later', 'dial_suggest_dark_roast_add',
+  'dial_suggest_threshold',
+];
+
+async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIntegrityCheck[]> {
+  const versions = (await runner.query<{ id: number; label: string; status: string; is_active: boolean }>(
+    `SELECT v.id, v.label, s.code AS status, (v.activated_at IS NOT NULL AND v.retired_at IS NULL) AS is_active
+       FROM dial_map_version v JOIN dial_map_version_status s ON s.id = v.status_id`)).rows;
+  const active = versions.filter(v => v.is_active);
+  const c7 = check(7, 'Ella map: at most one active map version, its status matching its dates',
+    [
+      ...(active.length > 1 ? [`${active.length} active versions: ${active.map(v => v.label).join(', ')}`] : []),
+      ...versions.filter(v => v.is_active !== (v.status === 'active')).map(v => `${v.label}: status ${v.status} but ${v.is_active ? 'active' : 'not active'} by its dates`),
+    ],
+    active.length ? `one active (${active[0].label})` : 'none active', n => `${n} finding(s)`);
+
+  const gone = (await runner.query<{ coffee_name: string; version_label: string }>(
+    `SELECT coffee_name, version_label FROM v_dial_placement WHERE NOT coffee_is_active ORDER BY coffee_name`)).rows;
+  const c8 = check(8, "Ella map: every active-version placement's coffee is still active",
+    gone.map(g => `${g.coffee_name} (${g.version_label})`), '0 placements on inactive coffees', n => `${n} placement(s) on inactive coffees`);
+
+  const missingSeeds: string[] = [];
+  for (const [table, codes] of Object.entries(DIAL_SEED_CODES)) {
+    const have = new Set((await runner.query<{ code: string }>(`SELECT code FROM ${table}`)).rows.map(r => r.code)); // table from the allow-list above (G3.2)
+    for (const code of codes) if (!have.has(code)) missingSeeds.push(`${table}.${code}`);
+  }
+  const extra = (await runner.query<{ finding: string }>(
+    `SELECT 'dial_wedge for ' || ca.code AS finding FROM coffee_archetype ca
+      WHERE ca.is_archetype AND NOT EXISTS (SELECT 1 FROM dial_wedge w WHERE w.archetype_code = ca.code)
+     UNION ALL
+     SELECT 'dial_provisional_sample_pattern (empty)' WHERE NOT EXISTS (SELECT 1 FROM dial_provisional_sample_pattern)
+     UNION ALL
+     SELECT 'dial_dark_roast_level (empty)' WHERE NOT EXISTS (SELECT 1 FROM dial_dark_roast_level)`)).rows.map(r => r.finding);
+  const weighted = new Set((await runner.query<{ scale_code: string }>(`SELECT scale_code FROM dial_cupper_scale_weight`)).rows.map(r => r.scale_code));
+  for (const s of await listScales(runner)) if (!weighted.has(s.code)) extra.push(`dial_cupper_scale_weight for ${s.code}`);
+  const c9 = check(9, 'Ella map: every map lookup seed is present', [...missingSeeds, ...extra], '0 missing', n => `${n} missing`);
+
+  const haveKeys = new Set((await getParameters('dial_', runner)).map(r => r.key));
+  const c10 = check(10, 'Ella map: every dial_ parameter key is present',
+    DIAL_PARAMETER_KEYS.filter(k => !haveKeys.has(k)), `${DIAL_PARAMETER_KEYS.length} keys present`, n => `${n} key(s) missing`);
+  return [c7, c8, c9, c10];
 }
 
 // Boot log lines: one summary line, then one line per check with findings,

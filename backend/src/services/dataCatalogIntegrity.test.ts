@@ -51,7 +51,11 @@ describe('runDataCatalogIntegrityChecks on the test database (report only)', () 
     console.log(formatDataCatalogLog(report).join('\n'));
     const byId = (id: number) => report.checks.find(c => c.id === id)!;
 
-    expect(report.checks.map(c => c.severity)).toEqual(['info', 'info', 'info', 'info', 'info', 'info']);
+    // Ella map 1 (2026-11-10): checks 7 to 10 are the map's, report only like the rest
+    expect(report.checks.map(c => c.severity)).toEqual(Array(10).fill('info'));
+    expect(report.checks.map(c => c.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(byId(9).details).toEqual([]);
+    expect(byId(10).details).toEqual([]);
     // check 5 (one writer): the same set match CI enforces, zero undeclared
     expect(byId(5).details).toEqual([]);
     expect(report.lineage.available).toBe(true);

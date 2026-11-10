@@ -2869,6 +2869,25 @@ ALTER TABLE dial_position_signal DROP COLUMN IF EXISTS suggested_vocabulary_id C
 -- no actual pg_depend dependency on any of these five tables — v_dial_navigation
 -- is dropped anyway (zero readers, brief 3 Task 0); v_dial_position_consensus
 -- is kept and rebuilt (below) since GET /dial/consensus/:coffeeId reads it.
+-- Ella's Bloom Map 1 (2026-11-10): the map views (ELLA'S BLOOM MAP 1 block,
+-- before the grants at the end) read v_coffee, the pooled range, the cupping,
+-- portal and evidence views and the sellable candidates; dropped here, before
+-- any of those drop and recreate themselves, and recreated every boot.
+DROP VIEW IF EXISTS v_dial_face;
+DROP VIEW IF EXISTS v_dial_hop;
+DROP VIEW IF EXISTS v_dial_hop_preview;
+DROP VIEW IF EXISTS v_dial_hop_all;   -- dev-only union views of 2026-11-10, never on prod
+DROP VIEW IF EXISTS v_dial_edge;
+DROP VIEW IF EXISTS v_dial_edge_preview;
+DROP VIEW IF EXISTS v_dial_edge_all;
+DROP VIEW IF EXISTS v_dial_point;
+DROP VIEW IF EXISTS v_dial_placement;
+DROP VIEW IF EXISTS v_dial_placement_preview;
+DROP VIEW IF EXISTS v_dial_placement_input;
+DROP VIEW IF EXISTS v_dial_coffee_availability;
+DROP FUNCTION IF EXISTS dial_hop_rows(TEXT);
+DROP FUNCTION IF EXISTS dial_edge_rows(TEXT);
+
 -- Cupping evidence brief 3 (2026-10-18): the reconciliation views (block
 -- near the end of this file) read v_coffee, v_coffee_slot, the portal hint,
 -- the cupping and remark views; dropped here, before any of those drop and
@@ -10449,6 +10468,818 @@ JOIN coffees c       ON c.id = s.coffee_id
 JOIN lookup_value lv ON lv.id = c.origin_region_id AND lv.category = 'origin_region'
 GROUP BY lv.id, lv.value, lv.label, lv.sort_order;
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN ELLA'S BLOOM MAP 1 block (2026-11-10): the hub map as data
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_1_SCHEMA_RULES_PREVIEW.md
+-- Design: misc/palate_model/BLOOM_DIAL_HUB_MODEL_REV3_2026-11-09.md (Rev 3).
+-- New domain prefix dial_ (the map); coffee_lean_assignment is a catalog
+-- decision (coffee_). Built beside the lane dial: nothing existing is altered.
+-- One writer for every dial_ table: dialPlacementService (seed for lookups);
+-- coffee_lean_assignment: catalogService.setLeanInTx. Reads: v_dial_* and
+-- dialReads. Every number the views use is an evidence_parameter row (keys
+-- dial_*) read through param(), or a version's own parameter snapshot.
+-- The v_dial_* views are dropped near the top of this file, before the
+-- views they read drop and recreate themselves.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 1. Lookups (G2.7) ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS dial_lane (
+  id             SERIAL PRIMARY KEY,
+  code           TEXT NOT NULL UNIQUE,
+  label          TEXT NOT NULL,
+  customer_label TEXT,
+  sort_order     SMALLINT NOT NULL
+);
+INSERT INTO dial_lane (code, label, sort_order) VALUES
+  ('side_a', 'Leans to the wedge on side A', 1),
+  ('middle', 'Middle of the wedge',          2),
+  ('side_b', 'Leans to the wedge on side B', 3)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS dial_move (
+  id               SERIAL PRIMARY KEY,
+  code             TEXT NOT NULL UNIQUE,
+  label            TEXT NOT NULL,
+  is_customer_move BOOLEAN NOT NULL,
+  sort_order       SMALLINT NOT NULL
+);
+INSERT INTO dial_move (code, label, is_customer_move, sort_order) VALUES
+  ('quiz_result', 'Quiz result',             false, 1),
+  ('stay',        'Same again',              true,  2),
+  ('bolder',      'Bolder',                  true,  3),
+  ('gentler',     'Gentler',                 true,  4),
+  ('different',   'Something different',     true,  5),
+  ('liam',        'Liam''s pick, accepted',  false, 6),
+  ('sibling',     'Sibling (substitute)',    false, 7)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS dial_evidence_grade (
+  id          SERIAL PRIMARY KEY,
+  code        TEXT NOT NULL UNIQUE,
+  label       TEXT NOT NULL,
+  rank        SMALLINT NOT NULL UNIQUE,
+  description TEXT NOT NULL
+);
+INSERT INTO dial_evidence_grade (code, label, rank, description) VALUES
+  ('A', 'Grade A', 4, 'Several sessions and several cuppers (dial_grade_sessions_for_a and dial_grade_cuppers_for_a).'),
+  ('B', 'Grade B', 3, 'Several sessions or several cuppers (dial_grade_sessions_for_b or dial_grade_cuppers_for_b).'),
+  ('C', 'Grade C', 2, 'Fewer sessions and cuppers than B asks for: one cupper, one session.'),
+  ('D', 'Grade D', 1, 'Provisional (a sample note matches dial_provisional_sample_pattern) or no merged cupping row.')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS dial_map_version_status (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL
+);
+INSERT INTO dial_map_version_status (code, label) VALUES
+  ('draft', 'Draft'), ('active', 'Active'), ('retired', 'Retired')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS dial_first_match_status (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL
+);
+INSERT INTO dial_first_match_status (code, label) VALUES
+  ('founder_pick', 'Founder pick'), ('derived', 'Derived by the rule')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS dial_provisional_sample_pattern (
+  id      SERIAL PRIMARY KEY,
+  code    TEXT NOT NULL UNIQUE,
+  label   TEXT NOT NULL,
+  pattern TEXT NOT NULL UNIQUE
+);
+INSERT INTO dial_provisional_sample_pattern (code, label, pattern) VALUES
+  ('last_cup', 'Last cup of the day', '%last cup%')
+ON CONFLICT (code) DO NOTHING;
+
+-- Dana 2026-11-10 (decision 8): the roast levels that count as dark for the
+-- lean suggestion's roast seam; codes are lookup_value roast_level values.
+CREATE TABLE IF NOT EXISTS dial_dark_roast_level (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL
+);
+INSERT INTO dial_dark_roast_level (code, label) VALUES
+  ('dark', 'Dark'), ('medium-dark', 'Medium-dark')
+ON CONFLICT (code) DO NOTHING;
+
+-- Which coffee_dimensions row is each of the map's four readings, so no view
+-- body names a dimension id (G2.1). Seeded by dimension name.
+CREATE TABLE IF NOT EXISTS dial_reading (
+  id           SERIAL PRIMARY KEY,
+  code         TEXT NOT NULL UNIQUE,
+  label        TEXT NOT NULL,
+  dimension_id INT NOT NULL UNIQUE REFERENCES coffee_dimensions(id)
+);
+INSERT INTO dial_reading (code, label, dimension_id)
+SELECT v.code, v.label, d.id
+FROM (VALUES ('acidity', 'Acidity'), ('bitterness', 'Bitterness'), ('body', 'Body'), ('sweetness', 'Sweetness')) v(code, label)
+JOIN coffee_dimensions d ON d.name = v.label
+ON CONFLICT (code) DO NOTHING;
+
+-- How much one cupper counts toward the grade by the scale she used (CTO
+-- call 7: a cupper on a scale other than ab_0_15 counts as half). A scale
+-- with no row counts 0 and is reported by dataCatalogIntegrity.
+CREATE TABLE IF NOT EXISTS dial_cupper_scale_weight (
+  id         SERIAL PRIMARY KEY,
+  scale_code TEXT NOT NULL UNIQUE REFERENCES cupping_scale(code),
+  weight     NUMERIC NOT NULL CHECK (weight >= 0 AND weight <= 1)
+);
+INSERT INTO dial_cupper_scale_weight (scale_code, weight)
+SELECT s.code, CASE WHEN s.code = 'ab_0_15' THEN 1 ELSE 0.5 END
+FROM cupping_scale s
+ON CONFLICT (scale_code) DO NOTHING;
+
+-- 2. Map config ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS dial_seam (
+  id          SERIAL PRIMARY KEY,
+  archetype_a archetype_enum NOT NULL REFERENCES coffee_archetype(code),
+  archetype_b archetype_enum NOT NULL REFERENCES coffee_archetype(code),
+  label       TEXT,
+  is_labelled BOOLEAN NOT NULL,
+  CONSTRAINT dial_seam_pair UNIQUE (archetype_a, archetype_b),
+  CONSTRAINT dial_seam_two_wedges CHECK (archetype_a <> archetype_b)
+);
+INSERT INTO dial_seam (archetype_a, archetype_b, label, is_labelled) VALUES
+  ('chocolate_nutty', 'fruity',  'fruit on chocolate', true),
+  ('chocolate_nutty', 'earthy',  'deeper roast',       true),
+  ('fruity',          'floral',  'delicate',           true),
+  ('earthy',          'floral',  NULL,                 false)
+ON CONFLICT (archetype_a, archetype_b) DO NOTHING;
+
+-- One row per map family. seam_family_note_id / seam_uses_body /
+-- seam_uses_dark_roast: the evidence that pulls a neighbouring coffee toward
+-- this wedge in the lean suggestion (Rev 2 section 4 seam definitions:
+-- chocolate = Nutty / Cocoa words + body, fruit = Fruity words, floral =
+-- Floral words, roast = Roasted words + a dark roast).
+CREATE TABLE IF NOT EXISTS dial_wedge (
+  id                   SERIAL PRIMARY KEY,
+  archetype_code       archetype_enum NOT NULL UNIQUE REFERENCES coffee_archetype(code),
+  is_center            BOOLEAN NOT NULL,
+  angle_order          SMALLINT NOT NULL UNIQUE,
+  ruler_dimension_id   INT REFERENCES coffee_dimensions(id),
+  side_a_archetype     archetype_enum NOT NULL REFERENCES coffee_archetype(code),
+  side_b_archetype     archetype_enum NOT NULL REFERENCES coffee_archetype(code),
+  seam_family_note_id  UUID REFERENCES cupping_note(id),
+  seam_uses_body       BOOLEAN NOT NULL DEFAULT false,
+  seam_uses_dark_roast BOOLEAN NOT NULL DEFAULT false,
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT dial_wedge_center_has_no_ruler CHECK (is_center = (ruler_dimension_id IS NULL)),
+  CONSTRAINT dial_wedge_two_sides CHECK (side_a_archetype <> side_b_archetype
+    AND side_a_archetype <> archetype_code AND side_b_archetype <> archetype_code)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dial_wedge_one_center ON dial_wedge ((true)) WHERE is_center;
+INSERT INTO dial_wedge (archetype_code, is_center, angle_order, ruler_dimension_id, side_a_archetype, side_b_archetype,
+                        seam_family_note_id, seam_uses_body, seam_uses_dark_roast)
+SELECT v.archetype::archetype_enum, v.is_center, v.angle_order, r.dimension_id, v.side_a::archetype_enum, v.side_b::archetype_enum,
+       f.id, v.uses_body, v.uses_dark
+FROM (VALUES
+  ('chocolate_nutty', false, 1, 'bitterness', 'fruity',          'earthy', 'Nutty / Cocoa', true,  false),
+  ('fruity',          false, 2, 'acidity',    'chocolate_nutty', 'floral', 'Fruity',        false, false),
+  ('earthy',          false, 3, 'bitterness', 'chocolate_nutty', 'floral', 'Roasted',       false, true),
+  ('floral',          false, 4, 'acidity',    'fruity',          'earthy', 'Floral',        false, false),
+  ('balanced_sweet',  true,  0, NULL,         'chocolate_nutty', 'fruity', NULL,            false, false)
+) v(archetype, is_center, angle_order, ruler, side_a, side_b, family, uses_body, uses_dark)
+LEFT JOIN dial_reading r ON r.code = v.ruler
+LEFT JOIN cupping_note f ON f.descriptor = v.family AND f.tier = 1 AND f.parent_id IS NULL
+ON CONFLICT (archetype_code) DO NOTHING;
+
+-- 3. The lean decision (catalog domain, sister of coffee_archetype_assignment)
+CREATE TABLE IF NOT EXISTS coffee_lean_assignment (
+  id                SERIAL PRIMARY KEY,
+  coffee_id         INT NOT NULL REFERENCES coffees(id) ON DELETE RESTRICT,
+  lane_id           INT NOT NULL REFERENCES dial_lane(id),
+  suggested_lane_id INT REFERENCES dial_lane(id),
+  suggested_scores  JSONB,
+  basis             JSONB,
+  notes             TEXT,
+  source            assignment_source_enum NOT NULL,
+  decided_by        TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at     TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS coffee_lean_assignment_one_current ON coffee_lean_assignment (coffee_id) WHERE superseded_at IS NULL;
+
+-- 4. Versions, cuts and placements ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS dial_map_version (
+  id           SERIAL PRIMARY KEY,
+  label        TEXT NOT NULL UNIQUE,
+  status_id    INT NOT NULL REFERENCES dial_map_version_status(id),
+  reason       TEXT,
+  parameters   JSONB NOT NULL,
+  cut_by       TEXT,
+  cut_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  activated_at TIMESTAMPTZ,
+  retired_at   TIMESTAMPTZ
+);
+-- exactly one active version at most: active = activated and not retired
+-- (dialPlacementService sets status_id with the two timestamps)
+CREATE UNIQUE INDEX IF NOT EXISTS dial_map_version_one_active ON dial_map_version ((true))
+  WHERE activated_at IS NOT NULL AND retired_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS dial_ring_cut (
+  id         SERIAL PRIMARY KEY,
+  version_id INT NOT NULL REFERENCES dial_map_version(id),
+  ring       SMALLINT NOT NULL CHECK (ring BETWEEN 1 AND 3),
+  lo         NUMERIC,
+  hi         NUMERIC,
+  CONSTRAINT dial_ring_cut_one UNIQUE (version_id, ring)
+);
+CREATE TABLE IF NOT EXISTS dial_size_cut (
+  id         SERIAL PRIMARY KEY,
+  version_id INT NOT NULL REFERENCES dial_map_version(id),
+  size       SMALLINT NOT NULL CHECK (size BETWEEN 1 AND 3),
+  lo         NUMERIC,
+  hi         NUMERIC,
+  CONSTRAINT dial_size_cut_one UNIQUE (version_id, size)
+);
+
+CREATE TABLE IF NOT EXISTS dial_placement (
+  id                 SERIAL PRIMARY KEY,
+  version_id         INT NOT NULL REFERENCES dial_map_version(id),
+  coffee_id          INT NOT NULL REFERENCES coffees(id) ON DELETE RESTRICT,
+  archetype_code     archetype_enum NOT NULL REFERENCES coffee_archetype(code),
+  is_center          BOOLEAN NOT NULL,
+  ring               SMALLINT NOT NULL CHECK (ring BETWEEN 0 AND 3),
+  lane_id            INT NOT NULL REFERENCES dial_lane(id),
+  size               SMALLINT CHECK (size BETWEEN 1 AND 3),
+  ruler_dimension_id INT REFERENCES coffee_dimensions(id),
+  ruler_value        NUMERIC,
+  acidity            NUMERIC,
+  bitterness         NUMERIC,
+  body               NUMERIC,
+  sweetness          NUMERIC,
+  lean_assignment_id INT REFERENCES coffee_lean_assignment(id),
+  suggested_lane_id  INT REFERENCES dial_lane(id),
+  suggested_scores   JSONB,
+  grade_id           INT NOT NULL REFERENCES dial_evidence_grade(id),
+  n_sessions         SMALLINT,
+  n_cuppers          NUMERIC,
+  is_sellable_at_cut BOOLEAN NOT NULL,
+  inputs_used        JSONB,
+  flags              TEXT[] NOT NULL DEFAULT '{}',
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT dial_placement_one UNIQUE (version_id, coffee_id)
+);
+
+-- G2.6: a version's cuts and placements are written once, while it is a
+-- draft, and never changed or removed; a version row is never deleted.
+CREATE OR REPLACE FUNCTION dial_version_row_guard() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP <> 'INSERT' THEN
+    RAISE EXCEPTION '% on % refused: a map version''s rows are insert-only (Ella map 1)', TG_OP, TG_TABLE_NAME;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM dial_map_version v JOIN dial_map_version_status s ON s.id = v.status_id
+                  WHERE v.id = NEW.version_id AND s.code = 'draft') THEN
+    RAISE EXCEPTION 'insert into % refused: version % is not a draft (Ella map 1)', TG_TABLE_NAME, NEW.version_id;
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS dial_placement_guard ON dial_placement;
+CREATE TRIGGER dial_placement_guard BEFORE INSERT OR UPDATE OR DELETE ON dial_placement
+  FOR EACH ROW EXECUTE FUNCTION dial_version_row_guard();
+DROP TRIGGER IF EXISTS dial_ring_cut_guard ON dial_ring_cut;
+CREATE TRIGGER dial_ring_cut_guard BEFORE INSERT OR UPDATE OR DELETE ON dial_ring_cut
+  FOR EACH ROW EXECUTE FUNCTION dial_version_row_guard();
+DROP TRIGGER IF EXISTS dial_size_cut_guard ON dial_size_cut;
+CREATE TRIGGER dial_size_cut_guard BEFORE INSERT OR UPDATE OR DELETE ON dial_size_cut
+  FOR EACH ROW EXECUTE FUNCTION dial_version_row_guard();
+
+CREATE OR REPLACE FUNCTION dial_map_version_guard() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'delete on dial_map_version refused: versions are never deleted (Ella map 1)';
+  END IF;
+  IF NEW.label IS DISTINCT FROM OLD.label OR NEW.parameters IS DISTINCT FROM OLD.parameters
+     OR NEW.cut_at IS DISTINCT FROM OLD.cut_at OR NEW.cut_by IS DISTINCT FROM OLD.cut_by
+     OR NEW.reason IS DISTINCT FROM OLD.reason THEN
+    RAISE EXCEPTION 'update on dial_map_version refused: only status_id, activated_at and retired_at change (Ella map 1)';
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS dial_map_version_guard ON dial_map_version;
+CREATE TRIGGER dial_map_version_guard BEFORE UPDATE OR DELETE ON dial_map_version
+  FOR EACH ROW EXECUTE FUNCTION dial_map_version_guard();
+
+-- 5. First match and phrases (supersede pattern) ────────────────────────────
+CREATE TABLE IF NOT EXISTS dial_first_match (
+  id             SERIAL PRIMARY KEY,
+  archetype_code archetype_enum NOT NULL REFERENCES coffee_archetype(code),
+  lane_id        INT NOT NULL REFERENCES dial_lane(id),
+  coffee_id      INT NOT NULL REFERENCES coffees(id) ON DELETE RESTRICT,
+  status_id      INT NOT NULL REFERENCES dial_first_match_status(id),
+  notes          TEXT,
+  decided_by     TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at  TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dial_first_match_one_current ON dial_first_match (archetype_code, lane_id) WHERE superseded_at IS NULL;
+-- Seed (brief, Part A): the Cozy start, balanced_sweet x side_a -> Benchmark,
+-- found by name; only when that cell never had a row; reports when missing.
+DO $$
+DECLARE v_coffee INT; v_n INT;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM dial_first_match fm JOIN dial_lane l ON l.id = fm.lane_id
+                  WHERE fm.archetype_code = 'balanced_sweet' AND l.code = 'side_a') THEN
+    SELECT count(*), min(id) INTO v_n, v_coffee FROM coffees WHERE name = 'Benchmark' AND is_active;
+    IF v_n = 1 THEN
+      INSERT INTO dial_first_match (archetype_code, lane_id, coffee_id, status_id, notes, decided_by)
+      SELECT 'balanced_sweet', l.id, v_coffee, s.id, 'Seed, Ella map 1 (Rev 3 section 5: Cozy -> Benchmark)', 'seed'
+      FROM dial_lane l, dial_first_match_status s WHERE l.code = 'side_a' AND s.code = 'founder_pick';
+    ELSE
+      RAISE NOTICE '[ella-map] first-match seed skipped: % active coffee(s) named Benchmark', v_n;
+    END IF;
+  END IF;
+END $$;
+
+-- archetype_code NULL = the default for every family; an override row's NULL
+-- move_line_template / edge_phrase falls back to the default row's.
+CREATE TABLE IF NOT EXISTS dial_hop_phrase (
+  id                 SERIAL PRIMARY KEY,
+  archetype_code     archetype_enum REFERENCES coffee_archetype(code),
+  move_id            INT NOT NULL REFERENCES dial_move(id),
+  button_label       TEXT NOT NULL,
+  move_line_template TEXT,
+  edge_phrase        TEXT,
+  decided_by         TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at      TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dial_hop_phrase_one_current ON dial_hop_phrase (archetype_code, move_id) NULLS NOT DISTINCT
+  WHERE superseded_at IS NULL;
+-- Neutral seeds (Rev 3 section 7), each only when its (family, move) never had a row.
+INSERT INTO dial_hop_phrase (archetype_code, move_id, button_label, move_line_template, edge_phrase, decided_by)
+SELECT v.archetype::archetype_enum, m.id, v.button, v.line, v.edge, 'seed'
+FROM (VALUES
+  (NULL,     'stay',      'Same again',          NULL,                                          NULL),
+  (NULL,     'bolder',    'Bolder',              'Bolder than {from}: {deltas}',                'You''re at the edge of the map here'),
+  (NULL,     'gentler',   'Gentler',             'Gentler than {from}: {deltas}',               'You''re at the edge of the map here'),
+  (NULL,     'different', 'Something different', 'A different direction from {from}: {deltas}', 'You''re at the edge of the map here'),
+  ('fruity', 'bolder',    'Brighter',            NULL,                                          NULL),
+  ('fruity', 'gentler',   'Softer',              NULL,                                          NULL),
+  ('floral', 'bolder',    'Brighter',            NULL,                                          NULL),
+  ('floral', 'gentler',   'Softer',              NULL,                                          NULL)
+) v(archetype, move, button, line, edge)
+JOIN dial_move m ON m.code = v.move
+WHERE NOT EXISTS (SELECT 1 FROM dial_hop_phrase p WHERE p.move_id = m.id
+                    AND p.archetype_code IS NOT DISTINCT FROM v.archetype::archetype_enum);
+
+-- 6. Parameters (evidence_parameter, keys dial_*; inserted when the key is
+-- missing; each note ends with the range setParameterInTx parses) ─────────
+INSERT INTO evidence_parameter (key, value, note)
+SELECT v.key, v.value, v.note FROM (VALUES
+  ('dial_ring_cut_1',      4,    'Ella map: ring 1 ends here on the wedge''s ruler (bitterness on the chocolate side, acidity on the fruit side), pooled 0 to 15; at or above it is ring 2. One band set for every wedge (R3.1). Range: numeric 0 <= value <= 15.'),
+  ('dial_ring_cut_2',      6.5,  'Ella map: ring 2 ends here on the ruler; at or above it is ring 3. Range: numeric 0 <= value <= 15.'),
+  ('dial_size_cut_1',      4.5,  'Ella map: dot size 1 ends here on pooled Sweetness (0 to 15); at or above it is size 2. Range: numeric 0 <= value <= 15.'),
+  ('dial_size_cut_2',      6.5,  'Ella map: dot size 2 ends here on pooled Sweetness; at or above it is size 3. Range: numeric 0 <= value <= 15.'),
+  ('dial_cut_margin_flag', 0.25, 'Ella map: a ruler value this close to a ring cut (either side) is flagged on the workbench. Range: numeric 0 <= value <= 2.'),
+  ('dial_w_ring',          1,    'Ella map hop distance: weight of the ring difference. Range: numeric 0 <= value <= 5.'),
+  ('dial_w_body',          0.15, 'Ella map hop distance: weight of the pooled Body difference (only when both coffees have Body). Range: numeric 0 <= value <= 5.'),
+  ('dial_w_sweet',         0.10, 'Ella map hop distance: weight of the pooled Sweetness difference (only when both have it). Range: numeric 0 <= value <= 5.'),
+  ('dial_w_lane',          0.5,  'Ella map hop distance: added when the two coffees'' lanes differ. Range: numeric 0 <= value <= 5.'),
+  ('dial_cap_different',   3,    'Ella map hops: how many "something different" targets a coffee offers (within_cap in v_dial_hop). Range: integer 1 <= value <= 6.'),
+  ('dial_min_grade_rank_first_match', 3, 'Ella map: lowest evidence grade rank (dial_evidence_grade.rank: A 4, B 3, C 2, D 1) a first-match coffee may have (R3.5, B). Range: integer 1 <= value <= 4.'),
+  ('dial_min_grade_rank_hop_target',  2, 'Ella map: lowest evidence grade rank a hop target may have (R3.5, C). Range: integer 1 <= value <= 4.'),
+  ('dial_grade_sessions_for_b', 2, 'Ella map grade: merged sessions that make a placement B (or the cupper count below). Range: integer 1 <= value <= 10.'),
+  ('dial_grade_cuppers_for_b',  2, 'Ella map grade: cuppers (a non-ab_0_15 cupper counts per dial_cupper_scale_weight) that make a placement B. Range: numeric 1 <= value <= 10.'),
+  ('dial_grade_sessions_for_a', 3, 'Ella map grade: merged sessions needed for A, together with the cupper count below (Dana 2026-11-10). Range: integer 1 <= value <= 10.'),
+  ('dial_grade_cuppers_for_a',  2, 'Ella map grade: cuppers needed for A, together with the session count above (Dana 2026-11-10). Range: numeric 1 <= value <= 10.'),
+  ('dial_lean_promotion_n',     12, 'Ella map: lean decisions the rule''s suggestion must agree with before it may be promoted to automatic (R3.2; read by a later brief). Range: integer 1 <= value <= 100.'),
+  ('dial_suggest_w_words',      0.5, 'Ella map lean suggestion: weight of the word reading in a seam score (mean over readings present). Range: numeric 0 <= value <= 5.'),
+  ('dial_suggest_w_body',       0.3, 'Ella map lean suggestion: weight of the body reading in the chocolate seam score. Range: numeric 0 <= value <= 5.'),
+  ('dial_suggest_body_cut_light', 4, 'Ella map lean suggestion: pooled Body at or below this reads 0 on the chocolate seam (linear up to the base cut). Range: numeric 0 <= value <= 15.'),
+  ('dial_suggest_body_cut_base',  6, 'Ella map lean suggestion: pooled Body at or above this reads 1 on the chocolate seam. Range: numeric 0 <= value <= 15.'),
+  ('dial_suggest_word_pos1',    1,   'Ella map lean suggestion: word reading when the seam''s family is the roaster''s first portal word. Range: numeric 0 <= value <= 1.'),
+  ('dial_suggest_word_later',   0.5, 'Ella map lean suggestion: word reading when the family appears later in the portal words, or on the website (presence only). Range: numeric 0 <= value <= 1.'),
+  ('dial_suggest_dark_roast_add', 0.5, 'Ella map lean suggestion: added to the roast seam''s word reading (capped at 1) when the roast level is in dial_dark_roast_level. Range: numeric 0 <= value <= 1.'),
+  ('dial_suggest_threshold',    0.25, 'Ella map lean suggestion: side A wins when its seam score beats side B''s by at least this, and the other way round; else middle. Range: numeric 0 <= value <= 1.')
+) v(key, value, note)
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
+
+-- 7. Views ───────────────────────────────────────────────────────────────────
+-- Sellable and in stock at coffee grain, one rule for the preview and the
+-- active version. Until the commerce move to coffee grain (README finding
+-- 1), is_sellable reads the slot candidate view at the anchor size (Dana
+-- 2026-11-10, decision 3); in_stock = an active SKU at the anchor size.
+CREATE VIEW v_dial_coffee_availability AS
+SELECT c.id AS coffee_id,
+       COALESCE((SELECT bool_or(sc.is_sellable) FROM v_coffee_sellable_candidate sc
+                  JOIN coffee_size z ON z.weight_oz = sc.weight_oz AND z.is_anchor
+                 WHERE sc.coffee_id = c.id), false) AS is_sellable,
+       EXISTS (SELECT 1 FROM coffee_sku k JOIN coffee_size z ON z.weight_oz = k.weight_oz AND z.is_anchor
+                WHERE k.coffee_id = c.id AND k.is_active) AS in_stock
+FROM coffees c;
+
+-- One row per active coffee whose family is a map family (is_archetype):
+-- the evidence the rules read, nothing decided.
+CREATE VIEW v_dial_placement_input AS
+WITH coffee AS (
+  SELECT v.id AS coffee_id, v.name AS coffee_name, v.roaster_id, v.roaster_name,
+         v.match_archetype AS archetype_code, v.category_codes, v.roast_level,
+         w.id AS wedge_id, w.is_center, w.ruler_dimension_id, w.side_a_archetype, w.side_b_archetype,
+         w.seam_family_note_id AS own_family_note_id
+  FROM v_coffee v
+  JOIN coffee_archetype ca ON ca.code = v.match_archetype AND ca.is_archetype
+  LEFT JOIN dial_wedge w ON w.archetype_code = v.match_archetype
+  WHERE v.is_active
+),
+rng AS MATERIALIZED (
+  SELECT r.coffee_id, r.dimension_id, r.midpoint, r.n_sessions_pooled FROM v_coffee_dimension_range r
+),
+pooled AS (
+  SELECT r.coffee_id,
+         max(r.midpoint) FILTER (WHERE dr.code = 'acidity')    AS acidity,
+         max(r.midpoint) FILTER (WHERE dr.code = 'bitterness') AS bitterness,
+         max(r.midpoint) FILTER (WHERE dr.code = 'body')       AS body,
+         max(r.midpoint) FILTER (WHERE dr.code = 'sweetness')  AS sweetness,
+         max(r.n_sessions_pooled)                              AS n_sessions_pooled
+  FROM rng r
+  JOIN dial_reading dr ON dr.dimension_id = r.dimension_id
+  GROUP BY r.coffee_id
+),
+merged AS (
+  SELECT s.coffee_id, count(DISTINCT s.session_id)::int AS n_sessions
+  FROM v_cupping_score s WHERE s.is_merged GROUP BY s.coffee_id
+),
+cuppers AS (
+  SELECT x.coffee_id, sum(x.w) AS n_cuppers, jsonb_object_agg(x.cupper, x.w) AS cupper_weights
+  FROM (SELECT s.coffee_id, COALESCE(s.cupper_name, s.cupper_id::text) AS cupper,
+               max(COALESCE(sw.weight, 0)) AS w
+        FROM v_cupping_score s
+        LEFT JOIN dial_cupper_scale_weight sw ON sw.scale_code = s.scale_code
+        WHERE NOT s.is_merged AND s.cupper_id IS NOT NULL
+        GROUP BY s.coffee_id, COALESCE(s.cupper_name, s.cupper_id::text)) x
+  GROUP BY x.coffee_id
+),
+provisional AS (
+  SELECT sc.coffee_id, array_agg(DISTINCT sc.sample_note ORDER BY sc.sample_note) AS notes
+  FROM v_cupping_session_coffee sc
+  JOIN dial_provisional_sample_pattern p ON sc.sample_note ILIKE p.pattern
+  WHERE sc.has_scores
+  GROUP BY sc.coffee_id
+),
+-- the roaster's portal words with their position: the latest submitted
+-- response's notes in rank order, each note's text split on commas (Dana
+-- 2026-11-10, decision 1; the roasters typed whole lists into one note).
+-- Normalised as v_evidence_unmapped_words cleans a word, mapped through the
+-- current roaster mapping to its tier-1 family.
+portal_word AS (
+  SELECT h.coffee_id,
+         row_number() OVER (PARTITION BY h.coffee_id ORDER BY nt.note_ord, t.word_ord)::int AS pos,
+         btrim(t.word) AS word,
+         regexp_replace(btrim(regexp_replace(regexp_replace(lower(btrim(t.word)), '\s+', ' ', 'g'), '\([^)]*(\)|$)', ' ', 'g')),
+                        '^[^[:alnum:]~]+|[^[:alnum:]]+$', '', 'g') AS norm
+  FROM v_roastery_portal_coffee_hint h
+  CROSS JOIN LATERAL jsonb_array_elements(h.notes) WITH ORDINALITY nt(note, note_ord)
+  CROSS JOIN LATERAL regexp_split_to_table(nt.note->>'roaster_words', ',') WITH ORDINALITY t(word, word_ord)
+  WHERE h.coffee_id IS NOT NULL AND btrim(t.word) <> ''
+),
+portal_mapped AS (
+  SELECT w.coffee_id, w.pos, w.word, f.family_id, f.family
+  FROM portal_word w
+  LEFT JOIN v_note_mapping_current mp ON mp.source_kind = 'roaster' AND mp.normalized_words = w.norm
+  LEFT JOIN v_cupping_note_family f ON f.cupping_note_id = mp.cupping_note_id
+),
+portal AS (
+  SELECT m.coffee_id,
+         jsonb_agg(jsonb_build_object('pos', m.pos, 'word', m.word, 'family', m.family) ORDER BY m.pos) AS words,
+         COALESCE(array_agg(m.word ORDER BY m.pos) FILTER (WHERE m.family_id IS NULL), '{}') AS unmapped,
+         (SELECT jsonb_object_agg(fp.family_id::text, fp.pos)
+            FROM (SELECT m2.family_id, min(m2.pos) AS pos FROM portal_mapped m2
+                   WHERE m2.coffee_id = m.coffee_id AND m2.family_id IS NOT NULL GROUP BY m2.family_id) fp) AS family_pos,
+         (SELECT jsonb_object_agg(fp.family, fp.pos)
+            FROM (SELECT m2.family, min(m2.pos) AS pos FROM portal_mapped m2
+                   WHERE m2.coffee_id = m.coffee_id AND m2.family_id IS NOT NULL GROUP BY m2.family) fp) AS family_pos_named
+  FROM portal_mapped m
+  GROUP BY m.coffee_id
+),
+-- website words: presence of a family only (Dana 2026-11-10, decision 2)
+website AS (
+  SELECT ed.coffee_id, array_agg(ed.family_id ORDER BY ed.family) AS family_ids, array_agg(ed.family ORDER BY ed.family) AS families
+  FROM v_evidence_descriptor ed
+  WHERE ed.named_by_roaster_website
+  GROUP BY ed.coffee_id
+),
+ruler_dim AS (SELECT DISTINCT ruler_dimension_id FROM dial_wedge WHERE ruler_dimension_id IS NOT NULL)
+SELECT c.coffee_id, c.coffee_name, c.roaster_id, c.roaster_name, c.archetype_code, c.wedge_id,
+       COALESCE(c.is_center, false) AS is_center, c.ruler_dimension_id, c.side_a_archetype, c.side_b_archetype,
+       c.own_family_note_id,
+       (SELECT r.midpoint FROM rng r WHERE r.coffee_id = c.coffee_id AND r.dimension_id = c.ruler_dimension_id) AS ruler_value,
+       (SELECT max(r.midpoint) FROM rng r
+         WHERE r.coffee_id = c.coffee_id AND r.dimension_id IN (SELECT ruler_dimension_id FROM ruler_dim)) AS max_ruler_value,
+       p.acidity, p.bitterness, p.body, p.sweetness, p.n_sessions_pooled,
+       COALESCE(m.n_sessions, 0) AS n_sessions,
+       COALESCE(cu.n_cuppers, 0) AS n_cuppers,
+       cu.cupper_weights,
+       (m.n_sessions IS NOT NULL) AS has_merged_row,
+       (pr.notes IS NOT NULL) AS is_provisional,
+       pr.notes AS provisional_notes,
+       COALESCE(po.words, '[]'::jsonb) AS portal_words,
+       COALESCE(po.unmapped, '{}') AS unmapped_portal_words,
+       COALESCE(po.family_pos, '{}'::jsonb) AS portal_family_pos,
+       COALESCE(po.family_pos_named, '{}'::jsonb) AS portal_family_pos_named,
+       (po.coffee_id IS NOT NULL) AS has_portal_words,
+       COALESCE(we.family_ids, '{}') AS website_family_ids,
+       COALESCE(we.families, '{}') AS website_families,
+       (we.coffee_id IS NOT NULL) AS has_website_words,
+       c.roast_level,
+       EXISTS (SELECT 1 FROM dial_dark_roast_level d WHERE d.code = c.roast_level) AS is_dark,
+       av.is_sellable, av.in_stock,
+       c.category_codes
+FROM coffee c
+LEFT JOIN pooled p ON p.coffee_id = c.coffee_id
+LEFT JOIN merged m ON m.coffee_id = c.coffee_id
+LEFT JOIN cuppers cu ON cu.coffee_id = c.coffee_id
+LEFT JOIN provisional pr ON pr.coffee_id = c.coffee_id
+LEFT JOIN portal po ON po.coffee_id = c.coffee_id
+LEFT JOIN website we ON we.coffee_id = c.coffee_id
+JOIN v_dial_coffee_availability av ON av.coffee_id = c.coffee_id;
+
+-- The rules over the input with the current parameters (workbench only).
+CREATE VIEW v_dial_placement_preview AS
+WITH inp AS MATERIALIZED (SELECT * FROM v_dial_placement_input),
+prm AS (
+  SELECT param('dial_ring_cut_1') AS rc1, param('dial_ring_cut_2') AS rc2,
+         param('dial_size_cut_1') AS sc1, param('dial_size_cut_2') AS sc2,
+         param('dial_cut_margin_flag') AS margin,
+         param('dial_grade_sessions_for_a') AS gsa, param('dial_grade_cuppers_for_a') AS gca,
+         param('dial_grade_sessions_for_b') AS gsb, param('dial_grade_cuppers_for_b') AS gcb,
+         param('dial_suggest_w_words') AS sww, param('dial_suggest_w_body') AS swb,
+         param('dial_suggest_body_cut_light') AS sbl, param('dial_suggest_body_cut_base') AS sbb,
+         param('dial_suggest_word_pos1') AS swp1, param('dial_suggest_word_later') AS swl,
+         param('dial_suggest_dark_roast_add') AS sda, param('dial_suggest_threshold') AS st
+),
+choc AS (  -- the chocolate side: wedges ruled like the base (the wedge whose seam reads body)
+  SELECT w.ruler_dimension_id, w.seam_family_note_id FROM dial_wedge w WHERE w.seam_uses_body LIMIT 1
+),
+seam AS (
+  SELECT i.coffee_id, s.side,
+         CASE WHEN NOT (i.has_portal_words OR i.has_website_words OR (w.seam_uses_dark_roast AND i.is_dark)) THEN NULL
+              ELSE LEAST(1,
+                CASE WHEN (i.portal_family_pos ->> w.seam_family_note_id::text)::int = 1 THEN prm.swp1
+                     WHEN i.portal_family_pos ? w.seam_family_note_id::text THEN prm.swl
+                     WHEN w.seam_family_note_id = ANY (i.website_family_ids) THEN prm.swl
+                     ELSE 0 END
+                + CASE WHEN w.seam_uses_dark_roast AND i.is_dark THEN prm.sda ELSE 0 END) END AS word_reading,
+         CASE WHEN w.seam_uses_body AND i.body IS NOT NULL
+              THEN LEAST(1, GREATEST(0, (i.body - prm.sbl) / NULLIF(prm.sbb - prm.sbl, 0))) END AS body_reading,
+         prm.sww, prm.swb
+  FROM inp i
+  CROSS JOIN prm
+  CROSS JOIN LATERAL (VALUES ('side_a', i.side_a_archetype), ('side_b', i.side_b_archetype)) s(side, arch)
+  JOIN dial_wedge w ON w.archetype_code = s.arch
+),
+seam_score AS (
+  SELECT coffee_id, side, word_reading, body_reading,
+         CASE WHEN word_reading IS NULL AND body_reading IS NULL THEN NULL
+              ELSE (COALESCE(sww * word_reading, 0) + COALESCE(swb * body_reading, 0))
+                   / NULLIF((CASE WHEN word_reading IS NOT NULL THEN sww ELSE 0 END) + (CASE WHEN body_reading IS NOT NULL THEN swb ELSE 0 END), 0)
+         END AS score
+  FROM seam
+),
+sugg AS (
+  SELECT i.coffee_id, a.score AS score_a, b.score AS score_b,
+         jsonb_build_object('side_a', jsonb_build_object('archetype', i.side_a_archetype, 'score', round(a.score, 3), 'words', a.word_reading, 'body', round(a.body_reading, 3)),
+                            'side_b', jsonb_build_object('archetype', i.side_b_archetype, 'score', round(b.score, 3), 'words', b.word_reading, 'body', round(b.body_reading, 3)),
+                            'inputs', 'words (portal order read by split; website: presence) and body; build not parsed') AS suggested_scores,
+         CASE WHEN a.score IS NULL AND b.score IS NULL THEN NULL
+              WHEN COALESCE(a.score, 0) - COALESCE(b.score, 0) >= prm.st THEN 'side_a'
+              WHEN COALESCE(b.score, 0) - COALESCE(a.score, 0) >= prm.st THEN 'side_b'
+              ELSE 'middle' END AS suggested_lane_code
+  FROM inp i
+  CROSS JOIN prm
+  LEFT JOIN seam_score a ON a.coffee_id = i.coffee_id AND a.side = 'side_a'
+  LEFT JOIN seam_score b ON b.coffee_id = i.coffee_id AND b.side = 'side_b'
+),
+base AS (
+  SELECT i.*, prm.*,
+         (i.wedge_id IS NOT NULL AND i.has_merged_row AND (i.is_center OR i.ruler_value IS NOT NULL)) AS is_placeable,
+         la.id AS lean_assignment_id, ll.code AS decided_lane_code,
+         s.suggested_lane_code, s.suggested_scores
+  FROM inp i
+  CROSS JOIN prm
+  LEFT JOIN coffee_lean_assignment la ON la.coffee_id = i.coffee_id AND la.superseded_at IS NULL
+  LEFT JOIN dial_lane ll ON ll.id = la.lane_id
+  LEFT JOIN sugg s ON s.coffee_id = i.coffee_id
+),
+ruled AS (
+  SELECT b.*,
+         CASE WHEN NOT b.is_placeable THEN NULL
+              WHEN b.is_center THEN 0
+              WHEN b.ruler_value < b.rc1 THEN 1
+              WHEN b.ruler_value < b.rc2 THEN 2
+              ELSE 3 END AS ring,
+         CASE WHEN b.sweetness IS NULL THEN NULL
+              WHEN b.sweetness < b.sc1 THEN 1
+              WHEN b.sweetness < b.sc2 THEN 2
+              ELSE 3 END AS size,
+         CASE WHEN NOT b.has_merged_row OR b.is_provisional THEN 'D'
+              WHEN b.n_sessions >= b.gsa AND b.n_cuppers >= b.gca THEN 'A'
+              WHEN b.n_sessions >= b.gsb OR b.n_cuppers >= b.gcb THEN 'B'
+              ELSE 'C' END AS grade_code,
+         COALESCE(b.decided_lane_code, 'middle') AS lane_code,
+         (b.own_family_note_id IS NOT NULL
+          AND NOT (b.portal_family_pos ? b.own_family_note_id::text)
+          AND NOT (b.own_family_note_id = ANY (b.website_family_ids))) AS no_family_word,
+         (NOT b.is_center AND b.ruler_dimension_id = (SELECT ruler_dimension_id FROM choc)
+          AND NOT (b.portal_family_pos ? (SELECT seam_family_note_id FROM choc)::text)
+          AND NOT ((SELECT seam_family_note_id FROM choc) = ANY (b.website_family_ids))) AS choc_side_no_choc_word
+  FROM base b
+)
+SELECT r.coffee_id, r.coffee_name, r.roaster_id, r.roaster_name, r.archetype_code, r.wedge_id, r.is_center,
+       r.is_placeable, r.ring, r.size,
+       r.ruler_dimension_id, r.ruler_value, r.acidity, r.bitterness, r.body, r.sweetness,
+       ln.id AS lane_id, r.lane_code,
+       r.lean_assignment_id, r.decided_lane_code,
+       sl.id AS suggested_lane_id, r.suggested_lane_code, r.suggested_scores,
+       g.id AS grade_id, r.grade_code, g.rank AS grade_rank,
+       r.n_sessions, r.n_cuppers, r.n_sessions_pooled,
+       r.is_sellable, r.in_stock, r.category_codes, r.roast_level, r.is_dark,
+       array_remove(ARRAY[
+         CASE WHEN r.wedge_id IS NULL THEN 'no_wedge' END,
+         CASE WHEN NOT r.has_merged_row THEN 'no_cupping_rows' END,
+         CASE WHEN NOT r.is_center AND r.has_merged_row AND r.ruler_value IS NULL THEN 'no_ruler_value' END,
+         CASE WHEN r.sweetness IS NULL THEN 'no_size_value' END,
+         CASE WHEN r.is_center AND r.max_ruler_value >= r.rc1 THEN 'center_ruler_ring_2_plus' END,
+         CASE WHEN r.no_family_word THEN 'no_family_word' END,
+         CASE WHEN NOT r.is_center AND r.ruler_value IS NOT NULL
+               AND (abs(r.ruler_value - r.rc1) <= r.margin OR abs(r.ruler_value - r.rc2) <= r.margin) THEN 'ruler_near_cut' END,
+         CASE WHEN r.choc_side_no_choc_word THEN 'chocolate_side_no_chocolate_word' END,
+         CASE WHEN r.decided_lane_code IS NOT NULL AND r.suggested_lane_code IS NOT NULL
+               AND r.decided_lane_code <> r.suggested_lane_code THEN 'suggestion_differs' END,
+         CASE WHEN r.decided_lane_code IS NULL THEN 'no_lean_decision' END,
+         CASE WHEN r.is_provisional THEN 'provisional' END
+       ], NULL) AS flags,
+       jsonb_build_object(
+         'pooled', jsonb_build_object('acidity', r.acidity, 'bitterness', r.bitterness, 'body', r.body, 'sweetness', r.sweetness,
+                                      'n_sessions_pooled', r.n_sessions_pooled),
+         'ruler', jsonb_build_object('dimension_id', r.ruler_dimension_id, 'value', r.ruler_value, 'cuts', jsonb_build_array(r.rc1, r.rc2)),
+         'words', jsonb_build_object('portal', r.portal_words, 'portal_family_first_pos', r.portal_family_pos_named,
+                                     'portal_unmapped', to_jsonb(r.unmapped_portal_words),
+                                     'website', 'presence', 'website_families', to_jsonb(r.website_families)),
+         'roast', jsonb_build_object('level', r.roast_level, 'dark', r.is_dark),
+         'grade', jsonb_build_object('sessions', r.n_sessions, 'cuppers', r.n_cuppers, 'cupper_weights', r.cupper_weights,
+                                     'provisional_notes', to_jsonb(r.provisional_notes)),
+         'sellable', 'v_coffee_sellable_candidate at the anchor size (slot candidate view until the commerce move); in_stock = active anchor-size SKU',
+         'lean', CASE WHEN r.decided_lane_code IS NULL THEN 'no decision: middle used' ELSE 'decision' END
+       ) AS inputs_used
+FROM ruled r
+LEFT JOIN dial_lane ln ON ln.code = r.lane_code
+LEFT JOIN dial_lane sl ON sl.code = r.suggested_lane_code
+LEFT JOIN dial_evidence_grade g ON g.code = r.grade_code;
+
+-- The active version's placements with today's identity and availability.
+CREATE VIEW v_dial_placement AS
+SELECT p.id AS placement_id, p.version_id, v.label AS version_label,
+       p.coffee_id, vc.name AS coffee_name, vc.roaster_id, vc.roaster_name, vc.is_active AS coffee_is_active,
+       p.archetype_code, p.is_center, p.ring, p.lane_id, l.code AS lane_code, p.size,
+       p.ruler_dimension_id, p.ruler_value, p.acidity, p.bitterness, p.body, p.sweetness,
+       p.lean_assignment_id, p.suggested_lane_id, p.suggested_scores,
+       p.grade_id, g.code AS grade_code, g.rank AS grade_rank,
+       p.n_sessions, p.n_cuppers, p.is_sellable_at_cut, p.inputs_used, p.flags,
+       (vc.is_active AND av.is_sellable) AS is_sellable, (vc.is_active AND av.in_stock) AS in_stock,
+       vc.category_codes
+FROM dial_placement p
+JOIN dial_map_version v ON v.id = p.version_id AND v.activated_at IS NOT NULL AND v.retired_at IS NULL
+JOIN v_coffee vc ON vc.id = p.coffee_id
+JOIN dial_lane l ON l.id = p.lane_id
+JOIN dial_evidence_grade g ON g.id = p.grade_id
+JOIN v_dial_coffee_availability av ON av.coffee_id = p.coffee_id;
+
+-- The points the edges are drawn between, one set per mode: 'preview'
+-- (placeable preview rows, current parameters) and 'active' (the active
+-- version, its own parameter snapshot). Shared so the edge rule lives once.
+CREATE VIEW v_dial_point AS
+SELECT 'preview'::text AS mode, p.coffee_id, p.archetype_code, p.is_center, p.ring, p.lane_code,
+       p.acidity, p.bitterness, p.body, p.sweetness, p.grade_rank, p.is_sellable, p.in_stock, p.category_codes,
+       w.side_a_archetype, w.side_b_archetype,
+       param('dial_w_ring') AS w_ring, param('dial_w_body') AS w_body, param('dial_w_sweet') AS w_sweet, param('dial_w_lane') AS w_lane,
+       param('dial_cap_different') AS cap_different, param('dial_min_grade_rank_hop_target') AS min_grade_rank_hop_target
+FROM v_dial_placement_preview p
+JOIN dial_wedge w ON w.id = p.wedge_id
+WHERE p.is_placeable
+UNION ALL
+SELECT 'active'::text, a.coffee_id, a.archetype_code, a.is_center, a.ring, a.lane_code,
+       a.acidity, a.bitterness, a.body, a.sweetness, a.grade_rank, a.is_sellable, a.in_stock, a.category_codes,
+       w.side_a_archetype, w.side_b_archetype,
+       (v.parameters->>'dial_w_ring')::numeric, (v.parameters->>'dial_w_body')::numeric,
+       (v.parameters->>'dial_w_sweet')::numeric, (v.parameters->>'dial_w_lane')::numeric,
+       (v.parameters->>'dial_cap_different')::numeric, (v.parameters->>'dial_min_grade_rank_hop_target')::numeric
+FROM v_dial_placement a
+JOIN dial_map_version v ON v.id = a.version_id
+JOIN dial_wedge w ON w.archetype_code = a.archetype_code;
+
+-- Every ordered pair of points that are both sellable, in one mode (Rev 3
+-- section 4). A function so the rule lives once and a read of one mode
+-- computes only that mode's points, once (MATERIALIZED).
+CREATE OR REPLACE FUNCTION dial_edge_rows(p_mode TEXT) RETURNS TABLE (
+  mode TEXT, from_coffee_id INT, to_coffee_id INT, from_archetype archetype_enum, to_archetype archetype_enum, relation TEXT,
+  distance NUMERIC, delta_ring INT, delta_body NUMERIC, delta_sweetness NUMERIC, delta_acidity NUMERIC, delta_bitterness NUMERIC,
+  adjacency_rank INT, to_grade_rank SMALLINT, to_in_stock BOOLEAN, to_category_codes TEXT[],
+  cap_different NUMERIC, min_grade_rank_hop_target NUMERIC
+) LANGUAGE sql STABLE AS $fn$
+WITH pt AS MATERIALIZED (SELECT * FROM v_dial_point WHERE mode = p_mode),
+pair AS (
+  SELECT a.mode, a.coffee_id AS from_coffee_id, b.coffee_id AS to_coffee_id,
+         a.archetype_code AS from_archetype, b.archetype_code AS to_archetype,
+         a.ring AS from_ring, b.ring AS to_ring, a.lane_code AS from_lane, b.lane_code AS to_lane,
+         CASE WHEN a.lane_code = 'side_a' THEN a.side_a_archetype WHEN a.lane_code = 'side_b' THEN a.side_b_archetype END AS from_lean_archetype,
+         a.side_a_archetype, a.side_b_archetype, a.is_center AS from_is_center, b.is_center AS to_is_center,
+         (b.ring - a.ring)::int AS delta_ring, b.body - a.body AS delta_body, b.sweetness - a.sweetness AS delta_sweetness,
+         b.acidity - a.acidity AS delta_acidity, b.bitterness - a.bitterness AS delta_bitterness,
+         a.w_ring, a.w_body, a.w_sweet, a.w_lane, a.cap_different, a.min_grade_rank_hop_target,
+         b.grade_rank AS to_grade_rank, b.in_stock AS to_in_stock, b.category_codes AS to_category_codes
+  FROM pt a
+  JOIN pt b ON b.coffee_id <> a.coffee_id
+  WHERE a.is_sellable AND b.is_sellable
+),
+rel AS (
+  SELECT p.*,
+         CASE WHEN p.from_archetype = p.to_archetype THEN
+                CASE WHEN p.to_ring > p.from_ring THEN 'bolder' WHEN p.to_ring < p.from_ring THEN 'gentler' ELSE 'sibling' END
+              WHEN p.from_is_center THEN CASE WHEN p.to_archetype = p.from_lean_archetype THEN 'bolder' ELSE 'different' END
+              WHEN p.to_is_center THEN 'gentler'
+              ELSE 'different' END AS relation
+  FROM pair p
+)
+SELECT r.mode, r.from_coffee_id, r.to_coffee_id, r.from_archetype, r.to_archetype, r.relation,
+       round(r.w_ring * abs(r.delta_ring)
+             + COALESCE(r.w_body * abs(r.delta_body), 0)
+             + COALESCE(r.w_sweet * abs(r.delta_sweetness), 0)
+             + CASE WHEN r.from_lane <> r.to_lane THEN r.w_lane ELSE 0 END, 4) AS distance,
+       r.delta_ring, r.delta_body, r.delta_sweetness, r.delta_acidity, r.delta_bitterness,
+       CASE WHEN r.relation <> 'different' THEN NULL
+            WHEN r.from_is_center THEN 1
+            WHEN r.to_archetype = r.from_lean_archetype THEN 0
+            WHEN r.to_archetype IN (r.side_a_archetype, r.side_b_archetype) THEN 1
+            ELSE 2 END::int AS adjacency_rank,
+       r.to_grade_rank, r.to_in_stock, r.to_category_codes,
+       r.cap_different, r.min_grade_rank_hop_target
+FROM rel r
+$fn$;
+
+CREATE VIEW v_dial_edge_preview AS
+SELECT from_coffee_id, to_coffee_id, from_archetype, to_archetype, relation, distance,
+       delta_ring, delta_body, delta_sweetness, delta_acidity, delta_bitterness,
+       adjacency_rank, to_grade_rank, to_in_stock, to_category_codes
+FROM dial_edge_rows('preview');
+
+CREATE VIEW v_dial_edge AS
+SELECT from_coffee_id, to_coffee_id, from_archetype, to_archetype, relation, distance,
+       delta_ring, delta_body, delta_sweetness, delta_acidity, delta_bitterness,
+       adjacency_rank, to_grade_rank, to_in_stock, to_category_codes
+FROM dial_edge_rows('active');
+
+-- Per from-coffee and relation the eligible targets (grade floor) ranked:
+-- bolder and gentler by distance (the hop set takes rank 1), different by
+-- (adjacency_rank, distance) with within_cap for the first cap_different,
+-- every sibling by distance. Unfiltered by category and stock: matchService
+-- (brief 3) applies the customer's filters on top.
+CREATE OR REPLACE FUNCTION dial_hop_rows(p_mode TEXT) RETURNS TABLE (
+  mode TEXT, from_coffee_id INT, to_coffee_id INT, relation TEXT, distance NUMERIC, adjacency_rank INT,
+  delta_ring INT, delta_body NUMERIC, delta_sweetness NUMERIC, delta_acidity NUMERIC, delta_bitterness NUMERIC,
+  to_grade_rank SMALLINT, to_in_stock BOOLEAN, to_category_codes TEXT[], cap_different NUMERIC, rank INT, in_hop_set BOOLEAN
+) LANGUAGE sql STABLE AS $fn$
+SELECT x.*,
+       CASE WHEN x.relation IN ('bolder', 'gentler') THEN x.rank = 1
+            WHEN x.relation = 'different' THEN x.rank <= x.cap_different
+            ELSE true END AS in_hop_set
+FROM (
+  SELECT e.mode, e.from_coffee_id, e.to_coffee_id, e.relation, e.distance, e.adjacency_rank,
+         e.delta_ring, e.delta_body, e.delta_sweetness, e.delta_acidity, e.delta_bitterness,
+         e.to_grade_rank, e.to_in_stock, e.to_category_codes, e.cap_different,
+         row_number() OVER (PARTITION BY e.from_coffee_id, e.relation
+                            ORDER BY e.adjacency_rank NULLS FIRST, e.distance, e.to_coffee_id)::int AS rank
+  FROM dial_edge_rows(p_mode) e
+  WHERE e.to_grade_rank >= e.min_grade_rank_hop_target
+) x
+$fn$;
+
+CREATE VIEW v_dial_hop_preview AS
+SELECT from_coffee_id, to_coffee_id, relation, rank, in_hop_set, (relation = 'different' AND rank <= cap_different) AS within_cap,
+       distance, adjacency_rank, delta_ring, delta_body, delta_sweetness, delta_acidity, delta_bitterness,
+       to_grade_rank, to_in_stock, to_category_codes
+FROM dial_hop_rows('preview');
+
+CREATE VIEW v_dial_hop AS
+SELECT from_coffee_id, to_coffee_id, relation, rank, in_hop_set, (relation = 'different' AND rank <= cap_different) AS within_cap,
+       distance, adjacency_rank, delta_ring, delta_body, delta_sweetness, delta_acidity, delta_bitterness,
+       to_grade_rank, to_in_stock, to_category_codes
+FROM dial_hop_rows('active');
+
+-- The face of the active map (admin reads only; brief 3's customer API strips grade).
+CREATE VIEW v_dial_face AS
+SELECT p.version_id, p.coffee_id, p.coffee_name, p.archetype_code, p.is_center, p.ring, p.lane_code, p.size,
+       p.is_sellable, p.in_stock, p.category_codes, p.grade_code
+FROM v_dial_placement p;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END ELLA'S BLOOM MAP 1 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.
@@ -10528,6 +11359,13 @@ REVOKE DELETE, TRUNCATE ON cupping_scores FROM ab_app;
 -- brief 9 (2026-11-09): a dispute keeps UPDATE for its one withdraw (the guard trigger allows nothing else)
 REVOKE DELETE, TRUNCATE ON cupping_score_dispute FROM ab_app;
 REVOKE TRUNCATE ON cupping_brew_params FROM ab_app;
+-- Ella's Bloom Map 1 (2026-11-10): a map version's cuts and placements are
+-- insert-only (the guard trigger is the real lock); a version row is never
+-- deleted; the decision and phrase tables keep only their supersede UPDATE.
+REVOKE UPDATE, DELETE, TRUNCATE ON dial_placement, dial_ring_cut, dial_size_cut FROM ab_app;
+REVOKE DELETE, TRUNCATE ON dial_map_version FROM ab_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON coffee_lean_assignment, dial_first_match, dial_hop_phrase FROM ab_app;
+GRANT UPDATE (superseded_at) ON coffee_lean_assignment, dial_first_match, dial_hop_phrase TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
 -- Liam brand answers (2026-10-24): supersede only. The one UPDATE the writer
 -- makes sets superseded_at; nothing is ever deleted (lint:customer rule 8 is

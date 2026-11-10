@@ -83,9 +83,12 @@ router.get('/unmapped-words', async (_req, res) => {
 });
 
 // Brief 6, E2/E3: the evidence parameters card (System Health).
-router.get('/parameters', async (_req, res) => {
+// Ella map 1 (2026-11-10), B4: ?prefix= lists only the keys starting with it (dial_ for the map workbench).
+router.get('/parameters', async (req, res) => {
+  const prefix = typeof req.query.prefix === 'string' ? req.query.prefix : undefined;
+  if (prefix !== undefined && !/^[a-z0-9_]{1,40}$/.test(prefix)) return res.status(400).json({ error: 'prefix must be lowercase letters, digits or _' });
   try {
-    res.json(await getParameters());
+    res.json(await getParameters(prefix));
   } catch (err) {
     console.error('[admin/evidence/parameters]', err);
     res.status(500).json({ error: 'Failed to read the evidence parameters' });

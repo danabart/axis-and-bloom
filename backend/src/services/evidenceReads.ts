@@ -193,8 +193,8 @@ export async function getDescriptorConsensus(coffeeId: number): Promise<Row[]> {
  * Brief 6, E2: the evidence parameters for the admin card: each key's current
  * value, since, note (with its sane range) and the value and date it replaced.
  */
-export async function getParameters(): Promise<Array<{ key: string; value: number; since: string; note: string | null; previous_value: number | null; previous_since: string | null }>> {
-  const r = await db.query(
+export async function getParameters(prefix?: string, runner: Pick<typeof db, 'query'> = db): Promise<Array<{ key: string; value: number; since: string; note: string | null; previous_value: number | null; previous_since: string | null }>> {
+  const r = await runner.query(
     `SELECT cur.key, cur.value, cur.since, cur.note, prev.value AS previous_value, prev.since AS previous_since
        FROM evidence_parameter cur
        LEFT JOIN LATERAL (
@@ -203,7 +203,8 @@ export async function getParameters(): Promise<Array<{ key: string; value: numbe
           ORDER BY p.superseded_at DESC LIMIT 1
        ) prev ON true
       WHERE cur.superseded_at IS NULL
-      ORDER BY cur.key`);
+        AND ($1::text IS NULL OR left(cur.key, length($1)) = $1)
+      ORDER BY cur.key`, [prefix ?? null]);
   return r.rows.map((x: any) => ({
     key: x.key, value: Number(x.value), since: x.since, note: x.note,
     previous_value: x.previous_value === null ? null : Number(x.previous_value), previous_since: x.previous_since,
