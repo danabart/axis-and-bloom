@@ -4,6 +4,15 @@
 
 ## Status
 
+**Deployed 2026-11-10:**
+- Commit `196616f` was pushed to main. Deploy run 42856503724 passed (backend and frontend), and the new revision is `axis-bloom-backend-00848-wvm`.
+- Startup log: no ERROR lines; `[db-comments]` applied 1773 statements; `[data-catalog]` reports 169 tables, 87 views and 1517 columns, with nothing uncommented.
+- The only boot finding beyond what was already open was CATALOG.md being stale, and that was expected. CATALOG.md was then regenerated from prod (catalog-hash `2b28a93…`, equal to the live hash) and committed.
+- Evidence integrity shows the same two known findings, #2 and #6 (Tiger Stripe). Quiz #10 and sommelier #3 were already open.
+- Part E: Dana's button is next.
+
+**Before the deploy (2026-11-09):**
+
 - **Done:** built, and tested on `axisandbloom_test` (refreshed from prod at the start of this run). All six lints, backend `tsc`, frontend `tsc` (no new errors) and `vite build` are green.
 - **Not done:** nothing is committed, pushed or deployed.
 - **After the deploy:** `CATALOG.md` is regenerated from prod (the new table only exists there once the deploy runs `schema.sql`), as in brief 6.
