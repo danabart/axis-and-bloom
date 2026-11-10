@@ -2188,7 +2188,7 @@ COMMENT ON TABLE dial_first_match_status IS $c$Purpose: Lookup of how a first-ma
 COMMENT ON COLUMN dial_first_match_status.id IS $c$Surrogate primary key (SERIAL); referenced by dial_first_match.status_id.$c$;
 COMMENT ON COLUMN dial_first_match_status.code IS $c$Status code (founder_pick, derived); UNIQUE.$c$;
 COMMENT ON COLUMN dial_first_match_status.label IS $c$Admin label of the status.$c$;
-COMMENT ON TABLE dial_provisional_sample_pattern IS $c$Purpose: ILIKE patterns that make a cupping sample provisional for the map grade (a matching cupping_session_coffees.sample_note gives grade D) | Class: master | Writer: seed | Readers: v_dial_placement_input | Since: 2026-11-10 (Ella map 1)$c$;
+COMMENT ON TABLE dial_provisional_sample_pattern IS $c$Purpose: ILIKE patterns that make a cupping sample provisional for the map grade: a matching sample leaves the session and cupper counts; grade D when no other merged row remains | Class: master | Writer: seed | Readers: v_dial_placement_input | Since: 2026-11-10 (Ella map 1)$c$;
 COMMENT ON COLUMN dial_provisional_sample_pattern.id IS $c$Surrogate primary key (SERIAL).$c$;
 COMMENT ON COLUMN dial_provisional_sample_pattern.code IS $c$Stable code of the pattern (last_cup); UNIQUE.$c$;
 COMMENT ON COLUMN dial_provisional_sample_pattern.label IS $c$Admin label of the pattern.$c$;
@@ -2277,8 +2277,8 @@ COMMENT ON COLUMN dial_placement.lean_assignment_id IS $c$References coffee_lean
 COMMENT ON COLUMN dial_placement.suggested_lane_id IS $c$References dial_lane.id: the rule's lane suggestion at the cut; NULL when the rule had no reading.$c$;
 COMMENT ON COLUMN dial_placement.suggested_scores IS $c$The suggestion's seam scores and readings at the cut (JSON).$c$;
 COMMENT ON COLUMN dial_placement.grade_id IS $c$References dial_evidence_grade.id: the evidence grade at the cut.$c$;
-COMMENT ON COLUMN dial_placement.n_sessions IS $c$Distinct cupping sessions with a current merged row for the coffee at the cut (control samples count).$c$;
-COMMENT ON COLUMN dial_placement.n_cuppers IS $c$Distinct cuppers at the cut, each weighted by dial_cupper_scale_weight (a non-ab_0_15 cupper counts half).$c$;
+COMMENT ON COLUMN dial_placement.n_sessions IS $c$Distinct cupping sessions with a current merged row for the coffee at the cut, provisional samples left out (control samples count).$c$;
+COMMENT ON COLUMN dial_placement.n_cuppers IS $c$Distinct cuppers at the cut on non-provisional samples, each weighted by dial_cupper_scale_weight (a non-ab_0_15 cupper counts half).$c$;
 COMMENT ON COLUMN dial_placement.is_sellable_at_cut IS $c$True when the coffee was sellable at the anchor size at the cut (v_dial_coffee_availability).$c$;
 COMMENT ON COLUMN dial_placement.inputs_used IS $c$The inputs behind the placement as JSON (pooled values, ruler and cuts, portal words with positions, website presence, roast, grade inputs, the sellable rule).$c$;
 COMMENT ON COLUMN dial_placement.flags IS $c$Workbench flags at the cut (no_lean_decision, ruler_near_cut, no_family_word, chocolate_side_no_chocolate_word, center_ruler_ring_2_plus, suggestion_differs, provisional, no_size_value); flags never move a placement.$c$;

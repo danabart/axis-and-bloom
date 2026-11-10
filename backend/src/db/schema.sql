@@ -10524,7 +10524,7 @@ INSERT INTO dial_evidence_grade (code, label, rank, description) VALUES
   ('A', 'Grade A', 4, 'Several sessions and several cuppers (dial_grade_sessions_for_a and dial_grade_cuppers_for_a).'),
   ('B', 'Grade B', 3, 'Several sessions or several cuppers (dial_grade_sessions_for_b or dial_grade_cuppers_for_b).'),
   ('C', 'Grade C', 2, 'Fewer sessions and cuppers than B asks for: one cupper, one session.'),
-  ('D', 'Grade D', 1, 'Provisional (a sample note matches dial_provisional_sample_pattern) or no merged cupping row.')
+  ('D', 'Grade D', 1, 'No current merged cupping row once provisional samples (dial_provisional_sample_pattern) are set aside; a provisional sample never counts toward A, B or C.')
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS dial_map_version_status (
@@ -10900,9 +10900,22 @@ pooled AS (
   JOIN dial_reading dr ON dr.dimension_id = r.dimension_id
   GROUP BY r.coffee_id
 ),
+-- scored samples whose note matches a provisional pattern: they stay in the
+-- pooled values but leave the grade's session and cupper counts (Dana
+-- 2026-11-10, closing report 1 deviation 8)
+prov_sample AS MATERIALIZED (
+  SELECT DISTINCT sc.session_coffee_id, sc.coffee_id, sc.sample_note
+  FROM v_cupping_session_coffee sc
+  JOIN dial_provisional_sample_pattern p ON sc.sample_note ILIKE p.pattern
+  WHERE sc.has_scores
+),
 merged AS (
-  SELECT s.coffee_id, count(DISTINCT s.session_id)::int AS n_sessions
-  FROM v_cupping_score s WHERE s.is_merged GROUP BY s.coffee_id
+  SELECT s.coffee_id,
+         count(DISTINCT s.session_id)::int AS n_sessions_any,
+         count(DISTINCT s.session_id) FILTER (WHERE ps.session_coffee_id IS NULL)::int AS n_sessions
+  FROM v_cupping_score s
+  LEFT JOIN prov_sample ps ON ps.session_coffee_id = s.session_coffee_id
+  WHERE s.is_merged GROUP BY s.coffee_id
 ),
 cuppers AS (
   SELECT x.coffee_id, sum(x.w) AS n_cuppers, jsonb_object_agg(x.cupper, x.w) AS cupper_weights
@@ -10911,15 +10924,14 @@ cuppers AS (
         FROM v_cupping_score s
         LEFT JOIN dial_cupper_scale_weight sw ON sw.scale_code = s.scale_code
         WHERE NOT s.is_merged AND s.cupper_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM prov_sample ps WHERE ps.session_coffee_id = s.session_coffee_id)
         GROUP BY s.coffee_id, COALESCE(s.cupper_name, s.cupper_id::text)) x
   GROUP BY x.coffee_id
 ),
 provisional AS (
-  SELECT sc.coffee_id, array_agg(DISTINCT sc.sample_note ORDER BY sc.sample_note) AS notes
-  FROM v_cupping_session_coffee sc
-  JOIN dial_provisional_sample_pattern p ON sc.sample_note ILIKE p.pattern
-  WHERE sc.has_scores
-  GROUP BY sc.coffee_id
+  SELECT ps.coffee_id, array_agg(DISTINCT ps.sample_note ORDER BY ps.sample_note) AS notes
+  FROM prov_sample ps
+  GROUP BY ps.coffee_id
 ),
 -- the roaster's portal words with their position: the latest submitted
 -- response's notes in rank order, each note's text split on commas (Dana
@@ -10974,7 +10986,8 @@ SELECT c.coffee_id, c.coffee_name, c.roaster_id, c.roaster_name, c.archetype_cod
        COALESCE(m.n_sessions, 0) AS n_sessions,
        COALESCE(cu.n_cuppers, 0) AS n_cuppers,
        cu.cupper_weights,
-       (m.n_sessions IS NOT NULL) AS has_merged_row,
+       (m.n_sessions_any IS NOT NULL) AS has_merged_row,
+       COALESCE(m.n_sessions, 0) > 0 AS has_clean_merged_row,
        (pr.notes IS NOT NULL) AS is_provisional,
        pr.notes AS provisional_notes,
        COALESCE(po.words, '[]'::jsonb) AS portal_words,
@@ -11076,7 +11089,7 @@ ruled AS (
               WHEN b.sweetness < b.sc1 THEN 1
               WHEN b.sweetness < b.sc2 THEN 2
               ELSE 3 END AS size,
-         CASE WHEN NOT b.has_merged_row OR b.is_provisional THEN 'D'
+         CASE WHEN NOT b.has_clean_merged_row THEN 'D'
               WHEN b.n_sessions >= b.gsa AND b.n_cuppers >= b.gca THEN 'A'
               WHEN b.n_sessions >= b.gsb OR b.n_cuppers >= b.gcb THEN 'B'
               ELSE 'C' END AS grade_code,

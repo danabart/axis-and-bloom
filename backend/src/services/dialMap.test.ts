@@ -29,6 +29,7 @@ interface CoffeeSpec {
   sessions?: number;            // merged sessions (default 1)
   cuppers?: string[];           // scale per cupper in every session (default one ab_0_15 cupper)
   sampleNote?: string | null;   // on every sample
+  sampleNotes?: Array<string | null>; // per session, overrides sampleNote
   sellable?: boolean;           // default true
   portalWords?: string;         // one portal note, as the roasters typed it
 }
@@ -59,7 +60,7 @@ async function coffee(c: pg.PoolClient, roasterId: string, spec: CoffeeSpec): Pr
       [`2026-0${1 + (s % 9)}-1${seq++ % 9}`])).rows[0].id;
     const scId = (await c.query<{ id: number }>(
       `INSERT INTO cupping_session_coffees (session_id, coffee_id, sample_note) VALUES ($1, $2, $3) RETURNING id`,
-      [sessionId, coffeeId, spec.sampleNote ?? null])).rows[0].id;
+      [sessionId, coffeeId, spec.sampleNotes ? spec.sampleNotes[s] ?? null : spec.sampleNote ?? null])).rows[0].id;
     for (let i = 0; i < cupperIds.length; i++) {
       await c.query(`INSERT INTO cupping_scores (session_coffee_id, cupper_id, is_merged, scale_code) VALUES ($1, $2, false, $3)`,
         [scId, cupperIds[i], cupperScales[i]]);
@@ -192,6 +193,25 @@ describe('grade (D3)', () => {
       const pd = await preview(c, d);
       expect(pd.grade_code).toBe('D');
       expect(pd.flags).toContain('provisional');
+      expect(pd.is_placeable).toBe(true); // its pooled values still place it
+    });
+  });
+
+  it('a provisional session followed by a clean one gives the grade of the clean rows (Dana 2026-11-10, deviation 8)', async () => {
+    await withRollback(async ({ client: c }) => {
+      const r = await isolate(c);
+      const v = { acidity: 5, sweetness: 5 };
+      const two = ['ab_0_15', 'ab_0_15'];
+      const mixed = await coffee(c, r, { tag: 'gMixed', archetype: 'fruity', values: v, sessions: 2, cuppers: two,
+        sampleNotes: ['last cup of the day; provisional', null] });
+      const clean = await coffee(c, r, { tag: 'gClean', archetype: 'fruity', values: v, sessions: 1, cuppers: two });
+      const pm = await preview(c, mixed);
+      const pc = await preview(c, clean);
+      expect(pm.n_sessions).toBe(1);
+      expect(Number(pm.n_cuppers)).toBe(2);
+      expect(pm.grade_code).toBe(pc.grade_code);
+      expect(pm.grade_code).not.toBe('D');
+      expect(pm.flags).toContain('provisional');
     });
   });
 });
