@@ -373,6 +373,58 @@ async function catalogChangeBackfill(input: CatalogChangeInput & BackfillFields,
 }
 const catalogChange = Object.assign(catalogChangeFn, { backfill: catalogChangeBackfill });
 
+// ── customer_match_decision + customer_match_candidate (Ella's Bloom Map 3, 2026-11-12) ──
+// Called only by matchService.decide (the one door for a match decision,
+// G2.6). The decision and its candidates go in the caller's transaction;
+// a repeat (source, source_id) writes nothing (inserted: false) and adds no
+// candidates. Insert-only: the guard trigger refuses UPDATE and DELETE.
+export type MatchSource = 'quiz' | 'map' | 'beat' | 'liam' | 'admin';
+export interface MatchCandidateInput { coffeeId: number; moveId: number; rank: number; distance: number | null }
+export interface MatchDecisionInput {
+  userId: string;
+  actorUserId?: string | null;
+  versionId: number;
+  moveId: number;
+  fromCoffeeId?: number | null;
+  pickedCoffeeId: number;
+  source: MatchSource;
+  sourceId: string;
+  inputs: Record<string, unknown>;
+  candidates: MatchCandidateInput[];
+}
+async function matchDecisionFn(input: MatchDecisionInput, tx: Tx): Promise<FactResult> {
+  const r = await insertFact(tx, 'customer_match_decision',
+    ['user_id', 'actor_user_id', 'version_id', 'move_id', 'from_coffee_id', 'picked_coffee_id', 'source', 'source_id', 'inputs'],
+    [input.userId, input.actorUserId ?? null, input.versionId, input.moveId, input.fromCoffeeId ?? null, input.pickedCoffeeId,
+     input.source, input.sourceId, JSON.stringify(input.inputs ?? {})]);
+  if (!r.inserted || !r.id) return r;
+  for (const c of input.candidates) {
+    await tx.query(
+      `INSERT INTO customer_match_candidate (decision_id, coffee_id, move_id, rank, distance, source, source_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (decision_id, coffee_id, move_id) DO NOTHING`,
+      [r.id, c.coffeeId, c.moveId, c.rank, c.distance, input.source, `${input.sourceId}:${c.moveId}:${c.coffeeId}`]);
+  }
+  return r;
+}
+// Owner-only (like every .backfill): a historical decision with its own
+// occurred_at, e.g. a later backfill of quiz rows from before brief 3 (OPEN_TASKS).
+async function matchDecisionBackfill(input: MatchDecisionInput & { occurredAt: Date }, tx: Tx): Promise<FactResult> {
+  await assertOwner(tx);
+  const r = await insertFact(tx, 'customer_match_decision',
+    ['user_id', 'actor_user_id', 'occurred_at', 'recorded_at', 'version_id', 'move_id', 'from_coffee_id', 'picked_coffee_id', 'source', 'source_id', 'inputs'],
+    [input.userId, input.actorUserId ?? null, input.occurredAt, input.occurredAt, input.versionId, input.moveId, input.fromCoffeeId ?? null, input.pickedCoffeeId,
+     input.source, input.sourceId, JSON.stringify(input.inputs ?? {})]);
+  if (!r.inserted || !r.id) return r;
+  for (const c of input.candidates) {
+    await tx.query(
+      `INSERT INTO customer_match_candidate (decision_id, coffee_id, move_id, rank, distance, source, source_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (decision_id, coffee_id, move_id) DO NOTHING`,
+      [r.id, c.coffeeId, c.moveId, c.rank, c.distance, input.source, `${input.sourceId}:${c.moveId}:${c.coffeeId}`]);
+  }
+  return r;
+}
+const matchDecision = Object.assign(matchDecisionFn, { backfill: matchDecisionBackfill });
+
 // ── The door. No update/delete/upsert export exists anywhere in this file —
 // customerFacts.test.ts asserts this export surface by name. ─────────────────
 export const record = {
@@ -388,4 +440,5 @@ export const record = {
   liamAction,
   bagClaim,
   catalogChange,
+  matchDecision,
 };

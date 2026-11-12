@@ -11,6 +11,7 @@ import { saveQuizSession, recordScoredInterpretation, getLatestQuizResult, resol
 import { archetypeUuid } from '../services/catalogReads.js';
 import { assertMayQuizFor, recordProxyQuiz, HouseholdError, type ProxyTarget } from '../services/householdService.js';
 import { profileIdForUid } from '../services/householdReads.js';
+import { decide as matchDecide } from '../services/matchService.js';
 
 const router = Router();
 
@@ -230,6 +231,19 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       }));
     } catch (err) {
       console.error('[quiz/interpretation]', err);
+    }
+
+    // Ella's Bloom Map 3 (CTO call 7): the quiz result is the first match
+    // decision, through the one door. Idempotent on the session; written
+    // whatever the quiz_result surface says (the row gates rendering only); a
+    // failure is logged and never fails the quiz. A proxy quiz carries its actor.
+    try {
+      await matchDecide({
+        userId: profileId, actorUserId: proxy?.actorId ?? null, trigger: 'quiz_result', move: 'quiz_result',
+        source: 'quiz', sourceId: sessionId, quizSessionId: sessionId,
+      });
+    } catch (err) {
+      console.error('[quiz/match-decision]', err);
     }
 
     if (proxy) {

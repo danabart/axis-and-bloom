@@ -2,6 +2,7 @@
 // runs the acceptance gate (Rev 3 section 9): the map placed by the current
 // rules beside its evidence and flags, lean decisions, the map's parameters,
 // hops and the graph check, first matches, phrases, and the version cut.
+// Ella map 3 (2026-11-12) adds the Surfaces switch, the Decisions log and the customer words.
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_2_WORKBENCH.md
 //
 // Reads come from brief 1's API (dialReads); writes go to dialPlacementService
@@ -18,6 +19,8 @@ import { setLean, type ApiFetch } from '../../lib/catalogWrites';
 import {
   getPlacements, getHops, getGraphCheck, getVersions, getWedges, getFirstMatches, getPhrases, getVocabulary, getLeanHistory,
   cutVersion, activateVersion, setFirstMatch, setPhrase,
+  getSurfaces, setSurface, getDecisions, getCustomerCopy, setCustomerCopy,
+  type SurfaceRow, type DecisionRow, type CustomerCopyRow,
   type MapMode, type MapRow, type HopRow, type GraphCheck, type Version, type Wedge, type Seam, type FirstMatch,
   type PhraseResolved, type PhraseRow, type Vocabulary, type LeanHistoryRow,
 } from '../../lib/mapAdmin';
@@ -173,6 +176,10 @@ export default function AdminEllaMap() {
 
       <VersionPanel versions={versions} mode={mode} activeVersion={activeVersion} label={label} apiFetch={apiFetch}
         onChanged={async () => { await loadMode(); }} />
+
+      <SurfacesPanel apiFetch={apiFetch} />
+      <DecisionsPanel apiFetch={apiFetch} label={label} />
+      <CustomerCopyPanel apiFetch={apiFetch} />
     </div>
   );
 }
@@ -620,6 +627,118 @@ function VersionPanel({ versions, mode, activeVersion, label, apiFetch, onChange
           </div>
         )}
         {msg && <p className="text-sm text-stone-600 mt-2" data-testid="version-msg">{msg}</p>}
+      </div>
+    </Section>
+  );
+}
+
+// ── Ella's Bloom Map 3 (2026-11-12), C4: the switch, the decision log, the customer's words ──
+function SurfacesPanel({ apiFetch }: { apiFetch: ApiFetch }) {
+  const [rows, setRows] = useState<SurfaceRow[]>([]);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const [msg, setMsg] = useState('');
+  const load = useCallback(() => getSurfaces(apiFetch).then(setRows).catch(e => setMsg(e instanceof Error ? e.message : String(e))), [apiFetch]);
+  useEffect(() => { void load(); }, [load]);
+  const flip = async (r: SurfaceRow) => {
+    try {
+      const to = r.model_code === 'map' ? 'lane' : 'map';
+      await setSurface(apiFetch, r.code, to);
+      setMsg(`${r.label}: ${to}`); setConfirm(null); await load();
+    } catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
+  };
+  return (
+    <Section title="Surfaces">
+      <div className={`${CARD} p-3`} data-testid="surfaces">
+        <table className="w-full text-sm">
+          <thead><tr className={`${EYEBROW} text-left`}><th>Surface</th><th>Model</th><th>Changed</th><th /></tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.code} className="border-t border-stone-100 align-top">
+                <td className="py-1">{r.label} <span className="text-stone-400 text-xs">{r.code}</span></td>
+                <td>{r.model_label}</td>
+                <td className="text-stone-500">{new Date(r.updated_at).toLocaleString()}</td>
+                <td className="whitespace-nowrap text-right">
+                  {confirm !== r.code && <button className={BTN} onClick={() => setConfirm(r.code)}>Switch</button>}
+                  {confirm === r.code && (
+                    <span className="inline-flex flex-col gap-1 items-end">
+                      <span className="text-xs text-stone-700">{r.label} switches to {r.model_code === 'map' ? 'lane' : 'map'}.</span>
+                      <span><button className={BTN_PRIMARY} onClick={() => flip(r)}>Confirm switch</button> <button className={BTN} onClick={() => setConfirm(null)}>Cancel</button></span>
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {msg && <p className="text-sm text-stone-600 mt-2" data-testid="surface-msg">{msg}</p>}
+      </div>
+    </Section>
+  );
+}
+
+function DecisionsPanel({ apiFetch, label }: { apiFetch: ApiFetch; label: Labels }) {
+  const [rows, setRows] = useState<DecisionRow[]>([]);
+  const [userId, setUserId] = useState('');
+  const [msg, setMsg] = useState('');
+  const load = useCallback((uid?: string) => getDecisions(apiFetch, uid).then(r => { setRows(r); setMsg(''); })
+    .catch(e => setMsg(e instanceof Error ? e.message : String(e))), [apiFetch]);
+  useEffect(() => { void load(); }, [load]);
+  return (
+    <Section title="Decisions" right={
+      <span className="flex gap-2">
+        <input className={`${INPUT} max-w-[320px]`} placeholder="Profile id (empty: everyone)" value={userId} onChange={e => setUserId(e.target.value)} />
+        <button className={BTN} onClick={() => load(userId.trim() || undefined)}>Show</button>
+      </span>
+    }>
+      <div className={`${CARD} p-3 overflow-x-auto`} data-testid="decisions">
+        <table className="w-full text-sm">
+          <thead><tr className={`${EYEBROW} text-left`}><th>When</th><th>Person</th><th>Move</th><th>From</th><th>Picked</th><th>Source</th><th>Candidates</th></tr></thead>
+          <tbody>
+            {rows.map(d => (
+              <tr key={d.decision_id} className="border-t border-stone-100 align-top">
+                <td className="py-1 whitespace-nowrap">{new Date(d.occurred_at).toLocaleString()}</td>
+                <td className="text-xs text-stone-500">{d.user_id.slice(0, 8)}{d.actor_user_id ? ` (by ${d.actor_user_id.slice(0, 8)})` : ''} · {d.step}</td>
+                <td>{label.move(d.move_code)}</td>
+                <td>{d.from_coffee_name ?? '–'}</td>
+                <td className="font-medium">{d.picked_coffee_name}</td>
+                <td className="text-xs text-stone-500">{d.source} · {d.version_label}{d.inputs?.rule ? ` · ${String(d.inputs.rule)}` : ''}</td>
+                <td className="text-xs">{d.candidates.map(c => `${c.rank}. ${c.coffee_name}`).join(', ') || '–'}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={7} className="py-2 text-stone-500">No decisions yet.</td></tr>}
+          </tbody>
+        </table>
+        {msg && <p className="text-sm text-stone-600 mt-2">{msg}</p>}
+      </div>
+    </Section>
+  );
+}
+
+function CustomerCopyPanel({ apiFetch }: { apiFetch: ApiFetch }) {
+  const [rows, setRows] = useState<CustomerCopyRow[]>([]);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState('');
+  const load = useCallback(() => getCustomerCopy(apiFetch).then(r => { setRows(r); setEdits({}); }).catch(e => setMsg(e instanceof Error ? e.message : String(e))), [apiFetch]);
+  useEffect(() => { void load(); }, [load]);
+  const save = async (code: string) => {
+    try { await setCustomerCopy(apiFetch, { code, text: edits[code] }); setMsg(`${code} saved`); await load(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
+  };
+  return (
+    <Section title="Customer words">
+      <div className={`${CARD} p-3`} data-testid="customer-copy">
+        <table className="w-full text-sm">
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.code} className="border-t border-stone-100">
+                <td className="py-1 pr-2 text-xs text-stone-500 whitespace-nowrap">{r.code}</td>
+                <td className="w-full"><input className={INPUT} value={edits[r.code] ?? r.text} onChange={e => setEdits({ ...edits, [r.code]: e.target.value })} /></td>
+                <td className="pl-2"><button className={BTN} disabled={edits[r.code] === undefined || edits[r.code] === r.text} onClick={() => save(r.code)}>Save</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {msg && <p className="text-sm text-stone-600 mt-2">{msg}</p>}
       </div>
     </Section>
   );

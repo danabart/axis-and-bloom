@@ -325,3 +325,13 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **First match is refused under the grade floor at write (409 `BELOW_GRADE_FLOOR`), and the read still flags** a first match whose grade dropped later.
 - [ ] **Nothing typed in:** lane, ring, size, grade, flag, move and status words, and the move-line delta phrases come from `GET /api/admin/map/vocabulary` and the phrase tables.
 - [ ] **`EllaMapFace` is tap only:** no rotation, no drag; its layout is deterministic (`mapGeometry.test.ts`).
+
+## Ella's Bloom Map 3: the match door and the customer map (2026-11-12)
+
+- [ ] **Decisions are insert-only:** an UPDATE or DELETE on `customer_match_decision` or `customer_match_candidate` raises (guard trigger); a repeat `(source, source_id)` writes nothing.
+- [ ] **Position is derived:** the latest decision per canonical user (`v_customer_match_current`); there is no current-position table, and the trail is every decision in order.
+- [ ] **Every `dial_surface` row is `lane` until brief 4:** the quiz result, the profile and the dial-in email are unchanged for customers; `/map` is admin-only (`AdminRoute`) and `/api/map` answers 403 `map_not_open` to a customer.
+- [ ] **The quiz door never fails on a decision error:** `POST /api/quiz/results` logs `[quiz/match-decision]` and answers as before (e.g. a decaf customer with no decaf first match on version 1).
+- [ ] **A hop names a coffee in the caller's move set** (server-verified, 409 `NOT_IN_MOVE_SET`); `stay` re-picks the position; `forMemberId` goes through `assertMayTurnDialFor` and records the actor.
+- [ ] **No slot and no `coffee_hop` in the map code** (`matchService`, `routes/map.ts`, the map pages); no price or add-to-cart on `/map` until prices move to `coffee_retail_price` (brief 4).
+- [ ] **Nothing typed in:** button labels and edge phrases from `dial_hop_phrase`, sentences from `dial_customer_copy`; the customer page names no ring, lane, cell, seam, grade or version.

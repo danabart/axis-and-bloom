@@ -6786,6 +6786,25 @@ Brief: `backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_2_WORKBE
 
 **Follow-up (2026-11-10): names on the face.** `EllaMapFace` prints each coffee's name beside its dot, in the family's colour, instead of the grade letter. The name is cut to 16 characters with an ellipsis; the full name is the dot's tooltip and the tap target. The label sits on the side of the dot away from its cell's point, so names in a fanned-out cell move with their dots. The prop is generic, `labelMode: 'name' | 'none'` (default: name on the full face, none on the thumb; `showGrades` and `grade_code` are gone). The grade stays in the placement table only. `mapGeometry.shortLabel` / `labelAnchor` are tested in `mapGeometry.test.ts` (+1).
 
+### 270. Ella's Bloom Map, brief 3: the match door and the customer map (2026-11-12)
+
+Brief: `backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_3_MATCH_AND_CUSTOMER.md`. Closing report: `CLOSING_REPORT_3.md`. Test mode: every `dial_surface` row is `lane`, so no customer sees any of it; `/map` is admin-only.
+
+**What it is.** The customer side of the map, built beside the old dial.
+- **One door for a match decision:** `matchService.decide`, writing `customer_match_decision` and its `customer_match_candidate` rows through `customerFacts.record.matchDecision`. The quiz result's first match, a tap on `/map` and a dial-in email tap all come through it (Liam's accepted pick is accepted and wired in brief 4). Insert-only (guard trigger plus the `customer_%` grant); idempotent on `(source, source_id)`; no verdict column.
+- **Position and trail are derived** from the log (`v_customer_match_current`, `v_customer_match_trail`), folded to the canonical user; there is no current-state table.
+- **Moves:** `matchService.moves` reads the ranked targets from the position coffee through the new `dial_hop_rows_from(coffee_id)` (one edge rule, `dial_edge_core`, shared with `v_dial_edge` / `v_dial_hop`), so a position that is no longer sellable or not in the active version still has moves and a substitute. The customer's filters sit on top: in stock, the decaf tag (brew profile first, the quiz flag second), the cap after the filters, the quiz secondary first from the center.
+- **First match:** the quiz family and lean give a cell; the `dial_first_match` row when it qualifies, else the family's placed sellable coffees at the grade floor (lowest ring, most hops, asked lane, lowest id), else the center's. A delicate result starts on the Fruity wedge's Floral side.
+- **The switch is data:** `dial_model` (lane, map) and `dial_surface` (seven surfaces), every row `lane`; `PATCH /api/admin/map/surfaces/:code`.
+- **Customer words:** `dial_customer_copy` (start_at_base, start_here, no_longer_available, choose_this, see_whole_map, trail_title, trail_start, moved_to, email_map_intro), supersede-only, editable on the workbench. Move lines use one default template, "{label} than {from}: {deltas}" (the family's button label), and the button labels are per family (Dana 2026-11-12).
+- **Customer API** `/api/map` (`routes/map.ts`): `GET /surfaces`, `/face` (sellable and in-stock coffees, no grade, roaster, tags or seams), `/me` (position, its sentence, the trail), `/moves` (the four moves with their cards), `POST /decide`; `forMemberId` through `householdService.assertMayTurnDialFor` records the actor. Open to admins, and to a customer only when a surface the call serves says `map`.
+- **Pages:** `/map` (`components/bloom/map/MapPage.tsx`, gated, `AdminRoute`): the position card, the thumb face and "See the whole map" sheet, Same again, the three moves revealing their cards with the move line, "Choose this". No price and no add-to-cart in this brief. The quiz result's map piece (`MapQuizStart`) and the profile's "Your trail" (`MapTrail`, the dots joined on the face through `EllaMapFace`'s new `path` prop) render only when their rows say `map`. The dial-in email gains the four moves as respond links only when `reorder_email` says `map`; `GET /api/beats/dial-in/:token/respond?move=` decides with the move set's top-ranked coffee at click time.
+- **Workbench:** Surfaces (switch with a confirmation), Decisions (recent decisions with their candidates) and Customer words cards on `/admin/map`.
+- **Integrity:** boot check 11 (positions stranded off the active map; a map surface with no active version); check 9 also covers the new seeds and the customer copy codes.
+
+**Tests.** `matchService.test.ts` (10, on version 1 as Dana cut it, in rolled-back transactions); the map, route, integrity, comment-format and `customerFacts` suites pass; lints clean.
+
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

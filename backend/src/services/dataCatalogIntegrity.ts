@@ -208,7 +208,12 @@ export const DIAL_SEED_CODES: Record<string, string[]> = {
   dial_size: ['1', '2', '3'],
   dial_ring: ['0', '1', '2', '3'],
   dial_delta_direction: ['up', 'down'],
+  // Ella map 3 (2026-11-12)
+  dial_model: ['lane', 'map'],
+  dial_surface: ['customer_face', 'quiz_result', 'profile_trail', 'reorder_email', 'liam_context', 'qr_door', 'axis_stats'],
 };
+// Ella map 3 (2026-11-12): the dial_customer_copy codes matchService and the pages read
+export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_available', 'choose_this', 'see_whole_map', 'trail_title', 'trail_start', 'moved_to', 'email_map_intro'];
 export const DIAL_PARAMETER_KEYS = [
   'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
   'dial_w_ring', 'dial_w_body', 'dial_w_sweet', 'dial_w_lane', 'dial_cap_different',
@@ -260,12 +265,28 @@ async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIn
        FROM v_dial_placement_preview pv CROSS JOIN LATERAL unnest(pv.flags) AS f(code)
       WHERE NOT EXISTS (SELECT 1 FROM dial_flag df WHERE df.code = f.code)`)).rows.map(r => r.finding);
   extra.push(...more);
+  // Ella map 3: every customer sentence the map reads has a current row
+  const copyCodes = new Set((await runner.query<{ code: string }>(`SELECT code FROM v_dial_customer_copy`)).rows.map(r => r.code));
+  for (const code of DIAL_COPY_CODES) if (!copyCodes.has(code)) extra.push(`dial_customer_copy for ${code}`);
   const c9 = check(9, 'Ella map: every map lookup seed is present', [...missingSeeds, ...extra], '0 missing', n => `${n} missing`);
 
   const haveKeys = new Set((await getParameters('dial_', runner)).map(r => r.key));
   const c10 = check(10, 'Ella map: every dial_ parameter key is present',
     DIAL_PARAMETER_KEYS.filter(k => !haveKeys.has(k)), `${DIAL_PARAMETER_KEYS.length} keys present`, n => `${n} key(s) missing`);
-  return [c7, c8, c9, c10];
+
+  // Ella map 3 (B6): decisions stranded off the active map, and a surface on the map with no active version
+  const stranded = (await runner.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM v_customer_match_current
+      WHERE decided_version_id IS DISTINCT FROM (SELECT id FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL)
+        AND NOT is_in_active_version`)).rows[0].n;
+  const surfacesWithoutMap = (await runner.query<{ code: string }>(
+    `SELECT code FROM v_dial_surface
+      WHERE model_code = 'map' AND NOT EXISTS (SELECT 1 FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL)
+      ORDER BY code`)).rows.map(r => `dial_surface ${r.code} is on the map with no active version`);
+  const c11 = check(11, 'Ella map: positions stay on the active map; a map surface has an active version',
+    [...(stranded ? [`${stranded} position(s) on a coffee not placed in the active version, decided on another version`] : []), ...surfacesWithoutMap],
+    '0 findings', n => `${n} finding(s)`);
+  return [c7, c8, c9, c10, c11];
 }
 
 // Boot log lines: one summary line, then one line per check with findings,

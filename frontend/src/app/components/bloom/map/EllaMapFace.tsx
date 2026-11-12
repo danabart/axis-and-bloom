@@ -27,6 +27,8 @@ export interface EllaMapFaceProps {
   highlightCoffeeId?: number | null;
   /** the highlighted coffee's hop set, drawn as lines from it */
   hops?: FaceHop[];
+  /** Ella map 3: coffee ids in order, joined by one line (the trail); ids not on the face are skipped */
+  path?: number[];
   size: 'thumb' | 'full';
   /**
    * What is printed beside each dot: 'name' (the coffee's name, cut short; the
@@ -44,7 +46,7 @@ const colorOf = (code: string) => ARCHETYPE_VISUALS[code]?.color ?? INK;
 const tintOf = (code: string) => ARCHETYPE_VISUALS[code]?.tint ?? '#e7e5e4';
 const HOP_DASH: Record<string, string | undefined> = { bolder: undefined, gentler: '10 8', different: '3 7', sibling: '1 5' };
 
-export default function EllaMapFace({ placements, wedges, seams = [], highlightCoffeeId = null, hops = [], size, labelMode, onTapCoffee }: EllaMapFaceProps) {
+export default function EllaMapFace({ placements, wedges, seams = [], highlightCoffeeId = null, hops = [], path = [], size, labelMode, onTapCoffee }: EllaMapFaceProps) {
   const g = faceGeometry(VIEW);
   const full = size === 'full';
   const labels = (labelMode ?? (full ? 'name' : 'none')) === 'name';
@@ -102,6 +104,14 @@ export default function EllaMapFace({ placements, wedges, seams = [], highlightC
         return <line key={`h-${h.relation}-${h.to_coffee_id}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y}
           stroke={INK} strokeOpacity={0.55} strokeWidth={3} strokeDasharray={HOP_DASH[h.relation]} />;
       })}
+
+      {/* the trail: the dots joined in order */}
+      {(() => {
+        const pts = path.map(id => dotById.get(id)).filter((d): d is NonNullable<typeof d> => !!d);
+        return pts.length > 1
+          ? <polyline points={pts.map(d => `${d.x},${d.y}`).join(' ')} fill="none" stroke={INK} strokeOpacity={0.45} strokeWidth={full ? 4 : 8} strokeLinejoin="round" strokeLinecap="round" />
+          : null;
+      })()}
 
       {/* dots */}
       {dots.map(d => {

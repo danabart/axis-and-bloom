@@ -109,7 +109,10 @@ afterAll(async () => {
   await q(`DELETE FROM household_member_role WHERE member_id IN (SELECT id FROM household_member WHERE household_id = ANY($1::uuid[]))`, [hh]);
   await q(`DELETE FROM household_member WHERE household_id = ANY($1::uuid[])`, [hh]);
   await q(`DELETE FROM household WHERE id = ANY($1::uuid[])`, [hh]);
-  await q(`DELETE FROM user_profile WHERE id = ANY($1::uuid[])`, [all]);
+  // Ella map 3 (2026-11-12): the quiz door now writes an insert-only match decision for each quiz, which no
+  // cleanup may delete (guard trigger); the marked profiles those decisions reference stay on the test DB.
+  await q(`DELETE FROM user_profile WHERE id = ANY($1::uuid[])
+             AND NOT EXISTS (SELECT 1 FROM customer_match_decision d WHERE d.user_id = user_profile.id OR d.actor_user_id = user_profile.id)`, [all]);
 }, 60000);
 
 describe('seeds and views', () => {

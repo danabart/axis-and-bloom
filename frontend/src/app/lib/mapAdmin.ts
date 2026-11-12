@@ -100,3 +100,22 @@ export const setFirstMatch = (f: ApiFetch, body: { archetype: string; lane: stri
   call<{ id: number; unchanged: boolean }>(f, `${B}/first-match`, json('PUT', body));
 export const setPhrase = (f: ApiFetch, body: { archetype: string | null; move: string; buttonLabel: string; moveLineTemplate?: string | null; edgePhrase?: string | null }) =>
   call<{ id: number; unchanged: boolean }>(f, `${B}/phrases`, json('PUT', body));
+
+// ── Ella's Bloom Map 3 (2026-11-12): the switch, the decisions, the customer words ──
+export interface SurfaceRow { id: number; code: string; label: string; model_code: string; model_label: string; updated_by: string | null; updated_at: string }
+export interface DecisionCandidate { coffee_id: number; coffee_name: string; move_code: string; rank: number; distance: string | number | null }
+export interface DecisionRow {
+  decision_id: string; canonical_user_id: string; user_id: string; actor_user_id: string | null; occurred_at: string; step: number;
+  move_code: string; source: string; source_id: string; version_label: string;
+  from_coffee_id: number | null; from_coffee_name: string | null; picked_coffee_id: number; picked_coffee_name: string;
+  inputs: Record<string, unknown>; candidates: DecisionCandidate[];
+}
+export interface CustomerCopyRow { id: number; code: string; text: string; decided_by: string | null; created_at: string }
+export const getSurfaces = (f: ApiFetch) => call<SurfaceRow[]>(f, `${B}/surfaces`);
+export const setSurface = (f: ApiFetch, code: string, model: 'lane' | 'map') =>
+  call<{ code: string; model: string; unchanged: boolean }>(f, `${B}/surfaces/${encodeURIComponent(code)}`, json('PATCH', { model }));
+export const getDecisions = (f: ApiFetch, userId?: string) =>
+  call<DecisionRow[]>(f, `${B}/decisions?limit=25${userId ? `&userId=${encodeURIComponent(userId)}` : ''}`);
+export const getCustomerCopy = (f: ApiFetch) => call<CustomerCopyRow[]>(f, `${B}/customer-copy`);
+export const setCustomerCopy = (f: ApiFetch, body: { code: string; text: string }) =>
+  call<{ id: number; unchanged: boolean }>(f, `${B}/customer-copy`, json('PUT', body));

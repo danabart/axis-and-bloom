@@ -2873,6 +2873,10 @@ ALTER TABLE dial_position_signal DROP COLUMN IF EXISTS suggested_vocabulary_id C
 -- before the grants at the end) read v_coffee, the pooled range, the cupping,
 -- portal and evidence views and the sellable candidates; dropped here, before
 -- any of those drop and recreate themselves, and recreated every boot.
+DROP VIEW IF EXISTS v_customer_match_trail;   -- Ella map 3: read v_dial_placement
+DROP VIEW IF EXISTS v_customer_match_current;
+DROP VIEW IF EXISTS v_dial_surface;
+DROP VIEW IF EXISTS v_dial_customer_copy;
 DROP VIEW IF EXISTS v_dial_face;
 DROP VIEW IF EXISTS v_dial_hop;
 DROP VIEW IF EXISTS v_dial_hop_preview;
@@ -2887,7 +2891,10 @@ DROP VIEW IF EXISTS v_dial_placement_input;
 DROP VIEW IF EXISTS v_dial_coffee_availability;
 DROP VIEW IF EXISTS v_coffee_lean_assignment_history;
 DROP FUNCTION IF EXISTS dial_hop_rows(TEXT);
+DROP FUNCTION IF EXISTS dial_hop_rows_from(INT);
+DROP FUNCTION IF EXISTS dial_hop_core(TEXT, INT);
 DROP FUNCTION IF EXISTS dial_edge_rows(TEXT);
+DROP FUNCTION IF EXISTS dial_edge_core(TEXT, INT);
 
 -- Cupping evidence brief 3 (2026-10-18): the reconciliation views (block
 -- near the end of this file) read v_coffee, v_coffee_slot, the portal hint,
@@ -11194,13 +11201,45 @@ JOIN dial_wedge w ON w.archetype_code = a.archetype_code;
 -- Every ordered pair of points that are both sellable, in one mode (Rev 3
 -- section 4). A function so the rule lives once and a read of one mode
 -- computes only that mode's points, once (MATERIALIZED).
-CREATE OR REPLACE FUNCTION dial_edge_rows(p_mode TEXT) RETURNS TABLE (
+-- Ella map 3 (2026-11-12, Dana's decision 4): the rule lives in dial_edge_core.
+-- p_from_coffee NULL: every sellable point of the mode is a start (brief 1's
+-- behaviour). p_from_coffee set (active mode): that one coffee is the start,
+-- from its placement in the active version or, when it has none there, its
+-- most recent placement in any version, read against the active version's
+-- parameters; it need not be sellable. Targets are always the mode's
+-- sellable points.
+CREATE OR REPLACE FUNCTION dial_edge_core(p_mode TEXT, p_from_coffee INT) RETURNS TABLE (
   mode TEXT, from_coffee_id INT, to_coffee_id INT, from_archetype archetype_enum, to_archetype archetype_enum, relation TEXT,
   distance NUMERIC, delta_ring INT, delta_body NUMERIC, delta_sweetness NUMERIC, delta_acidity NUMERIC, delta_bitterness NUMERIC,
   adjacency_rank INT, to_grade_rank SMALLINT, to_in_stock BOOLEAN, to_category_codes TEXT[],
   cap_different NUMERIC, min_grade_rank_hop_target NUMERIC
 ) LANGUAGE sql STABLE AS $fn$
 WITH pt AS MATERIALIZED (SELECT * FROM v_dial_point WHERE mode = p_mode),
+src AS MATERIALIZED (
+  SELECT * FROM pt WHERE p_from_coffee IS NULL AND pt.is_sellable
+  UNION ALL
+  SELECT * FROM (
+    SELECT 'active'::text AS mode, dp.coffee_id, dp.archetype_code, dp.is_center, dp.ring, l.code AS lane_code,
+           dp.acidity, dp.bitterness, dp.body, dp.sweetness, g.rank AS grade_rank,
+           (vc.is_active AND av.is_sellable) AS is_sellable, (vc.is_active AND av.in_stock) AS in_stock, vc.category_codes,
+           w.side_a_archetype, w.side_b_archetype,
+           (act.parameters->>'dial_w_ring')::numeric AS w_ring, (act.parameters->>'dial_w_body')::numeric AS w_body,
+           (act.parameters->>'dial_w_sweet')::numeric AS w_sweet, (act.parameters->>'dial_w_lane')::numeric AS w_lane,
+           (act.parameters->>'dial_cap_different')::numeric AS cap_different,
+           (act.parameters->>'dial_min_grade_rank_hop_target')::numeric AS min_grade_rank_hop_target
+    FROM dial_placement dp
+    JOIN dial_map_version v ON v.id = dp.version_id
+    JOIN dial_lane l ON l.id = dp.lane_id
+    JOIN dial_evidence_grade g ON g.id = dp.grade_id
+    JOIN v_coffee vc ON vc.id = dp.coffee_id
+    JOIN v_dial_coffee_availability av ON av.coffee_id = dp.coffee_id
+    JOIN dial_wedge w ON w.archetype_code = dp.archetype_code
+    CROSS JOIN (SELECT parameters FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL) act
+    WHERE p_from_coffee IS NOT NULL AND p_mode = 'active' AND dp.coffee_id = p_from_coffee
+    ORDER BY (v.activated_at IS NOT NULL AND v.retired_at IS NULL) DESC, v.cut_at DESC, dp.id DESC
+    LIMIT 1
+  ) one_start
+),
 pair AS (
   SELECT a.mode, a.coffee_id AS from_coffee_id, b.coffee_id AS to_coffee_id,
          a.archetype_code AS from_archetype, b.archetype_code AS to_archetype,
@@ -11211,9 +11250,9 @@ pair AS (
          b.acidity - a.acidity AS delta_acidity, b.bitterness - a.bitterness AS delta_bitterness,
          a.w_ring, a.w_body, a.w_sweet, a.w_lane, a.cap_different, a.min_grade_rank_hop_target,
          b.grade_rank AS to_grade_rank, b.in_stock AS to_in_stock, b.category_codes AS to_category_codes
-  FROM pt a
+  FROM src a
   JOIN pt b ON b.coffee_id <> a.coffee_id
-  WHERE a.is_sellable AND b.is_sellable
+  WHERE b.is_sellable
 ),
 rel AS (
   SELECT p.*,
@@ -11240,6 +11279,14 @@ SELECT r.mode, r.from_coffee_id, r.to_coffee_id, r.from_archetype, r.to_archetyp
 FROM rel r
 $fn$;
 
+-- Every ordered pair of sellable points in one mode (brief 1's signature).
+CREATE OR REPLACE FUNCTION dial_edge_rows(p_mode TEXT) RETURNS TABLE (
+  mode TEXT, from_coffee_id INT, to_coffee_id INT, from_archetype archetype_enum, to_archetype archetype_enum, relation TEXT,
+  distance NUMERIC, delta_ring INT, delta_body NUMERIC, delta_sweetness NUMERIC, delta_acidity NUMERIC, delta_bitterness NUMERIC,
+  adjacency_rank INT, to_grade_rank SMALLINT, to_in_stock BOOLEAN, to_category_codes TEXT[],
+  cap_different NUMERIC, min_grade_rank_hop_target NUMERIC
+) LANGUAGE sql STABLE AS $fn$ SELECT * FROM dial_edge_core(p_mode, NULL) $fn$;
+
 CREATE VIEW v_dial_edge_preview AS
 SELECT from_coffee_id, to_coffee_id, from_archetype, to_archetype, relation, distance,
        delta_ring, delta_body, delta_sweetness, delta_acidity, delta_bitterness,
@@ -11257,25 +11304,52 @@ FROM dial_edge_rows('active');
 -- (adjacency_rank, distance) with within_cap for the first cap_different,
 -- every sibling by distance. Unfiltered by category and stock: matchService
 -- (brief 3) applies the customer's filters on top.
+CREATE OR REPLACE FUNCTION dial_hop_core(p_mode TEXT, p_from_coffee INT) RETURNS TABLE (
+  mode TEXT, from_coffee_id INT, to_coffee_id INT, from_archetype archetype_enum, relation TEXT, distance NUMERIC, adjacency_rank INT,
+  delta_ring INT, delta_body NUMERIC, delta_sweetness NUMERIC, delta_acidity NUMERIC, delta_bitterness NUMERIC,
+  to_grade_rank SMALLINT, to_in_stock BOOLEAN, to_category_codes TEXT[], cap_different NUMERIC, rank INT, in_hop_set BOOLEAN,
+  to_archetype archetype_enum
+) LANGUAGE sql STABLE AS $fn$
+SELECT x.mode, x.from_coffee_id, x.to_coffee_id, x.from_archetype, x.relation, x.distance, x.adjacency_rank,
+       x.delta_ring, x.delta_body, x.delta_sweetness, x.delta_acidity, x.delta_bitterness,
+       x.to_grade_rank, x.to_in_stock, x.to_category_codes, x.cap_different, x.rank,
+       CASE WHEN x.relation IN ('bolder', 'gentler') THEN x.rank = 1
+            WHEN x.relation = 'different' THEN x.rank <= x.cap_different
+            ELSE true END AS in_hop_set,
+       x.to_archetype
+FROM (
+  SELECT e.mode, e.from_coffee_id, e.to_coffee_id, e.from_archetype, e.to_archetype, e.relation, e.distance, e.adjacency_rank,
+         e.delta_ring, e.delta_body, e.delta_sweetness, e.delta_acidity, e.delta_bitterness,
+         e.to_grade_rank, e.to_in_stock, e.to_category_codes, e.cap_different,
+         row_number() OVER (PARTITION BY e.from_coffee_id, e.relation
+                            ORDER BY e.adjacency_rank NULLS FIRST, e.distance, e.to_coffee_id)::int AS rank
+  FROM dial_edge_core(p_mode, p_from_coffee) e
+  WHERE e.to_grade_rank >= e.min_grade_rank_hop_target
+) x
+$fn$;
+
+-- brief 1's signature: every sellable start in a mode
 CREATE OR REPLACE FUNCTION dial_hop_rows(p_mode TEXT) RETURNS TABLE (
   mode TEXT, from_coffee_id INT, to_coffee_id INT, from_archetype archetype_enum, relation TEXT, distance NUMERIC, adjacency_rank INT,
   delta_ring INT, delta_body NUMERIC, delta_sweetness NUMERIC, delta_acidity NUMERIC, delta_bitterness NUMERIC,
   to_grade_rank SMALLINT, to_in_stock BOOLEAN, to_category_codes TEXT[], cap_different NUMERIC, rank INT, in_hop_set BOOLEAN
 ) LANGUAGE sql STABLE AS $fn$
-SELECT x.*,
-       CASE WHEN x.relation IN ('bolder', 'gentler') THEN x.rank = 1
-            WHEN x.relation = 'different' THEN x.rank <= x.cap_different
-            ELSE true END AS in_hop_set
-FROM (
-  SELECT e.mode, e.from_coffee_id, e.to_coffee_id, e.from_archetype, e.relation, e.distance, e.adjacency_rank,
-         e.delta_ring, e.delta_body, e.delta_sweetness, e.delta_acidity, e.delta_bitterness,
-         e.to_grade_rank, e.to_in_stock, e.to_category_codes, e.cap_different,
-         row_number() OVER (PARTITION BY e.from_coffee_id, e.relation
-                            ORDER BY e.adjacency_rank NULLS FIRST, e.distance, e.to_coffee_id)::int AS rank
-  FROM dial_edge_rows(p_mode) e
-  WHERE e.to_grade_rank >= e.min_grade_rank_hop_target
-) x
+SELECT mode, from_coffee_id, to_coffee_id, from_archetype, relation, distance, adjacency_rank,
+       delta_ring, delta_body, delta_sweetness, delta_acidity, delta_bitterness,
+       to_grade_rank, to_in_stock, to_category_codes, cap_different, rank, in_hop_set
+FROM dial_hop_core(p_mode, NULL)
 $fn$;
+
+-- Ella map 3 (decision 4): the ranked targets from one coffee on the active
+-- map, wherever that coffee is placed (active version, else its most recent
+-- placement) and whether or not it is sellable. matchService.moves reads
+-- every position through this, via dialReads.hopsFromCoffee.
+CREATE OR REPLACE FUNCTION dial_hop_rows_from(p_coffee_id INT) RETURNS TABLE (
+  mode TEXT, from_coffee_id INT, to_coffee_id INT, from_archetype archetype_enum, relation TEXT, distance NUMERIC, adjacency_rank INT,
+  delta_ring INT, delta_body NUMERIC, delta_sweetness NUMERIC, delta_acidity NUMERIC, delta_bitterness NUMERIC,
+  to_grade_rank SMALLINT, to_in_stock BOOLEAN, to_category_codes TEXT[], cap_different NUMERIC, rank INT, in_hop_set BOOLEAN,
+  to_archetype archetype_enum
+) LANGUAGE sql STABLE AS $fn$ SELECT * FROM dial_hop_core('active', p_coffee_id) $fn$;
 
 CREATE VIEW v_dial_hop_preview AS
 SELECT from_coffee_id, to_coffee_id, from_archetype, relation, rank, in_hop_set, (relation = 'different' AND rank <= cap_different) AS within_cap,
@@ -11397,6 +11471,185 @@ JOIN dial_lane l ON l.id = a.lane_id
 LEFT JOIN dial_lane sl ON sl.id = a.suggested_lane_id;
 
 -- ═══════════════════════════════════════════════════════════════════════════
+-- Ella's Bloom Map 3 (2026-11-12): the switch, the customer's words, and the
+-- match decision log. Additive; nothing existing is altered.
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_3_MATCH_AND_CUSTOMER.md
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- CTO call 1: the switch is data. Every surface starts on the lane dial;
+-- brief 4 flips rows (dialPlacementService.setSurfaceModel).
+CREATE TABLE IF NOT EXISTS dial_model (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL
+);
+INSERT INTO dial_model (code, label) VALUES
+  ('lane', 'Lane dial (slots)'), ('map', 'Ella''s Bloom Map')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS dial_surface (
+  id         SERIAL PRIMARY KEY,
+  code       TEXT NOT NULL UNIQUE,
+  label      TEXT NOT NULL,
+  model_id   INT NOT NULL REFERENCES dial_model(id),
+  updated_by TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO dial_surface (code, label, model_id)
+SELECT v.code, v.label, (SELECT id FROM dial_model WHERE code = 'lane')
+FROM (VALUES
+  ('customer_face', 'The map page (/map)'),
+  ('quiz_result',   'Quiz result'),
+  ('profile_trail', 'Profile trail'),
+  ('reorder_email', 'Dial-in email buttons'),
+  ('liam_context',  'Liam''s catalog context'),
+  ('qr_door',       'Bag QR door'),
+  ('axis_stats',    'Axis stats')
+) v(code, label)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE VIEW v_dial_surface AS
+SELECT s.id, s.code, s.label, m.code AS model_code, m.label AS model_label, s.updated_by, s.updated_at
+FROM dial_surface s
+JOIN dial_model m ON m.id = s.model_id;
+
+-- Dana's decision 4 (2026-11-12): every customer sentence the map needs, by
+-- code; supersede-only (one current row per code); {coffee} and {substitute}
+-- are filled by matchService. Seeds insert only when the code never had a row.
+CREATE TABLE IF NOT EXISTS dial_customer_copy (
+  id            SERIAL PRIMARY KEY,
+  code          TEXT NOT NULL,
+  text          TEXT NOT NULL,
+  decided_by    TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  superseded_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dial_customer_copy_one_current ON dial_customer_copy (code) WHERE superseded_at IS NULL;
+INSERT INTO dial_customer_copy (code, text, decided_by)
+SELECT v.code, v.text, 'seed'
+FROM (VALUES
+  ('start_at_base',       'You start at the base. Every direction is one step away.'),
+  ('start_here',          'You start here: {coffee}'),
+  ('no_longer_available', '{coffee} has finished its run. Its nearest match is {substitute}.'),
+  ('choose_this',         'Choose this'),
+  ('see_whole_map',       'See the whole map'),
+  ('trail_title',         'Your trail'),
+  ('trail_start',         'Your start'),
+  ('moved_to',            'Your next coffee: {coffee}'),
+  ('email_map_intro',     'Your next bag, one tap away:')
+) v(code, text)
+WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = v.code);
+
+CREATE VIEW v_dial_customer_copy AS
+SELECT id, code, text, decided_by, created_at
+FROM dial_customer_copy
+WHERE superseded_at IS NULL;
+
+-- CTO call 2: the decision log. Insert-only (the guard trigger and the
+-- customer_% grant); no verdict column, ever (Rev 3 section 5). Written by
+-- customerFacts.matchDecision, called only by matchService.decide.
+CREATE TABLE IF NOT EXISTS customer_match_decision (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          UUID NOT NULL REFERENCES user_profile(id),
+  actor_user_id    UUID REFERENCES user_profile(id),
+  occurred_at      TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', clock_timestamp()),
+  recorded_at      TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', clock_timestamp()),
+  version_id       INT NOT NULL REFERENCES dial_map_version(id),
+  move_id          INT NOT NULL REFERENCES dial_move(id),
+  from_coffee_id   INT REFERENCES coffees(id),
+  picked_coffee_id INT NOT NULL REFERENCES coffees(id),
+  source           TEXT NOT NULL,
+  source_id        TEXT NOT NULL,
+  inputs           JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', clock_timestamp()),
+  UNIQUE (source, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_customer_match_decision_user ON customer_match_decision (user_id, occurred_at);
+
+-- The Customer Blueprint's common fact columns too (customerIntegrity check 4):
+-- source is the decision's, source_id the decision's key with the move and coffee.
+CREATE TABLE IF NOT EXISTS customer_match_candidate (
+  id          SERIAL PRIMARY KEY,
+  decision_id UUID NOT NULL REFERENCES customer_match_decision(id),
+  coffee_id   INT NOT NULL REFERENCES coffees(id),
+  move_id     INT NOT NULL REFERENCES dial_move(id),
+  rank        SMALLINT NOT NULL,
+  distance    NUMERIC,
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', clock_timestamp()),
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', clock_timestamp()),
+  source      TEXT NOT NULL,
+  source_id   TEXT NOT NULL,
+  CONSTRAINT customer_match_candidate_one UNIQUE (decision_id, coffee_id, move_id),
+  UNIQUE (source, source_id)
+);
+
+CREATE OR REPLACE FUNCTION customer_match_insert_only() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'match decisions are insert-only (% on %): the next decision is the position', TG_OP, TG_TABLE_NAME
+    USING ERRCODE = 'integrity_constraint_violation';
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS customer_match_decision_guard ON customer_match_decision;
+CREATE TRIGGER customer_match_decision_guard BEFORE UPDATE OR DELETE ON customer_match_decision
+  FOR EACH ROW EXECUTE FUNCTION customer_match_insert_only();
+DROP TRIGGER IF EXISTS customer_match_candidate_guard ON customer_match_candidate;
+CREATE TRIGGER customer_match_candidate_guard BEFORE UPDATE OR DELETE ON customer_match_candidate
+  FOR EACH ROW EXECUTE FUNCTION customer_match_insert_only();
+
+-- CTO call 3 / R3.9: every decision per canonical user in order, with the
+-- picked coffee's cell on the active version (NULL when it is not placed there).
+CREATE VIEW v_customer_match_trail AS
+SELECT d.id AS decision_id, vci.canonical_user_id, d.user_id, d.actor_user_id, d.occurred_at, d.created_at,
+       d.version_id, v.label AS version_label, m.code AS move_code,
+       d.from_coffee_id, d.picked_coffee_id, c.name AS picked_coffee_name,
+       d.source, d.source_id, d.inputs,
+       p.archetype_code AS active_archetype_code, p.is_center AS active_is_center,
+       p.ring AS active_ring, p.lane_code AS active_lane_code, p.size AS active_size,
+       row_number() OVER (PARTITION BY vci.canonical_user_id ORDER BY d.occurred_at, d.created_at, d.id)::int AS step
+FROM customer_match_decision d
+JOIN v_customer_identity vci ON vci.user_id = d.user_id
+JOIN dial_map_version v ON v.id = d.version_id
+JOIN dial_move m ON m.id = d.move_id
+JOIN coffees c ON c.id = d.picked_coffee_id
+LEFT JOIN v_dial_placement p ON p.coffee_id = d.picked_coffee_id;
+
+-- CTO call 3: the position is the latest decision per canonical user, with
+-- the coffee's placement in the active version or, when it has none there,
+-- its most recent placement in any version (is_in_active_version false).
+CREATE VIEW v_customer_match_current AS
+WITH latest AS (
+  SELECT DISTINCT ON (vci.canonical_user_id) vci.canonical_user_id, d.*
+  FROM customer_match_decision d
+  JOIN v_customer_identity vci ON vci.user_id = d.user_id
+  ORDER BY vci.canonical_user_id, d.occurred_at DESC, d.created_at DESC, d.id DESC
+)
+SELECT l.canonical_user_id, l.id AS decision_id, l.user_id, l.actor_user_id, l.occurred_at,
+       l.version_id AS decided_version_id, m.code AS move_code, l.source,
+       l.picked_coffee_id AS coffee_id, c.name AS coffee_name,
+       (a.coffee_id IS NOT NULL) AS is_in_active_version,
+       COALESCE(a.version_id, h.version_id) AS placement_version_id,
+       COALESCE(a.archetype_code, h.archetype_code) AS archetype_code,
+       COALESCE(a.is_center, h.is_center) AS is_center,
+       COALESCE(a.ring, h.ring) AS ring,
+       COALESCE(a.lane_code, h.lane_code) AS lane_code,
+       COALESCE(a.size, h.size) AS size,
+       (c.is_active AND COALESCE(av.is_sellable, false)) AS is_sellable,
+       (c.is_active AND COALESCE(av.in_stock, false)) AS in_stock
+FROM latest l
+JOIN dial_move m ON m.id = l.move_id
+JOIN coffees c ON c.id = l.picked_coffee_id
+LEFT JOIN v_dial_coffee_availability av ON av.coffee_id = l.picked_coffee_id
+LEFT JOIN v_dial_placement a ON a.coffee_id = l.picked_coffee_id
+LEFT JOIN LATERAL (
+  SELECT dp.version_id, dp.archetype_code, dp.is_center, dp.ring, ln.code AS lane_code, dp.size
+  FROM dial_placement dp
+  JOIN dial_map_version v ON v.id = dp.version_id
+  JOIN dial_lane ln ON ln.id = dp.lane_id
+  WHERE dp.coffee_id = l.picked_coffee_id
+  ORDER BY v.cut_at DESC, dp.id DESC
+  LIMIT 1
+) h ON a.coffee_id IS NULL;
+
+-- ═══════════════════════════════════════════════════════════════════════════
 -- END ELLA'S BLOOM MAP 1 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
@@ -11486,6 +11739,9 @@ REVOKE UPDATE, DELETE, TRUNCATE ON dial_placement, dial_ring_cut, dial_size_cut 
 REVOKE DELETE, TRUNCATE ON dial_map_version FROM ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON coffee_lean_assignment, dial_first_match, dial_hop_phrase, dial_delta_phrase FROM ab_app;
 GRANT UPDATE (superseded_at) ON coffee_lean_assignment, dial_first_match, dial_hop_phrase, dial_delta_phrase TO ab_app;
+-- Ella map 3 (2026-11-12): customer copy is supersede-only too
+REVOKE UPDATE, DELETE, TRUNCATE ON dial_customer_copy FROM ab_app;
+GRANT UPDATE (superseded_at) ON dial_customer_copy TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
 -- Liam brand answers (2026-10-24): supersede only. The one UPDATE the writer
 -- makes sets superseded_at; nothing is ever deleted (lint:customer rule 8 is

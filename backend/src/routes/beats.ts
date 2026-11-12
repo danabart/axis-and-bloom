@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { respondToDialInBeat, resolveDialInBeatIdByRespondToken } from '../services/beatEngine.js';
+import { respondToDialInBeat, resolveDialInBeatIdByRespondToken, resolveDialInBeatOwnerByRespondToken } from '../services/beatEngine.js';
+import { decide as matchDecide, MatchError, CUSTOMER_MOVES } from '../services/matchService.js';
+import { customerCopy } from '../services/dialReads.js';
 import { renderResponsePage } from '../lib/responsePage.js';
 
 const router = Router();
@@ -28,6 +30,40 @@ const router = Router();
 router.get('/dial-in/:token/respond', async (req, res) => {
   const { token } = req.params;
   const expectation = req.query.expectation as string | undefined;
+
+  // Ella's Bloom Map 3 (CTO call 9, Dana's decision 5): the map buttons the
+  // email carries when reorder_email says map. The link carries the move; the
+  // server picks the move set's top-ranked coffee at click time, through the
+  // one door. Idempotent per beat and move (source beat, source_id
+  // <beat_event id>:<move>). The expectation path below is unchanged.
+  const move = req.query.move as string | undefined;
+  if (move !== undefined) {
+    if (!token || !(CUSTOMER_MOVES as readonly string[]).includes(move)) {
+      res.status(400).send(renderResponsePage('That link looks incomplete — nothing was recorded.'));
+      return;
+    }
+    try {
+      const beat = await resolveDialInBeatOwnerByRespondToken(token);
+      if (beat === null) {
+        res.status(404).send(renderResponsePage('That link is no longer valid — nothing was recorded.'));
+        return;
+      }
+      const result = await matchDecide({
+        userId: beat.userId, trigger: 'hop', move, pickTopRanked: move !== 'stay',
+        source: 'beat', sourceId: `${beat.id}:${move}`,
+      });
+      const copy = await customerCopy();
+      res.send(renderResponsePage((copy.moved_to ?? '').replaceAll('{coffee}', result.pickedCoffeeName ?? '')));
+    } catch (err) {
+      if (err instanceof MatchError) {
+        res.status(err.status).send(renderResponsePage(err.message));
+        return;
+      }
+      console.error('[beats/dial-in/respond move]', err);
+      res.status(500).send(renderResponsePage('Something went wrong on our end — no changes were made.'));
+    }
+    return;
+  }
 
   if (!token || !['lighter', 'as_expected', 'bolder'].includes(expectation ?? '')) {
     res.status(400).send(renderResponsePage('That link looks incomplete — nothing was recorded.'));

@@ -6,7 +6,7 @@
   - Dana then cut and activated version 1, so this run passes the gate.
 - **Mode:** test. Every `dial_surface` row will stay `lane`.
 
-**Status: Task 0 is done (read-only). Stopped for Dana before Part A.** Seven questions are open (section "Decisions needed").
+**Status: built and accepted in test mode after Dana's decisions of 2026-11-12 (Task 0 below; the seven questions it raised are answered in "Dana's decisions after Task 0").** Every `dial_surface` row is `lane`; `/map` is admin-only.
 
 ---
 
@@ -59,7 +59,7 @@
 |---|---|---|---|---|---|---|
 | 1 | **L0** | active | `cptmb666…` | 2026-11-12 18:17:01 | 2026-11-12 18:17:09 | "L0-test cut" |
 
-It is the only version on production. Its label is `L0` and its reason says "test cut"; this report treats it as version 1, as Dana's message says.
+It is the only version on production. **L0 is version 1** (Dana 2026-11-12, decision 9) and is recorded under that label.
 
 ### Parameter snapshot (`dial_map_version.parameters`)
 All 26 are equal to the seed values. No `dial_` parameter has ever been superseded on production.
@@ -265,7 +265,7 @@ The rule's words are taken literally; the fallback is a placed, sellable, in-sto
 
 ---
 
-## Contradictions and decisions needed (STOP)
+## Contradictions and decisions needed (Task 0's STOP; answered below)
 
 1. **Decaf source.**
    - CTO call 5 says "a customer whose quiz says decaf". The quiz always sends `decaf: false`, so the filter would never be on.
@@ -309,3 +309,118 @@ The rule's words are taken literally; the fallback is a placed, sellable, in-sto
 ## Considered and not changed
 - **CATALOG check (G2.4):** the brief's reasons stand. `customer_dial_event` and `user_bloom_dial_current_position` are slot-keyed and written by the old dial door. `customer_liam_recommendation` is Liam's own log. No table records a match decision with its candidates. `dial_surface` and `dial_model` are new vocabularies (G2.7).
 - **Nothing written in Task 0** beyond the pre-step's 5 production rows and 7 test rows in `dial_hop_phrase`, and their 2 production and 2 test supersede stamps.
+
+---
+
+## Dana's decisions after Task 0 (2026-11-12)
+1. **Decaf:** the brew profile's decaf setting first, the quiz flag second; the source used goes into `inputs` (`decaf_source`).
+2. **Delicate:** as written: every delicate result starts on the Fruity wedge's Floral side.
+3. **Backup rule tie-break:** the asked lane first, then the lowest coffee id. First-match picks stay editable on the workbench; no seeding beyond Benchmark.
+4. **Moves from any placement:** one database function computing moves from any placement, sharing the distance rule. The customer sentences live in a new lookup, `dial_customer_copy` (code, text, `superseded_at`; writer `dialPlacementService.setCustomerCopy`, read by the customer API), seeded with `no_longer_available`, `start_at_base` ("You start at the base. Every direction is one step away.") and `start_here` ("You start here: {coffee}"). Nothing typed into code.
+5. **Email buttons:** the link carries the move; the server picks the top-ranked option at click time.
+6. **Household:** the existing private check exported as `assertMayTurnDialFor`; no new logic.
+7. **Price:** `/map` shows no price and no add-to-cart in this brief; its only card action is the decide door ("Choose this", from `dial_customer_copy`). Nothing on the map reads a slot. Brief 4 moves prices (OT-125).
+8. **Move lines:** one default template "{label} than {from}: {deltas}", where {label} is the family's resolved button label. Guarded one-time update like the labels.
+9. **L0 is version 1** and is recorded under that label.
+
+The test DB was refreshed from production before Part A (2026-11-12 18:40 UTC): L0 is active there, with the 8 leans and the new button labels.
+
+## What was built
+
+### Part A — Schema (additive, idempotent; `comments.sql` for every object)
+- **`dial_model`** (lane, map) and **`dial_surface`** (customer_face, quiz_result, profile_trail, reorder_email, liam_context, qr_door, axis_stats; `model_id`, `updated_by`, `updated_at`), every row seeded `lane`; **`v_dial_surface`**.
+- **`dial_customer_copy`** (decision 4): `code`, `text`, `decided_by`, `created_at`, `superseded_at`; one current row per code (partial unique index, so `code` is not UNIQUE on its own: the supersede history needs older rows); the request pool may UPDATE only `superseded_at`. Seeds (insert only when a code never had a row): the three Dana named, plus six the pages need so nothing is typed in: `choose_this` "Choose this", `see_whole_map` "See the whole map", `trail_title` "Your trail", `trail_start` "Your start", `moved_to` "Your next coffee: {coffee}" (the email tap's confirmation page), `email_map_intro` "Your next bag, one tap away:". The `no_longer_available` wording is mine: "{coffee} has finished its run. Its nearest match is {substitute}." All are editable on the workbench. **`v_dial_customer_copy`**.
+- **`customer_match_decision`** (CTO call 2): `id UUID`, `user_id`, `actor_user_id`, `occurred_at`, `version_id`, `move_id`, `from_coffee_id`, `picked_coffee_id`, `source`, `source_id`, `inputs JSONB`, `created_at`; UNIQUE (source, source_id). **`customer_match_candidate`**: `id SERIAL`, `decision_id`, `coffee_id`, `move_id`, `rank`, `distance`; UNIQUE (decision_id, coffee_id, move_id). A guard trigger (`customer_match_insert_only`) raises on UPDATE and DELETE of either; the `customer_%` grant already revokes them from the request pool. `occurred_at` and `created_at` default to `clock_timestamp()`, so two decisions in one transaction still order (the tests found this).
+- **`v_customer_match_current`** and **`v_customer_match_trail`** per the brief, folded through `v_customer_identity`.
+- **The edge rule, once (decision 4):** brief 1's `dial_edge_rows` body became `dial_edge_core(mode, from_coffee)`. With no `from_coffee` it is brief 1's behaviour, every sellable point as a start. With one, that coffee is the only start: its active placement, else its most recent placement in any version, read against the active version's parameters, sellable or not. Targets are always the mode's sellable points. `dial_hop_core` ranks it (and also returns `to_archetype`). `dial_edge_rows` / `dial_hop_rows` are now one-line wrappers, so `v_dial_edge*` / `v_dial_hop*` are unchanged: on the refreshed test DB `v_dial_hop` and `v_dial_hop_preview` return the same 42 rows with the same rank and distance sums as production's. New: **`dial_hop_rows_from(coffee_id)`**.
+- No column was added to an existing table.
+
+### Part B — Backend
+- **`matchService`** (new, the one door, G2.6):
+  - `decide({ userId, actorUserId?, trigger, move, pickedCoffeeId?, pickTopRanked?, source, sourceId, quizSessionId?, inputs? })`: re-selects first when `(source, source_id)` exists; needs an active version.
+    - `quiz_result` resolves the first match (CTO call 4 with decisions 2 and 3; `inputs.rule` is `founder_pick`, `derived`, `center_founder_pick` or `center_derived`, with `asked_cell`).
+    - `stay` re-picks the position; `bolder` / `gentler` / `different` must name a coffee in the caller's current move set, recomputed server-side (409 `NOT_IN_MOVE_SET`, or `EDGE`); `pickTopRanked` (the email) takes rank 1.
+    - `liam` names its coffee and may be the first decision (brief 4 wires it).
+    - Writes the decision and its candidates in one transaction through **`customerFacts.record.matchDecision`**: lint:customer allows `customer_*` inserts only in `customerFacts.ts`, so the INSERT lives there and `matchService.decide` is its only caller. Like every recorder it also has an owner-only `.backfill` (unused; OT-124).
+  - `moves(userId)`: the position from `v_customer_match_current`; the targets from `dial_hop_rows_from`, filtered here (in stock, the decaf tag rule, the cap after the filters, the quiz secondary's wedge first from the center); the four labels and edge phrases from `dial_hop_phrase` for the position's family; each card's move line (`composeMoveLine`), signature notes (`getCardPresentations`) and compatibility sentence (`compareCoffee` against the quiz match family). A position that is not in the active version, not sellable or not in stock gets `available: false`, the `no_longer_available` sentence and the substitute (the nearest sibling, else the nearest same-family target).
+  - `me(userId)`: the position, its sentence (`start_at_base` at the center, `start_here` otherwise, or `no_longer_available`), the trail with each step's move word (the family's button label; `trail_start` for the quiz) and whether it is on the active map.
+  - `customerContext`, `firstMatchFor`, `rankMoves` (pure), `mapAccess`, `face`, `surfaceModels`.
+- **`routes/map.ts`** at `/api/map` (`requireAuth`): `GET /surfaces`, `GET /face`, `GET /me`, `GET /moves`, `POST /decide { move, coffeeId?, forMemberId?, requestId? }` (`requestId`, a client UUID, makes a retried tap idempotent). Every read is the caller's own, or a member's through `assertMayTurnDialFor` with the caller recorded as actor. Open to admins; to a customer only when a surface the call serves says `map` (403 `map_not_open` otherwise).
+- **Quiz door** (CTO call 7): after the interpretation, `decide({ trigger: 'quiz_result', source: 'quiz', source_id: <session> })`, with the proxy's actor; a failure is logged (`[quiz/match-decision]`) and never fails the quiz.
+- **Beats** (CTO call 9, decision 5): `processDueDialInBeats` adds the four moves as links (`?move=`) to the dial-in email only when `reorder_email` says `map` (the template is byte-for-byte unchanged otherwise); `GET /dial-in/:token/respond?move=` resolves the beat's owner (`beatEngine.resolveDialInBeatOwnerByRespondToken`) and decides with `source beat`, `source_id <beat id>:<move>`. The `expectation` path is unchanged.
+- **Admin:** `GET /surfaces`, `PATCH /surfaces/:code { model }` (`dialPlacementService.setSurfaceModel`), `GET /decisions?userId=` (recent decisions with candidates, `customerReads.getMatchDecisions`), `GET` / `PUT /customer-copy` (`setCustomerCopy`).
+- **`householdService.assertMayTurnDialFor`** (decision 6): `dialTarget`, exported in its own transaction.
+- **Reads:** `dialReads.hopsFromCoffee`, `customerFace`, `activeVersion`, `surfaces`, `surfaceIsMap`, `customerCopy`, `customerCopyRows`, `firstMatchFor`, `moveIds`, `hopCounts`; `customerReads.getMatchCurrent`, `getMatchTrail`, `getMatchDecisionBySource`, `getMatchDecisions`, `getMatchQuizContext`, `getCurrentQuizSessionId`, `getBrewDecafByProfile`.
+- **Move lines (decision 8):** `composeMoveLine` fills `{label}` with the family's resolved button label. The default rows' templates were superseded through `setHopPhraseInTx` by `backend/tmp/em3_templates.mts` (guarded: only while the template is still brief 1's seed text): on the test DB before acceptance; on production after the deploy (Deploy section). Family rows keep their NULL template.
+- **Integrity:** check 11 (positions on a coffee not placed in the active version and decided on another version; a surface on `map` with no active version); check 9 adds `dial_model`, `dial_surface` and the nine customer copy codes.
+
+### Part C — Frontend
+- **`/map`** (`components/bloom/map/MapPage.tsx`), routed `PrelaunchGate` > `AdminRoute` next to `/bloom`:
+  - the thumb face with the position highlighted, and the copy's "See the whole map" opening the full face in a sheet (names on, no seams; tap only);
+  - the position card (name, signature notes, compatibility sentence, the "no longer available" sentence when it applies);
+  - Same again as the primary button; Bolder / Gentler / Something different in the family's words, each revealing its cards (one, one, up to the cap) with the move line leading; "Choose this" decides and the page re-reads `/moves`; an edge renders the button quiet with its phrase.
+  - Every word comes from the API; nothing names a ring, lane, cell, seam, grade or version.
+- **Quiz result** (`MapQuizStart`, inside the "Your match" block of `FlavorQuiz`): when `quiz_result` says `map`, the API's sentence and the thumb face; re-reads when the save lands.
+- **Profile** (`MapTrail`, in the Flavor Memory column after Brew cards): when `profile_trail` says `map`, "Your trail" as a story (move word, coffee) beside the face with the dots joined (`EllaMapFace` gains a generic `path` prop).
+- **Workbench:** Surfaces (switch with a confirmation naming the surface), Decisions (recent decisions with candidates, filter by profile id) and Customer words cards.
+- `lib/mapCustomer.ts` (the customer calls, `useMapFetch`), `lib/mapAdmin.ts` additions.
+
+### Part D — Tests
+- **`matchService.test.ts`, 10 cases**, on the refreshed test DB (version 1 as Dana cut it), every write in a rolled-back transaction:
+  1. Balanced → the center founder pick, a repeat of the session writes one row; a delicate Floral result asks for fruity × its Floral side; with the chocolate founder row superseded, the fallback picks exactly the order the rule gives (and the candidate list matches); Earthy falls to the center.
+  2. A coffee outside the move set is refused; `stay` re-picks; a beat tap takes rank 1 and records `picked_by`; `assertMayTurnDialFor` refuses a stranger and returns the member for the house's dial-turner, and the actor is recorded.
+  3. `rankMoves`: decaf sees decaf only, nobody else does; out of stock drops; the cap after the filters; the center ranks the quiz secondary first (and only from the center). On L0: a decaf customer (quiz flag) meets only edges or decaf cards; an out-of-stock target disappears; an edge carries its phrase; every card's move line starts with the move's label.
+  4. Latest decision wins and the trail is in order; a coffee placed only in an older version keeps the position with `is_in_active_version = false`, a substitute and its sentence.
+  5. Every surface `lane` by seed; `setSurfaceModel` flips one row; the quiz door writes whatever `quiz_result` says; customer copy supersedes.
+  6. UPDATE and DELETE on a decision or a candidate raise.
+- Updated: `mapAdmin.test.ts` (the fruity override falls back to the default row's template, now read from the row), `customerFacts.test.ts` (the export list adds `matchDecision`), `dataCatalogIntegrity.test.ts` (11 checks, check 11 clean).
+- Map, route, integrity, comment-format, `customerFacts`, `lintCustomer`, `matchService`, `customerIntegrity` and `householdProxy` suites: **55 passed**.
+- **Full backend run (OT-117 re-measured, `npx vitest run src`, refreshed test DB): 26 failed / 1200 passed / 6 skipped in 104 files** on the first run. Two were this brief's, both fixed and re-run green:
+  - `customerIntegrity` check 4: every `customer_*` table carries the Customer Blueprint's common fact columns. `customer_match_decision` gained `recorded_at`; `customer_match_candidate` gained `occurred_at`, `recorded_at`, `source` (the decision's) and `source_id` (`<decision source_id>:<move_id>:<coffee_id>`) with UNIQUE (source, source_id).
+  - `householdProxy` cleanup: its proxy quizzes now write insert-only decisions, so the cleanup leaves the marked profiles those decisions reference (test DB only) instead of failing on the FK.
+  - The rest are the brief 9 baseline (evidenceViews, quizScoring 6, evidenceAdmin 3, sommelierEval 2, sommelierRag 2, sommelierAnswer 1, catalogService 1, schema.catalog_blueprint 1) plus production data the refresh brought: **"The Waverly" (coffee 2936) is active with no current archetype assignment on production**, which fails catalog integrity check 6 and with it `guard.test` and both `catalogImport` cases; evidenceViews has one more failing case on the refreshed data. `lintCustomer` and `qrDoor` pass now. Frontend: **151 passed**. Backend `tsc` clean; frontend `tsc` shows the 7 known errors, none in this brief's files. **All six lints clean.**
+
+## Acceptance (test mode, local backend :4917 on the test DB, Vite :5173)
+The admin was a marked test user, "Zzz Test Admin (Ella map 3)" (Firebase uid `3qni4ivj…`, admin `user_profile` row `4b3c09f0…` in the test DB only). It was demoted and its Firebase user disabled afterwards. `/api/users/profile` was stubbed in the browser only, as in brief 2. Scripts: `backend/tmp/em3_api.mjs`, `em3_ui.mjs`, `em3_repeat.mts`.
+
+- **Quiz result writes one decision:** `POST /api/quiz/results` with a real v2.2 Chocolate & Nutty answer set (session `89bf4803…`). Before it `/api/map/me` had no position; after it the position is **Tiger Stripe Espresso** (`derived`: no chocolate founder pick; Tiger Stripe and Fabricator tie on ring 1 and 6 hops, neither in the asked middle lane, lowest id), sentence "You start here: Tiger Stripe Espresso".
+- **A second call for the same session writes nothing new:** `decide` again for session `89bf4803…` returned `created: false`; 1 row before, 1 after.
+- **Moves, per-family labels:** from Tiger Stripe: Same again / **Bolder** / **Lighter** / Something different. Bolder shows one card, "Bolder than Tiger Stripe Espresso: softer, more bite, more body" (Blossom); Lighter, "Lighter than Tiger Stripe Espresso: softer, a touch sweeter, less bite, lighter" (Benchmark); Something different, three cards (The Village, Feminista, La Familia).
+- **A coffee outside the set is refused:** bolder to Benchmark answered 409 `NOT_IN_MOVE_SET`.
+- **Go writes the decision and the page moves:** bolder → Blossom (`d7c6fbf5…`). From Blossom, Bolder is the edge ("You're at the edge of the map here"); Lighter is "Lighter than Blossom Dark Roast: brighter, less bite, lighter" (Dana's example). **Same again** wrote `stay` on Blossom (`3bba2689…`).
+- **In the browser at phone width (390 px):** the position card, the buttons (Bolder quiet with its phrase), Something different revealing three cards with their move lines, the full face sheet, and "Choose this" on Feminista moving the page, whose buttons became Fruity's words (Same again / **Brighter** / **More delicate** / Something different).
+- **Decaf:** a quiz with `decaf: true` saved (200); the door logged `[quiz/match-decision] MatchError: No coffee qualifies as a first match on the active map` and the quiz was unaffected; `/moves` shows every move at its edge with its phrase (OT-126).
+- **Surfaces:** all seven `lane` (`GET /api/map/surfaces`). `quiz_result` and `profile_trail` were switched to `map` on the test DB only for the two screenshots, then back to `lane`; with `profile_trail` on `lane` the profile shows no trail (checked in the browser).
+- **The quiz result piece**, run through the real quiz in the browser: "Your match · Balanced · …" and, beside the thumb face with the dot at the center, "You start at the base. Every direction is one step away."
+- **The workbench:** Surfaces lists the seven rows on Lane; Decisions lists the five decisions above with their candidates and rules (`derived`, `founder_pick`).
+
+**Screenshots** (this folder):
+- `map3_map_phone.png`: `/map` at phone width on Blossom (Bolder at its edge).
+- `map3_map_revealed.png`: Something different revealed, three cards with move lines.
+- `map3_full_face_sheet.png`: the full face sheet.
+- `map3_map_after_go.png`: after "Choose this" on Feminista (Fruity's words).
+- `map3_quiz_result_piece.png`, `map3_profile_trail.png`: the quiz and profile pieces with their rows forced to `map` on the test DB.
+- `map3_workbench_surfaces.png`, `map3_workbench_decisions.png`.
+
+![map](map3_map_revealed.png) ![trail](map3_profile_trail.png)
+
+## Deviations
+1. **`dial_customer_copy.code` is unique among current rows** (partial unique index), not UNIQUE outright: the table is supersede-only like `dial_hop_phrase`, so older rows share the code.
+2. **Six more copy codes** beyond the three named (`choose_this`, `see_whole_map`, `trail_title`, `trail_start`, `moved_to`, `email_map_intro`), so the pages type in nothing; the `no_longer_available` wording is mine. All are editable on the workbench (a Customer words card: one card more than C4 lists, for the writer decision 4 named).
+3. **The decision INSERT lives in `customerFacts.record.matchDecision`**, called only by `matchService.decide`: lint:customer rule 1 allows `customer_*` inserts in `customerFacts.ts` only. `matchService.decide` remains the one door; the `Writer:` field names both.
+4. **Every position reads its moves through `dial_hop_rows_from`**, not `v_dial_hop`: the same ranking from the same rule (`dial_hop_core`), for one start, which also covers the positions decision 4 is about.
+5. **`occurred_at` / `created_at` default to `clock_timestamp()`** (not `now()`), so the latest decision is well defined within one transaction.
+6. **`GET /api/map/surfaces`** is an addition: the quiz and profile pieces need to know their row (an admin may always call `/me`, so the call's success cannot be the switch).
+7. **The customer face carries no seams and the trail carries no cells:** the brief's "nothing on the page names a ring, lane, cell, seam, grade or version" is applied to the API payload too.
+8. **The first-match lane rule** (center and Fruity on `side_a`, others `middle`; delicate to Fruity's Floral side) is written in `matchService` as CTO call 4 states it; the family codes are the rule's own words. A lookup would make it editable if Dana wants that later.
+9. **The single default template** (decision 8) also covers *different*, so its lines read "Something different than Tiger Stripe Espresso: …".
+10. **`customer_match_candidate` carries the common fact columns** (`occurred_at`, `recorded_at`, `source`, `source_id`) beyond CTO call 2's list, and the decision carries `recorded_at`: customerIntegrity check 4 requires them on every `customer_*` table.
+11. **`householdProxy.test.ts` cleanup** keeps the marked profiles an insert-only decision references (test DB only); the guard is not loosened for tests.
+
+## What brief 4 needs
+- **The switch:** flip `dial_surface` rows (`PATCH /api/admin/map/surfaces/:code` or the workbench). `/map`'s `AdminRoute` moves under `customer_face`; `/api/map` already opens per row.
+- **Prices (OT-125):** the dated migration to `coffee_retail_price` with a STOP before production, then price and add-to-cart on the `/map` cards (the cart's `DirectCartItem` is coffee-grain already). **Decaf (OT-126)** follows from it.
+- **Liam:** `matchService.decide({ trigger: 'liam', move: 'liam', pickedCoffeeId, source: 'liam', sourceId })` is ready; freeze `customer_liam_recommendation` and repoint its readers (Task 0 item 9 lists them: `v_customer_timeline`, `v_palate_evidence`, `v_palate_recommendation_outcome`, `v_customer_calibration`; `customerReads.getFactsWatermark`, `getLastRecommendation`, `getLiamHistory`; `admin.ts`, `getRecommendationOutcomes`, `exportCalibration`, `customerIntegrity`).
+- **Repoint the slot and hop readers** named in `README.md` and brief 1's Task 0 item 9: Liam's catalog context, `qrDoor`, `axisStatsReads`, `sommelierRag` to `v_dial_edge` / `v_dial_hop` (or `dial_hop_rows_from`); `coffeeCardReads.getOtherCategoryCoffees` and `sommelierRag.getAliases` read slots too.
+- **Historical quiz rows (OT-124):** a backfill through `record.matchDecision.backfill` if wanted.
+- **The email:** `reorder_email` to `map` adds the four links to dial-in emails sent after the flip; a beat sent before the flip has no move links.

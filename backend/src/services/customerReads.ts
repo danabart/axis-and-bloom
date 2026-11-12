@@ -659,3 +659,128 @@ export async function getHouseholdClaimLink(memberId: string, runner: Runner = d
   return r.rows[0] ?? null;
 }
 
+
+// ── Ella's Bloom Map 3 (2026-11-12): the match decision log's reads ─────────
+// Keyed by user_profile.id (a household member may have no sign-in of their
+// own); every read folds to the canonical user (v_customer_identity).
+
+export interface MatchCurrentRow {
+  canonicalUserId: string; decisionId: string; userId: string; actorUserId: string | null; occurredAt: string;
+  decidedVersionId: number; moveCode: string; source: string; coffeeId: number; coffeeName: string;
+  isInActiveVersion: boolean; placementVersionId: number | null; archetypeCode: string | null; isCenter: boolean | null;
+  ring: number | null; laneCode: string | null; size: number | null; isSellable: boolean; inStock: boolean;
+}
+
+async function canonicalOfProfile(profileId: string, runner: Runner): Promise<string | null> {
+  const r = await runner.query<{ canonical_user_id: string }>(
+    `SELECT canonical_user_id FROM v_customer_identity WHERE user_id = $1`, [profileId]);
+  return r.rows[0]?.canonical_user_id ?? null;
+}
+
+/** The position (v_customer_match_current) for a profile, or null before the first decision. */
+export async function getMatchCurrent(profileId: string, runner: Runner = db): Promise<MatchCurrentRow | null> {
+  const canonical = await canonicalOfProfile(profileId, runner);
+  if (!canonical) return null;
+  const r = await runner.query(`SELECT * FROM v_customer_match_current WHERE canonical_user_id = $1`, [canonical]);
+  const x = r.rows[0];
+  if (!x) return null;
+  return {
+    canonicalUserId: x.canonical_user_id, decisionId: x.decision_id, userId: x.user_id, actorUserId: x.actor_user_id,
+    occurredAt: x.occurred_at, decidedVersionId: x.decided_version_id, moveCode: x.move_code, source: x.source,
+    coffeeId: x.coffee_id, coffeeName: x.coffee_name, isInActiveVersion: x.is_in_active_version,
+    placementVersionId: x.placement_version_id, archetypeCode: x.archetype_code, isCenter: x.is_center,
+    ring: x.ring, laneCode: x.lane_code, size: x.size, isSellable: x.is_sellable, inStock: x.in_stock,
+  };
+}
+
+/** Every decision for a profile's canonical user, in order (v_customer_match_trail). */
+export async function getMatchTrail(profileId: string, runner: Runner = db) {
+  const canonical = await canonicalOfProfile(profileId, runner);
+  if (!canonical) return [];
+  const r = await runner.query(
+    `SELECT decision_id, step, occurred_at, move_code, actor_user_id, user_id, from_coffee_id, picked_coffee_id, picked_coffee_name,
+            version_id, version_label, source, active_archetype_code, active_is_center, active_ring, active_lane_code, active_size
+       FROM v_customer_match_trail WHERE canonical_user_id = $1 ORDER BY step`, [canonical]);
+  return r.rows;
+}
+
+/** The decision a (source, source_id) wrote, for the idempotent re-select. */
+export async function getMatchDecisionBySource(source: string, sourceId: string, runner: Runner = db) {
+  const r = await runner.query(
+    `SELECT decision_id, user_id, move_code, picked_coffee_id, picked_coffee_name, version_id, occurred_at
+       FROM v_customer_match_trail WHERE source = $1 AND source_id = $2`, [source, sourceId]);
+  return r.rows[0] ?? null;
+}
+
+/** Recent decisions with their candidates (the workbench's Decisions card); one profile's when given. */
+export async function getMatchDecisions(opts: { profileId?: string | null; limit: number }, runner: Runner = db) {
+  const canonical = opts.profileId ? await canonicalOfProfile(opts.profileId, runner) : null;
+  if (opts.profileId && !canonical) return [];
+  const d = await runner.query(
+    `SELECT t.decision_id, t.canonical_user_id, t.user_id, t.actor_user_id, t.occurred_at, t.step, t.move_code, t.source, t.source_id,
+            t.version_label, t.from_coffee_id, f.name AS from_coffee_name, t.picked_coffee_id, t.picked_coffee_name, t.inputs
+       FROM v_customer_match_trail t
+       LEFT JOIN coffees f ON f.id = t.from_coffee_id
+      WHERE ($1::uuid IS NULL OR t.canonical_user_id = $1)
+      ORDER BY t.occurred_at DESC, t.created_at DESC
+      LIMIT $2`, [canonical, opts.limit]);
+  const ids = d.rows.map(x => x.decision_id);
+  const c = ids.length ? await runner.query(
+    `SELECT mc.decision_id, mc.coffee_id, co.name AS coffee_name, m.code AS move_code, mc.rank, mc.distance
+       FROM customer_match_candidate mc
+       JOIN coffees co ON co.id = mc.coffee_id
+       JOIN dial_move m ON m.id = mc.move_id
+      WHERE mc.decision_id = ANY($1::uuid[])
+      ORDER BY m.sort_order, mc.rank`, [ids]) : { rows: [] as Array<Record<string, unknown>> };
+  return d.rows.map(x => ({ ...x, candidates: c.rows.filter(y => y.decision_id === x.decision_id) }));
+}
+
+export interface MatchQuizContext {
+  quizSessionId: string; userId: string; takenByUserId: string | null;
+  matchArchetypeName: string | null; matchArchetypeCode: string | null;
+  secondaryArchetypeName: string | null; secondaryArchetypeCode: string | null;
+  intensityLean: string | null; quizDecaf: boolean;
+}
+
+/** One quiz session's match layer (the current interpretation), names mapped to codes through coffee_archetype. */
+export async function getMatchQuizContext(quizSessionId: string, runner: Runner = db): Promise<MatchQuizContext | null> {
+  const r = await runner.query(
+    `SELECT qs.id, qs.user_id, qs.taken_by_user_id,
+            COALESCE(i.match_archetype, ca.name) AS match_name, cm.code AS match_code,
+            i.secondary_archetype AS secondary_name, cs.code AS secondary_code,
+            i.intensity_lean, COALESCE((qs.context_data ->> 'decaf')::boolean, false) AS quiz_decaf
+       FROM quiz_session qs
+       LEFT JOIN quiz_session_interpretation i ON i.quiz_session_id = qs.id AND i.is_current
+       LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
+       LEFT JOIN coffee_archetype cm ON cm.name = COALESCE(i.match_archetype, ca.name)
+       LEFT JOIN coffee_archetype cs ON cs.name = i.secondary_archetype
+      WHERE qs.id = $1`, [quizSessionId]);
+  const x = r.rows[0];
+  if (!x) return null;
+  return {
+    quizSessionId: x.id, userId: x.user_id, takenByUserId: x.taken_by_user_id,
+    matchArchetypeName: x.match_name, matchArchetypeCode: x.match_code,
+    secondaryArchetypeName: x.secondary_name, secondaryArchetypeCode: x.secondary_code,
+    intensityLean: x.intensity_lean, quizDecaf: x.quiz_decaf === true,
+  };
+}
+
+/** The current quiz session (v_customer_quiz_current's choice: self-taken first, then recency) for a profile's canonical user. */
+export async function getCurrentQuizSessionId(profileId: string, runner: Runner = db): Promise<string | null> {
+  const canonical = await canonicalOfProfile(profileId, runner);
+  if (!canonical) return null;
+  const r = await runner.query<{ quiz_session_id: string }>(
+    `SELECT quiz_session_id FROM v_customer_quiz_current WHERE canonical_user_id = $1`, [canonical]);
+  return r.rows[0]?.quiz_session_id ?? null;
+}
+
+/** Decision 1: the brew profile's decaf setting for a profile (v_customer_brew_profile), or null when never stated. */
+export async function getBrewDecafByProfile(profileId: string, runner: Runner = db): Promise<boolean | null> {
+  const canonical = await canonicalOfProfile(profileId, runner);
+  if (!canonical) return null;
+  const r = await runner.query<{ value_jsonb: unknown }>(
+    `SELECT value_jsonb FROM v_customer_brew_profile WHERE canonical_user_id = $1 AND field = 'decaf_constraint'`, [canonical]);
+  if (!r.rows[0]) return null;
+  const v = r.rows[0].value_jsonb;
+  return v === true || v === 'true';
+}

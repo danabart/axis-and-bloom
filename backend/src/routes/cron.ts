@@ -18,6 +18,8 @@ import { runEvals, addCustomerPhrasings, evalConfig } from '../services/sommelie
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { lapseSponsoredSubscription } from '../services/subscriptionService.js';
 import { runSubscriptionDaily } from '../services/subscriptionRenewal.js';
+import { surfaceIsMap } from '../services/dialReads.js';
+import { moves as mapMoves } from '../services/matchService.js';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const router = Router();
@@ -210,6 +212,7 @@ export async function processDueDialInBeats(): Promise<{ processed: number; sent
             alias,
             respondBase,
             talkLink: `${frontendUrl}/sommelier?entry=bag&coffee=${row.coffee_id}`,
+            mapButtons: await dialInMapButtons(row.user_id, respondBase),
           }),
         });
         if (sendError) {
@@ -232,7 +235,26 @@ export async function processDueDialInBeats(): Promise<{ processed: number; sent
   return { processed: due.rows.length, sent, failed };
 }
 
-function buildDialInEmail(params: { firstName: string | null; alias: string; respondBase: string; talkLink: string }): string {
+// Ella's Bloom Map 3 (CTO call 9): when the reorder_email surface says map,
+// the dial-in email also carries the customer's four moves as respond links
+// (one token, the move as a query value; the route decides through
+// matchService). Labels and the intro come from the API's words; a move at
+// its edge is left out. With the row on lane (every row in brief 3) this
+// returns null and the template is byte-for-byte unchanged.
+async function dialInMapButtons(userId: string, respondBase: string): Promise<{ intro: string; buttons: Array<{ label: string; href: string }> } | null> {
+  try {
+    if (!(await surfaceIsMap('reorder_email'))) return null;
+    const m = await mapMoves(userId);
+    if (!m.position) return null;
+    const buttons = m.moves.filter(x => !x.edge && x.label).map(x => ({ label: x.label, href: `${respondBase}?move=${x.move}` }));
+    return buttons.length ? { intro: m.copy.email_map_intro ?? '', buttons } : null;
+  } catch (err) {
+    console.error('[cron/beat-dial-in-send] map buttons skipped for user', userId, err);
+    return null;
+  }
+}
+
+export function buildDialInEmail(params: { firstName: string | null; alias: string; respondBase: string; talkLink: string; mapButtons?: { intro: string; buttons: Array<{ label: string; href: string }> } | null }): string {
   const greeting = params.firstName ? `Hi ${params.firstName},` : 'Hi there,';
   return `
 <!DOCTYPE html>
@@ -274,7 +296,13 @@ function buildDialInEmail(params: { firstName: string | null; alias: string; res
               <a href="${params.respondBase}?expectation=bolder" style="display:inline-block;margin:0 8px 8px 0;padding:12px 24px;background:#f2f1ea;color:#a33726;text-decoration:none;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;font-family:Arial,sans-serif;font-weight:500;border:1px solid #a33726;">Bolder</a>
             </td>
           </tr>
-          <tr>
+${params.mapButtons ? `          <tr>
+            <td style="padding-bottom:40px;">
+              <p style="margin:0 0 16px;font-size:16px;color:#6b5a56;line-height:1.6;font-family:Arial,sans-serif;font-weight:300;">${params.mapButtons.intro}</p>
+              ${params.mapButtons.buttons.map(b => `<a href="${b.href}" style="display:inline-block;margin:0 8px 8px 0;padding:12px 24px;background:#a33726;color:#f2f1ea;text-decoration:none;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;font-family:Arial,sans-serif;font-weight:500;border:1px solid #a33726;">${b.label}</a>`).join(' ')}
+            </td>
+          </tr>
+` : ''}          <tr>
             <td style="border-top:1px solid #e8e4dc;padding-top:24px;">
               <p style="margin:0;font-size:12px;color:#a33726;opacity:0.5;font-family:Arial,sans-serif;line-height:1.6;">
                 Prefer to talk it through? <a href="${params.talkLink}" style="color:#a33726;">Talk to Liam about this bag</a>.

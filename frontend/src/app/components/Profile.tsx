@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import MapTrail from './bloom/map/MapTrail';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight, Package, Heart, LogOut, X } from 'lucide-react';
@@ -644,6 +645,9 @@ export default function Profile() {
                         <BrewCards cards={flavorMemory.brewCards} />
                       </>
                     )}
+
+                    {/* Ella's Bloom Map 3 (C3): "Your trail", only when the profile_trail surface says map (brings its own hairline) */}
+                    <MapTrail />
 
                     <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
 

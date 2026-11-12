@@ -34,6 +34,7 @@ describe('customerFacts.record — export surface', () => {
     expect(keys).toEqual([
       'bagClaim', 'brewProfileChange', 'catalogChange', 'dialEvent', 'feedback',
       'feedbackDescriptor', 'identityLink', 'identityUnlink', 'liamAction', 'liamQuestion', 'liamRecommendation', 'liamReply',
+      'matchDecision',
     ]);
     for (const [name, fn] of Object.entries(record)) {
       expect(typeof fn).toBe('function');

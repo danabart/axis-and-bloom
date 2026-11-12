@@ -34,6 +34,7 @@ import companyGiftRedemptionRouter from './routes/companyGiftRedemption.js';
 import companiesAdminRouter from './routes/companiesAdmin.js';
 import qrRouter from './routes/qr.js';
 import beatsRouter from './routes/beats.js';
+import mapRouter from './routes/map.js';           // Ella's Bloom Map 3 (2026-11-12)
 import clientErrorsRouter from './routes/clientErrors.js';
 import campaignRouter from './routes/campaign.js';
 import roasteryPortalRouter from './routes/roasteryPortal.js';
@@ -149,6 +150,7 @@ app.use('/api/company-gift-redemption', companyGiftRedemptionRouter);
 app.use('/api/admin/companies', companiesAdminRouter);
 app.use('/api/qr', qrRouter);
 app.use('/api/beats', beatsRouter);
+app.use('/api/map', mapRouter);                    // Ella's Bloom Map 3: customer map API (admin-only until brief 4)
 app.use('/api/client-errors', clientErrorsRouter);
 app.use('/api/campaign', campaignRouter);
 // Roastery Portal (2026-10-05) — public token-gated partner surface + its admin side.

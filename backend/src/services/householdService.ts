@@ -688,6 +688,18 @@ async function dialTarget(tx: Tx, actorUserId: string, memberId: string): Promis
   return { me, target, householdId: household.id };
 }
 
+/**
+ * Ella map 3 (Dana's decision 6, 2026-11-12): dialTarget, exported. May
+ * `actorUserId` turn `memberId`'s dial (the map's decide door)? Returns the
+ * member's user_profile id; throws the same HouseholdError as dialTarget.
+ */
+export async function assertMayTurnDialFor(actorUserId: string, memberId: string): Promise<{ userId: string; householdId: string }> {
+  return run(async tx => {
+    const { target, householdId } = await dialTarget(tx, actorUserId, memberId);
+    return { userId: target.user_id, householdId };
+  });
+}
+
 /** The member's current position for an archetype (GET /api/users/dial-position?forMemberId=). */
 export async function memberDialPosition(actorUserId: string, memberId: string, archetype: string): Promise<number | null> {
   return run(async tx => {

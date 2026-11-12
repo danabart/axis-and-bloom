@@ -64,6 +64,8 @@ export interface MoveLineContext {
   readings: string[];                                   // dial_reading codes in id order
   phrases: Record<string, Record<'1' | '-1', string>>; // reading -> sign -> phrase
   templates: Record<string, Record<string, string | null>>; // archetype -> move -> template (override, else default)
+  /** Ella map 3 (decision 8): archetype -> move -> resolved button label, for {label} in a template */
+  labels?: Record<string, Record<string, string>>;
   minToMention: number;
 }
 
@@ -76,12 +78,16 @@ export async function moveLineContext(runner: Runner = db): Promise<MoveLineCont
   const phraseMap: MoveLineContext['phrases'] = {};
   for (const x of ph) (phraseMap[x.reading] ??= {} as Record<'1' | '-1', string>)[String(x.sign) as '1' | '-1'] = x.phrase;
   const templates: MoveLineContext['templates'] = {};
-  for (const t of (await phrases(runner)).resolved) (templates[t.archetype_code] ??= {})[t.move_code] = t.move_line_template;
+  const labels: MoveLineContext['labels'] = {};
+  for (const t of (await phrases(runner)).resolved) {
+    (templates[t.archetype_code] ??= {})[t.move_code] = t.move_line_template;
+    (labels[t.archetype_code] ??= {})[t.move_code] = t.button_label;
+  }
   const min = (await getParameters('dial_delta_min_to_mention', runner)).find(x => x.key === 'dial_delta_min_to_mention')?.value;
-  return { readings, phrases: phraseMap, templates, minToMention: min === undefined ? Number.POSITIVE_INFINITY : Number(min) };
+  return { readings, phrases: phraseMap, templates, labels, minToMention: min === undefined ? Number.POSITIVE_INFINITY : Number(min) };
 }
 
-/** The move line for one hop: the family's template with {from}, {to} and the mentioned deltas' words. Null when the move has no template (sibling). */
+/** The move line for one hop: the family's template with {label} (the family's button label, Ella map 3), {from}, {to} and the mentioned deltas' words. Null when the move has no template (sibling). */
 export function composeMoveLine(ctx: MoveLineContext, hop: {
   fromArchetype: string; relation: string; fromName: string; toName: string; deltas: Record<string, number | null>;
 }): { text: string; mentioned: Array<{ reading: string; delta: number; phrase: string }> } | null {
@@ -94,7 +100,7 @@ export function composeMoveLine(ctx: MoveLineContext, hop: {
     const phrase = ctx.phrases[reading]?.[d > 0 ? '1' : '-1'];
     if (phrase) mentioned.push({ reading, delta: d, phrase });
   }
-  const text = template.replaceAll('{from}', hop.fromName).replaceAll('{to}', hop.toName)
+  const text = template.replaceAll('{label}', ctx.labels?.[hop.fromArchetype]?.[hop.relation] ?? '').replaceAll('{from}', hop.fromName).replaceAll('{to}', hop.toName)
     .replaceAll('{deltas}', mentioned.map(m => m.phrase).join(', '))
     .replace(/[\s:,]+$/, '');
   return { text, mentioned };
@@ -294,4 +300,79 @@ export async function graphCheck(mode: MapMode, runner: Runner = db) {
   const cousinPairs = (await listCousinHints({ bothInCatalog: true }, runner))
     .map(c => ({ coffee_id: c.coffeeId as number, cousin_coffee_id: c.cousinCoffeeId as number }));
   return { mode, parameters: await parametersInForce(mode, runner), ...computeGraphCheck(points, hopRows, cousinPairs) };
+}
+
+// ── Ella's Bloom Map 3 (2026-11-12): the customer side's reads ──────────────
+
+/** Decision 4: the ranked targets from one coffee on the active map, wherever it is placed and whether or not it is sellable (dial_hop_rows_from). Unfiltered: matchService applies the customer's filters. */
+export async function hopsFromCoffee(coffeeId: number, runner: Runner = db) {
+  const r = await runner.query(
+    `SELECT h.*, f.name AS from_coffee_name, t.name AS to_coffee_name
+       FROM dial_hop_rows_from($1) h
+       JOIN coffees f ON f.id = h.from_coffee_id
+       JOIN coffees t ON t.id = h.to_coffee_id
+      ORDER BY h.relation, h.rank`, [coffeeId]);
+  return r.rows.map(h => ({
+    ...h,
+    distance: num(h.distance),
+    deltas: { ring: num(h.delta_ring), body: num(h.delta_body), sweetness: num(h.delta_sweetness), acidity: num(h.delta_acidity), bitterness: num(h.delta_bitterness) } as Record<string, number | null>,
+  }));
+}
+
+/** The customer face of the active map: every placed coffee that is sellable and in stock, without grade, roaster or category tags (B2: tags ride on the card payload only). */
+export async function customerFace(runner: Runner = db) {
+  const r = await runner.query(
+    `SELECT version_id, coffee_id, coffee_name, archetype_code, is_center, ring, lane_code, size, is_sellable
+       FROM v_dial_face WHERE is_sellable AND in_stock ORDER BY archetype_code, ring, coffee_name`);
+  return r.rows;
+}
+
+/** The active version's id and label, or null. */
+export async function activeVersion(runner: Runner = db): Promise<{ id: number; label: string } | null> {
+  const r = await runner.query<{ id: number; label: string }>(
+    `SELECT id, label FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL`);
+  return r.rows[0] ?? null;
+}
+
+/** Every dial_surface row with its model (v_dial_surface). */
+export async function surfaces(runner: Runner = db) {
+  return (await runner.query(`SELECT id, code, label, model_code, model_label, updated_by, updated_at FROM v_dial_surface ORDER BY id`)).rows;
+}
+
+/** Does this surface render the map now? */
+export async function surfaceIsMap(code: string, runner: Runner = db): Promise<boolean> {
+  const r = await runner.query<{ model_code: string }>(`SELECT model_code FROM v_dial_surface WHERE code = $1`, [code]);
+  return r.rows[0]?.model_code === 'map';
+}
+
+/** The current customer sentences by code (v_dial_customer_copy). */
+export async function customerCopy(runner: Runner = db): Promise<Record<string, string>> {
+  const r = await runner.query<{ code: string; text: string }>(`SELECT code, text FROM v_dial_customer_copy`);
+  return Object.fromEntries(r.rows.map(x => [x.code, x.text]));
+}
+
+/** Every current customer copy row (the workbench). */
+export async function customerCopyRows(runner: Runner = db) {
+  return (await runner.query(`SELECT id, code, text, decided_by, created_at FROM v_dial_customer_copy ORDER BY id`)).rows;
+}
+
+/** The current first-match row for a cell (dial_first_match; the grade floor is checked by the caller). */
+export async function firstMatchFor(archetypeCode: string, laneCode: string, runner: Runner = db): Promise<number | null> {
+  const r = await runner.query<{ coffee_id: number }>(
+    `SELECT fm.coffee_id FROM dial_first_match fm JOIN dial_lane l ON l.id = fm.lane_id
+      WHERE fm.archetype_code::text = $1 AND l.code = $2 AND fm.superseded_at IS NULL`, [archetypeCode, laneCode]);
+  return r.rows[0]?.coffee_id ?? null;
+}
+
+/** dial_move code -> id (the decision log's FK). */
+export async function moveIds(runner: Runner = db): Promise<Record<string, number>> {
+  const r = await runner.query<{ code: string; id: number }>(`SELECT code, id FROM dial_move`);
+  return Object.fromEntries(r.rows.map(x => [x.code, x.id]));
+}
+
+/** Per active coffee, how many hops it has (in_hop_set rows of v_dial_hop): the first-match fallback's "most hops first". */
+export async function hopCounts(runner: Runner = db): Promise<Map<number, number>> {
+  const r = await runner.query<{ from_coffee_id: number; n: number }>(
+    `SELECT from_coffee_id, count(*)::int AS n FROM v_dial_hop WHERE in_hop_set GROUP BY from_coffee_id`);
+  return new Map(r.rows.map(x => [x.from_coffee_id, x.n]));
 }

@@ -46,7 +46,9 @@ describe('GET /api/admin/map/*', () => {
     const phrases = await (await fetch(`${base}/map/phrases`)).json();
     const fruityBolder = phrases.resolved.find((p: any) => p.archetype_code === 'fruity' && p.move_code === 'bolder');
     expect(fruityBolder.button_label).toBe('Brighter');
-    expect(fruityBolder.move_line_template).toBe('Bolder than {from}: {deltas}'); // override falls back to the default's line
+    // the override's NULL template falls back to the default row's (Ella map 3: '{label} than {from}: {deltas}', decision 8)
+    const defaultBolder = phrases.rows.find((p: any) => p.archetype_code === null && p.move_code === 'bolder');
+    expect(fruityBolder.move_line_template).toBe(defaultBolder.move_line_template);
     const gc = await (await fetch(`${base}/map/graph-check?mode=preview`)).json();
     expect(gc.mode).toBe('preview');
     expect(Array.isArray(gc.reachable)).toBe(true);

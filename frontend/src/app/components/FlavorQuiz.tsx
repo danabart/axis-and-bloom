@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
+import MapQuizStart from './bloom/map/MapQuizStart';
 import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter, getCoffeeCards, type CoffeeCards } from '../lib/api';
 import { getActiveCampaign, CAMPAIGNS } from '../lib/campaign';
 import { trackEvent, trackLead } from '../lib/analytics';
@@ -1600,6 +1601,8 @@ export default function FlavorQuiz() {
                           <p className="qz-mhead-line">
                             {FAMILY_LINES[resultsArchetypeEnum!] ?? `That's your family — ${resultsArchetypeData.archetypeLabel.toLowerCase()}, through and through.`}
                           </p>
+                          {/* Ella's Bloom Map 3 (C2): renders only when the quiz_result surface says map */}
+                          <MapQuizStart refreshKey={userProfile} />
                         </div>
                         {/* Website 7B: brief 5's field (wheel, coffee, comfort zone, reveal,
                             lineup, quick picks), pre-set to the match's stop. */}

@@ -252,6 +252,16 @@ export async function resolveDialInBeatIdByRespondToken(token: string): Promise<
   return result.rows[0]?.id ?? null;
 }
 
+/** Ella map 3 (CTO call 9): the same token lookup, with the beat's owner (the map move is decided for that profile). */
+export async function resolveDialInBeatOwnerByRespondToken(token: string): Promise<{ id: number; userId: string } | null> {
+  const result = await db.query<{ id: number; user_id: string }>(
+    `SELECT id, user_id FROM beat_event WHERE respond_token = $1 AND beat_type = 'dial_in'`,
+    [token]
+  );
+  const row = result.rows[0];
+  return row ? { id: row.id, userId: row.user_id } : null;
+}
+
 // HOME_TASK_8 (§3.1, spec item 2) — "the reply... adjusts the brew card
 // (Task 6's adjust path) and writes the feedback event via
 // dialPositionSignal.ts." Shared by both reply paths the spec names: the

@@ -9,7 +9,8 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth.js';
 import * as dialReads from '../services/dialReads.js';
-import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, DialMapError } from '../services/dialPlacementService.js';
+import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, DialMapError } from '../services/dialPlacementService.js';
+import { getMatchDecisions } from '../services/customerReads.js';
 import { setLean, CatalogError } from '../services/catalogService.js';
 
 const router = Router();
@@ -123,6 +124,30 @@ router.put('/phrases', async (req: AuthRequest, res) => {
     res.json(await setHopPhrase({ archetypeCode: b.archetype, moveCode: b.move, buttonLabel: b.buttonLabel,
       moveLineTemplate: b.moveLineTemplate ?? null, edgePhrase: b.edgePhrase ?? null, adminUid: req.uid ?? null }));
   } catch (err) { fail(res, 'set phrase', err); }
+});
+
+// ── Ella's Bloom Map 3 (2026-11-12), B5: the switch, the decisions, the customer words ──
+router.get('/surfaces', read('surfaces', () => dialReads.surfaces()));
+const SurfaceBody = z.object({ model: z.enum(['lane', 'map']) });
+router.patch('/surfaces/:code', async (req: AuthRequest, res) => {
+  try {
+    const code = z.string().trim().min(1).max(60).parse(req.params.code);
+    res.json(await setSurfaceModel(code, SurfaceBody.parse(req.body ?? {}).model, req.uid ?? null));
+  } catch (err) { fail(res, 'set surface', err); }
+});
+
+router.get('/decisions', read('decisions', req => getMatchDecisions({
+  profileId: req.query.userId === undefined || req.query.userId === '' ? null : z.string().uuid().parse(req.query.userId),
+  limit: z.coerce.number().int().min(1).max(200).parse(req.query.limit ?? 25),
+})));
+
+router.get('/customer-copy', read('customer copy', () => dialReads.customerCopyRows()));
+const CopyBody = z.object({ code: z.string().trim().min(1).max(60), text: z.string().trim().min(1).max(500) });
+router.put('/customer-copy', async (req: AuthRequest, res) => {
+  try {
+    const b = CopyBody.parse(req.body ?? {});
+    res.json(await setCustomerCopy({ code: b.code, text: b.text, adminUid: req.uid ?? null }));
+  } catch (err) { fail(res, 'set customer copy', err); }
 });
 
 export default router;

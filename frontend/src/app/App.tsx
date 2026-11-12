@@ -20,6 +20,7 @@ import AdminRoasters from './components/admin/AdminRoasters';
 import AdminCupping from './components/admin/AdminCupping';
 import AdminDial from './components/admin/AdminDial';
 import AdminEllaMap from './components/admin/AdminEllaMap'; // Ella map 2 (2026-11-10)
+import MapPage from './components/bloom/map/MapPage'; // Ella map 3 (2026-11-12)
 import AdminInventory from './components/admin/AdminInventory';
 import AdminSommelierConfig from './components/admin/AdminSommelierConfig';
 import AdminIntentEditor from './components/admin/AdminIntentEditor';
@@ -217,6 +218,8 @@ export default function App() {
               <Route path="/flavor-intelligence" element={<PrelaunchGate><FlavorIntelligencePage /></PrelaunchGate>} />
               <Route path="/coffees" element={<PrelaunchGate><CoffeesRedirect /></PrelaunchGate>} />
               <Route path="/bloom" element={<PrelaunchGate><BloomPage /></PrelaunchGate>} />
+              {/* Ella's Bloom Map 3 (2026-11-12): the customer map, gated and admin-only until brief 4 moves it under the customer_face surface */}
+              <Route path="/map" element={<PrelaunchGate><AdminRoute><MapPage /></AdminRoute></PrelaunchGate>} />
               <Route path="/coffee/:id/story" element={<PrelaunchGate><CoffeeStoryPage /></PrelaunchGate>} />
               <Route path="/b" element={<QrDoor />} />
               <Route path="/b/:token" element={<QrDoor />} />

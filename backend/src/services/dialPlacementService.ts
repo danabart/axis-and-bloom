@@ -217,3 +217,41 @@ export async function setHopPhraseInTx(tx: Tx, input: SetHopPhraseInput) {
   return { id: ins.rows[0].id, unchanged: false, supersededId: c?.id ?? null };
 }
 export const setHopPhrase = (input: SetHopPhraseInput) => withTransaction(tx => setHopPhraseInTx(tx, input));
+
+// ── Ella's Bloom Map 3 (2026-11-12) ──────────────────────────────────────────
+
+/** CTO call 1: switch one customer surface between the lane dial and the map (dial_surface, the switch's one writer). */
+export async function setSurfaceModelInTx(tx: Tx, code: string, modelCode: string, adminUid?: string | null) {
+  {
+    const m = await tx.query<{ id: number }>(`SELECT id FROM dial_model WHERE code = $1`, [modelCode]);
+    if (!m.rows[0]) throw invalid(`unknown model ${modelCode}`);
+    const cur = await tx.query<{ id: number; model_id: number }>(`SELECT id, model_id FROM dial_surface WHERE code = $1 FOR UPDATE`, [code]);
+    if (!cur.rows[0]) throw new DialMapError(404, 'DIAL_SURFACE_NOT_FOUND', `no surface ${code}`);
+    if (cur.rows[0].model_id === m.rows[0].id) return { code, model: modelCode, unchanged: true };
+    await tx.query(
+      `UPDATE dial_surface SET model_id = $2, updated_by = $3, updated_at = timezone('utc', now()) WHERE id = $1`,
+      [cur.rows[0].id, m.rows[0].id, adminUid ?? null]);
+    return { code, model: modelCode, unchanged: false };
+  }
+}
+export const setSurfaceModel = (code: string, modelCode: string, adminUid?: string | null) =>
+  withTransaction(tx => setSurfaceModelInTx(tx, code, modelCode, adminUid));
+
+export interface SetCustomerCopyInput { code: string; text: string; adminUid?: string | null }
+
+/** Dana's decision 4: supersede one customer sentence (dial_customer_copy, its one writer). */
+export async function setCustomerCopyInTx(tx: Tx, input: SetCustomerCopyInput) {
+  const code = String(input.code ?? '').trim();
+  const text = String(input.text ?? '').trim();
+  if (!code) throw invalid('code is required');
+  if (!text) throw invalid('text is required');
+  const cur = await tx.query<{ id: number; text: string }>(
+    `SELECT id, text FROM dial_customer_copy WHERE code = $1 AND superseded_at IS NULL FOR UPDATE`, [code]);
+  const c = cur.rows[0];
+  if (c && c.text === text) return { id: c.id, unchanged: true };
+  if (c) await tx.query(`UPDATE dial_customer_copy SET superseded_at = timezone('utc', now()) WHERE id = $1`, [c.id]);
+  const ins = await tx.query<{ id: number }>(
+    `INSERT INTO dial_customer_copy (code, text, decided_by) VALUES ($1, $2, $3) RETURNING id`, [code, text, input.adminUid ?? null]);
+  return { id: ins.rows[0].id, unchanged: false, supersededId: c?.id ?? null };
+}
+export const setCustomerCopy = (input: SetCustomerCopyInput) => withTransaction(tx => setCustomerCopyInTx(tx, input));
