@@ -424,3 +424,12 @@ The admin was a marked test user, "Zzz Test Admin (Ella map 3)" (Firebase uid `3
 - **Repoint the slot and hop readers** named in `README.md` and brief 1's Task 0 item 9: Liam's catalog context, `qrDoor`, `axisStatsReads`, `sommelierRag` to `v_dial_edge` / `v_dial_hop` (or `dial_hop_rows_from`); `coffeeCardReads.getOtherCategoryCoffees` and `sommelierRag.getAliases` read slots too.
 - **Historical quiz rows (OT-124):** a backfill through `record.matchDecision.backfill` if wanted.
 - **The email:** `reorder_email` to `map` adds the four links to dial-in emails sent after the flip; a beat sent before the flip has no move links.
+
+## Deploy
+- **Commits:** `7c6732b` (Task 0 findings), `3466e06` (the brief), pushed to `main` 2026-11-12 by path. The genova `.ttf` deletions and `commerce/README.md` stayed unstaged.
+- **Deploy run 43307306438:** green (backend and frontend). Revision `axis-bloom-backend-00857-qhv`.
+- **Startup log:** `[db-comments] applied 2001 statements`; `[data-catalog] report only: 197 tables, 102 views, 1702 columns; 2 of 11 checks with findings`. Check 11 passes, checks 7 to 10 pass. The two findings are #4 (CATALOG.md stale, expected before the regenerate below) and #6 (the same 25 dead-table candidates as before, none of this brief's). No ERROR lines.
+- **Production after the deploy (read-only):** all seven `dial_surface` rows `lane`; `dial_model` 2 rows; the nine `dial_customer_copy` codes; `customer_match_decision` and `customer_match_candidate` exist, 0 rows; L0 active; `v_dial_hop` unchanged by the edge refactor (42 rows; bolder 6, gentler 9, different 25, sibling 2, the same rank and distance sums as before).
+- **Decision 8 on production** (`backend/tmp/em3_templates.mts prod`, through `setHopPhraseInTx`, guarded): the default bolder, gentler and different rows moved to "{label} than {from}: {deltas}" (rows 16, 17, 18 superseding 4, 7, 8); no family row has its own template.
+- **Smoke:** `/api/map/surfaces`, `/api/map/me` and `/api/admin/map/surfaces` answer 401 without a sign-in (mounted, closed). Customers see no change: every surface is `lane` and `/map` is admin-only. From this deploy on, each quiz result writes its first-match decision.
+- **`npm run catalog:md -- --expect-db axisandbloom`** from prod: catalog-hash `a3b61d9a8012…`, equal to the live hash in the startup log. Committed with this section.
