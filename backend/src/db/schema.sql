@@ -4555,7 +4555,7 @@ ALTER TABLE company_gift ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES com
 CREATE TABLE IF NOT EXISTS quiz_funnel_event (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_key TEXT NOT NULL,
-  event       TEXT NOT NULL CHECK (event IN ('quiz_start', 'quiz_complete', 'email_submitted', 'quiz_final')),
+  event       TEXT NOT NULL,  -- FK to quiz_funnel_event_type(code), Usual Drink 1 block (was a CHECK list)
   archetype   TEXT,
   created_at  TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
@@ -4568,9 +4568,9 @@ CREATE INDEX IF NOT EXISTS idx_quiz_funnel_event_created ON quiz_funnel_event(cr
 -- constraint name is Postgres's own default for this column, confirmed live
 -- against prod before writing this; safe to re-run (DROP IF EXISTS + re-ADD
 -- every boot is cheap on this table's row count).
-ALTER TABLE quiz_funnel_event DROP CONSTRAINT IF EXISTS quiz_funnel_event_event_check;
-ALTER TABLE quiz_funnel_event ADD CONSTRAINT quiz_funnel_event_event_check
-  CHECK (event IN ('quiz_start', 'quiz_complete', 'email_submitted', 'quiz_final'));
+-- Usual Drink 1 (2026-11-12): the boot-time drop and re-add of
+-- quiz_funnel_event_event_check is retired; the event list is the
+-- quiz_funnel_event_type lookup and an FK (Usual Drink 1 block, A3b).
 
 -- Hoboken Coffee Crawl (2026-08-31): campaign attribution, orthogonal to source.
 -- vid = anonymous per-phone visitor key minted on the landing page; joins scan → quiz → email.
@@ -5648,9 +5648,9 @@ CREATE TABLE IF NOT EXISTS customer_brew_profile_change (
   source          TEXT NOT NULL,
   source_id       TEXT NOT NULL,
   catalog_version TEXT,
-  field           TEXT NOT NULL CHECK (field IN ('brew_methods','grinder','takes_it','decaf_constraint','aversions')),
+  field           TEXT NOT NULL,  -- FK to brew_profile_field(code), Usual Drink 1 block (was a CHECK list)
   value           TEXT,
-  op              TEXT NOT NULL CHECK (op IN ('set','add','remove','clear')),
+  op              TEXT NOT NULL,  -- FK to brew_profile_op(code), Usual Drink 1 block (was a CHECK list)
   session_id      INT REFERENCES sommelier_sessions(id),
   UNIQUE (source, source_id)
 );
@@ -6391,8 +6391,10 @@ FROM (
     vci.canonical_user_id,
     cbpc.field,
     customer_brew_profile_fold(cbpc.op, cbpc.value ORDER BY cbpc.occurred_at) AS value_jsonb,
-    MAX(cbpc.occurred_at) AS captured_at,
-    (ARRAY_AGG(cbpc.source ORDER BY cbpc.occurred_at DESC))[1] AS source
+    -- Usual Drink 1 (2026-11-12): a declined question (op 'declined') moves
+    -- neither "last updated" nor the source; the fold already ignores it.
+    MAX(cbpc.occurred_at) FILTER (WHERE cbpc.op <> 'declined') AS captured_at,
+    (ARRAY_AGG(cbpc.source ORDER BY cbpc.occurred_at DESC) FILTER (WHERE cbpc.op <> 'declined'))[1] AS source
   FROM customer_brew_profile_change cbpc
   JOIN v_customer_identity vci ON vci.user_id = cbpc.user_id
   GROUP BY vci.canonical_user_id, cbpc.field
@@ -11653,6 +11655,535 @@ LEFT JOIN LATERAL (
 -- END ELLA'S BLOOM MAP 1 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN USUAL DRINK 1 block (2026-11-12)
+-- backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_1_CAPTURE.md (Rev 4)
+-- Brew-profile field definitions move out of Firestore config, CHECK lists and
+-- TS unions into brew_* lookups (D6); three new fields (usual_drink,
+-- cupboard_coffee, coffee_feeling); quiz_funnel_event.event becomes a lookup
+-- FK. After the Ella map 1 block because brew_coffee_feeling references
+-- dial_move (Task 0.9 / 0.17); after the Customer Blueprint C3 block, so
+-- lint-customer rule 7 is untouched. Every small list is its own brew_* table,
+-- not lookup_value (D10: lookup_value has no is_active, and a code column
+-- cannot FK to its UNIQUE (category, value)). Seeds insert only if missing; a
+-- label edit made in the DB is never overwritten (A4). Rows are retired with
+-- is_active = false, never deleted (G2.11).
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ── brew_parameter: the numbers and card words of this workstream ──────────
+-- Same shape and discipline as household_parameter (Dana 2026-11-12, Task 0
+-- answer 1): a change supersedes the current row (brewParameters.setParameter).
+CREATE TABLE IF NOT EXISTS brew_parameter (
+  id            SERIAL PRIMARY KEY,
+  key           TEXT NOT NULL,
+  value_numeric NUMERIC,
+  value_text    TEXT,
+  since         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at TIMESTAMPTZ,
+  note          TEXT,
+  UNIQUE (key, since),
+  CHECK ((value_numeric IS NULL) <> (value_text IS NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS brew_parameter_current ON brew_parameter (key) WHERE superseded_at IS NULL;
+INSERT INTO brew_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('field_list_refresh_seconds', 300::numeric, NULL::text, 'Seconds between reloads of the brew-profile field list (v_brew_profile_field_current) in each server process; a failed reload keeps the last good list. Range: integer 30 <= value <= 3600.'),
+  ('post_result_title',  NULL, 'A little about your coffee at home', 'Heading of the optional card under the quiz result (Usual Drink 1, B2). Format: short customer-facing text.'),
+  ('post_result_save',   NULL, 'Save', 'Save button of the post-result card. Format: short customer-facing text.'),
+  ('post_result_skip',   NULL, 'Skip', 'Skip button of the post-result card. Format: short customer-facing text.'),
+  ('words_placeholder',  NULL, 'Tell us which one', 'Placeholder of the short text box shown when a picked answer takes the customer''s own words (D17). Format: short customer-facing text.'),
+  ('search_placeholder', NULL, 'Start typing a name', 'Placeholder of the typeahead search box (cupboard_coffee). Format: short customer-facing text.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM brew_parameter p WHERE p.key = v.key);
+
+-- ── A1a. small lookups ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS brew_profile_value_kind (
+  id SERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, label TEXT NOT NULL, sort_order INT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()), updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO brew_profile_value_kind (code, label, sort_order) VALUES
+  ('enum', 'One value from the list', 1), ('array', 'Several values from the list', 2),
+  ('bool', 'Yes or no', 3), ('array_freeform', 'Several short texts', 4)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS brew_profile_picker (
+  id SERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, label TEXT NOT NULL, sort_order INT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()), updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO brew_profile_picker (code, label, sort_order) VALUES
+  ('select', 'Select', 1), ('multi_select', 'Chips, several', 2), ('typeahead', 'Search with quick picks', 3),
+  ('toggle', 'Two buttons', 4), ('freeform_list', 'Comma-separated text', 5)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS brew_profile_op (
+  id SERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, label TEXT NOT NULL, sort_order INT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()), updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO brew_profile_op (code, label, sort_order) VALUES
+  ('set', 'Set the value', 1), ('add', 'Add one item', 2), ('remove', 'Remove one item', 3),
+  ('clear', 'Clear the field', 4),
+  ('declined', 'Asked on the card or the profile and not answered; value NULL; ignored by the fold', 5)
+ON CONFLICT (code) DO NOTHING;
+
+-- ── A1b. brew_profile_field ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS brew_profile_field (
+  id             SERIAL PRIMARY KEY,
+  code           TEXT NOT NULL UNIQUE,
+  label          TEXT NOT NULL,
+  prompt         TEXT,
+  value_kind_id  INT NOT NULL REFERENCES brew_profile_value_kind(id),
+  picker_id      INT NOT NULL REFERENCES brew_profile_picker(id),
+  max_items      INT,
+  max_item_len   INT,
+  liam_topic     TEXT,
+  ask_when_empty BOOLEAN NOT NULL DEFAULT false,
+  sort_order     INT NOT NULL,
+  is_active      BOOLEAN NOT NULL DEFAULT true,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+-- The five existing fields exactly as the live config had them (Task 0.2),
+-- labels from the Profile mirror; then the three new fields (A1b).
+INSERT INTO brew_profile_field (code, label, prompt, value_kind_id, picker_id, max_items, max_item_len, liam_topic, ask_when_empty, sort_order)
+SELECT v.code, v.label, v.prompt, k.id, p.id, v.max_items, v.max_item_len, v.liam_topic, v.ask_when_empty, v.sort_order
+FROM (VALUES
+  ('brew_methods',     'Brew methods',             NULL::text, 'array',          'multi_select',  8::int,  NULL::int, 'brewing',        false, 1),
+  ('grinder',          'Grinder',                  NULL,       'enum',           'select',        NULL,    NULL,      'equipment',      false, 2),
+  ('takes_it',         'Takes it',                 NULL,       'enum',           'select',        NULL,    NULL,      'my_coffee',      false, 3),
+  ('decaf_constraint', 'Decaf',                    NULL,       'bool',           'toggle',        NULL,    NULL,      'caffeine_decaf', false, 4),
+  ('aversions',        'Never wants to taste',     NULL,       'array_freeform', 'freeform_list', 10,      40,        NULL,             false, 5),
+  ('usual_drink',      'How you make your coffee', 'How do you make your coffee at home? Pick all that apply.', 'array', 'multi_select', 4, 80, 'my_coffee', true, 6),
+  ('cupboard_coffee',  'What''s in your kitchen',  'Which coffee is in your kitchen right now?',                'enum',  'typeahead',    NULL, 80, 'my_coffee', true, 7),
+  ('coffee_feeling',   'How you feel about it',    'How do you feel about the coffee you drink now?',           'enum',  'select',       NULL, NULL, 'my_coffee', true, 8)
+) AS v(code, label, prompt, kind, picker, max_items, max_item_len, liam_topic, ask_when_empty, sort_order)
+JOIN brew_profile_value_kind k ON k.code = v.kind
+JOIN brew_profile_picker p ON p.code = v.picker
+ON CONFLICT (code) DO NOTHING;
+
+-- ── A1c. brew_profile_field_value: every allowed value of every field (D11) ─
+CREATE TABLE IF NOT EXISTS brew_profile_field_value (
+  id            SERIAL PRIMARY KEY,
+  field_id      INT NOT NULL REFERENCES brew_profile_field(id),
+  code          TEXT NOT NULL,
+  label         TEXT NOT NULL,
+  sort_order    INT NOT NULL,
+  pinned        BOOLEAN NOT NULL DEFAULT false,
+  accepts_words BOOLEAN NOT NULL DEFAULT false,
+  is_active     BOOLEAN NOT NULL DEFAULT true,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  UNIQUE (field_id, code)
+);
+INSERT INTO brew_profile_field_value (field_id, code, label, sort_order, pinned, accepts_words)
+SELECT f.id, v.code, v.label, v.sort_order, v.pinned, v.accepts_words
+FROM (VALUES
+  -- existing fields (labels: the Profile mirror's display strings, Task 0.5)
+  ('brew_methods', 'v60', 'V60', 1, false, false),
+  ('brew_methods', 'french_press', 'French press', 2, false, false),
+  ('brew_methods', 'espresso', 'Espresso', 3, false, false),
+  ('brew_methods', 'moka', 'Moka pot', 4, false, false),
+  ('brew_methods', 'aeropress', 'Aeropress', 5, false, false),
+  ('brew_methods', 'cold_brew', 'Cold brew', 6, false, false),
+  ('brew_methods', 'drip', 'Drip', 7, false, false),
+  ('brew_methods', 'other', 'Other', 8, false, false),
+  ('grinder', 'none', 'No grinder', 1, false, false),
+  ('grinder', 'blade', 'Blade grinder', 2, false, false),
+  ('grinder', 'burr_hand', 'Hand burr grinder', 3, false, false),
+  ('grinder', 'burr_electric', 'Electric burr grinder', 4, false, false),
+  ('grinder', 'unknown_type', 'Not sure what type', 5, false, false),
+  ('takes_it', 'black', 'Black', 1, false, false),
+  ('takes_it', 'milk', 'With milk', 2, false, false),
+  ('takes_it', 'sugar', 'With sugar', 3, false, false),
+  ('takes_it', 'milk_and_sugar', 'With milk and sugar', 4, false, false),
+  -- the bool's two display words (Dana 2026-11-12, Task 0 deviation 6)
+  ('decaf_constraint', 'true', 'Needed', 1, false, false),
+  ('decaf_constraint', 'false', 'Not needed', 2, false, false),
+  -- usual_drink (A2a)
+  ('usual_drink', 'espresso', 'Espresso, straight', 1, false, false),
+  ('usual_drink', 'cortado', 'Cortado or macchiato (espresso, a little milk)', 2, false, false),
+  ('usual_drink', 'americano', 'Americano (espresso + hot water)', 3, false, false),
+  ('usual_drink', 'americano_milk', 'Americano with milk', 4, false, false),
+  ('usual_drink', 'iced_americano', 'Iced americano', 5, false, false),
+  ('usual_drink', 'latte', 'Latte, cappuccino or flat white', 6, false, false),
+  ('usual_drink', 'iced_latte', 'Iced latte', 7, false, false),
+  ('usual_drink', 'drip_black', 'Drip or pour-over, black', 8, false, false),
+  ('usual_drink', 'drip_milk', 'Drip or pour-over with milk', 9, false, false),
+  ('usual_drink', 'iced_coffee', 'Iced coffee (brewed, over ice)', 10, false, false),
+  ('usual_drink', 'french_press', 'French press or AeroPress', 11, false, false),
+  ('usual_drink', 'cold_brew', 'Cold brew', 12, false, false),
+  ('usual_drink', 'moka_turkish', 'Moka pot or Turkish', 13, false, false),
+  ('usual_drink', 'pod', 'Pod machine', 14, false, false),
+  ('usual_drink', 'buy_out', 'I mostly buy my coffee out', 15, false, false),
+  ('usual_drink', 'other', 'Something else', 16, false, true),
+  -- cupboard_coffee (A2b); pinned rows sort first
+  ('cupboard_coffee', 'dont_know', 'I don''t know', 1, true, false),
+  ('cupboard_coffee', 'nothing', 'Nothing right now', 2, true, false),
+  ('cupboard_coffee', 'pods_unknown', 'Pods, not sure of the brand', 3, true, false),
+  ('cupboard_coffee', 'other', 'Something else', 4, true, true),
+  ('cupboard_coffee', 'dunkin', 'Dunkin''', 10, false, false),
+  ('cupboard_coffee', 'starbucks', 'Starbucks', 11, false, false),
+  ('cupboard_coffee', 'peets', 'Peet''s Coffee', 12, false, false),
+  ('cupboard_coffee', 'mcdonalds', 'McCafé', 13, false, false),
+  ('cupboard_coffee', 'tim_hortons', 'Tim Hortons', 14, false, false),
+  ('cupboard_coffee', 'caribou', 'Caribou Coffee', 15, false, false),
+  ('cupboard_coffee', 'wawa', 'Wawa', 16, false, false),
+  ('cupboard_coffee', 'folgers', 'Folgers', 17, false, false),
+  ('cupboard_coffee', 'maxwell_house', 'Maxwell House', 18, false, false),
+  ('cupboard_coffee', 'bustelo', 'Café Bustelo', 19, false, false),
+  ('cupboard_coffee', 'pilon', 'Café Pilón', 20, false, false),
+  ('cupboard_coffee', 'lavazza', 'Lavazza', 21, false, false),
+  ('cupboard_coffee', 'illy', 'Illy', 22, false, false),
+  ('cupboard_coffee', 'eight_oclock', 'Eight O''Clock', 23, false, false),
+  ('cupboard_coffee', 'chock_full', 'Chock full o''Nuts', 24, false, false),
+  ('cupboard_coffee', 'green_mountain', 'Green Mountain Coffee', 25, false, false),
+  ('cupboard_coffee', 'donut_shop', 'The Original Donut Shop', 26, false, false),
+  ('cupboard_coffee', 'seattles_best', 'Seattle''s Best', 27, false, false),
+  ('cupboard_coffee', 'gevalia', 'Gevalia', 28, false, false),
+  ('cupboard_coffee', 'community', 'Community Coffee', 29, false, false),
+  ('cupboard_coffee', 'death_wish', 'Death Wish Coffee', 30, false, false),
+  ('cupboard_coffee', 'black_rifle', 'Black Rifle Coffee', 31, false, false),
+  ('cupboard_coffee', 'kirkland', 'Kirkland Signature (Costco)', 32, false, false),
+  ('cupboard_coffee', 'trader_joes', 'Trader Joe''s', 33, false, false),
+  ('cupboard_coffee', 'aldi', 'Aldi (Barissimo)', 34, false, false),
+  ('cupboard_coffee', 'store_brand', 'Another supermarket''s own brand', 35, false, false),
+  ('cupboard_coffee', 'counter_culture', 'Counter Culture Coffee', 36, false, false),
+  ('cupboard_coffee', 'intelligentsia', 'Intelligentsia', 37, false, false),
+  ('cupboard_coffee', 'stumptown', 'Stumptown', 38, false, false),
+  ('cupboard_coffee', 'blue_bottle', 'Blue Bottle Coffee', 39, false, false),
+  ('cupboard_coffee', 'la_colombe', 'La Colombe', 40, false, false),
+  ('cupboard_coffee', 'verve', 'Verve Coffee', 41, false, false),
+  ('cupboard_coffee', 'onyx', 'Onyx Coffee Lab', 42, false, false),
+  ('cupboard_coffee', 'equator', 'Equator Coffees', 43, false, false),
+  ('cupboard_coffee', 'ritual', 'Ritual Coffee', 44, false, false),
+  ('cupboard_coffee', 'joe_coffee', 'Joe Coffee', 45, false, false),
+  ('cupboard_coffee', 'utopian', 'Utopian Coffee', 46, false, false),
+  ('cupboard_coffee', 'joe_bean', 'Joe Bean Coffee Roasters', 47, false, false),
+  ('cupboard_coffee', 'path', 'Path Coffee Roasters', 48, false, false),
+  ('cupboard_coffee', 'temecula', 'Temecula Coffee Roasters', 49, false, false),
+  ('cupboard_coffee', 'devocion', 'Devoción', 50, false, false),
+  ('cupboard_coffee', 'partners', 'Partners Coffee', 51, false, false),
+  ('cupboard_coffee', 'irving_farm', 'Irving Farm', 52, false, false),
+  ('cupboard_coffee', 'cafe_grumpy', 'Café Grumpy', 53, false, false),
+  ('cupboard_coffee', 'brooklyn_roasting', 'Brooklyn Roasting Company', 54, false, false),
+  ('cupboard_coffee', 'birch', 'Birch Coffee', 55, false, false),
+  ('cupboard_coffee', 'stone_street', 'Stone Street Coffee', 56, false, false),
+  ('cupboard_coffee', 'orens', 'Oren''s Coffee', 57, false, false),
+  ('cupboard_coffee', 'porto_rico', 'Porto Rico Importing', 58, false, false),
+  ('cupboard_coffee', 'variety', 'Variety Coffee Roasters', 59, false, false),
+  ('cupboard_coffee', 'rook', 'Rook Coffee', 60, false, false),
+  ('cupboard_coffee', 'small_world', 'Small World Coffee', 61, false, false),
+  ('cupboard_coffee', 'modcup', 'Modcup', 62, false, false),
+  ('cupboard_coffee', 'hidden_grounds', 'Hidden Grounds', 63, false, false),
+  ('cupboard_coffee', 'local_roaster', 'A local roaster not on this list', 64, false, false),
+  -- coffee_feeling (A2c)
+  ('coffee_feeling', 'happy', 'I''m happy with it', 1, false, false),
+  ('coffee_feeling', 'bolder', 'I''d like something bolder', 2, false, false),
+  ('coffee_feeling', 'gentler', 'I''d like something gentler', 3, false, false),
+  ('coffee_feeling', 'different', 'I''d like something different', 4, false, false)
+) AS v(field, code, label, sort_order, pinned, accepts_words)
+JOIN brew_profile_field f ON f.code = v.field
+ON CONFLICT (field_id, code) DO NOTHING;
+
+-- ── A2a. drinks ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS brew_drink_base_method (
+  id SERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, label TEXT NOT NULL, sort_order INT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()), updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO brew_drink_base_method (code, label, sort_order) VALUES
+  ('espresso', 'Espresso', 1), ('filter', 'Filter', 2), ('immersion', 'Immersion', 3), ('cold_brew', 'Cold brew', 4),
+  ('stovetop', 'Stovetop', 5), ('pod', 'Pod', 6), ('none', 'None', 7)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS brew_drink_dilution (
+  id SERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, label TEXT NOT NULL, sort_order INT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()), updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO brew_drink_dilution (code, label, sort_order) VALUES
+  ('none', 'None', 1), ('water', 'Water', 2), ('ice', 'Ice', 3)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS brew_drink_milk (
+  id SERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, label TEXT NOT NULL, sort_order INT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()), updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO brew_drink_milk (code, label, sort_order) VALUES
+  ('none', 'None', 1), ('cold', 'Cold', 2), ('steamed', 'Steamed', 3)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS brew_drink (
+  id             SERIAL PRIMARY KEY,
+  field_value_id INT NOT NULL UNIQUE REFERENCES brew_profile_field_value(id),
+  base_method_id INT NOT NULL REFERENCES brew_drink_base_method(id),
+  dilution_id    INT NOT NULL REFERENCES brew_drink_dilution(id),
+  milk_id        INT NOT NULL REFERENCES brew_drink_milk(id),
+  is_home_drink  BOOLEAN NOT NULL DEFAULT true,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO brew_drink (field_value_id, base_method_id, dilution_id, milk_id, is_home_drink)
+SELECT fv.id, bm.id, dl.id, mk.id, v.is_home_drink
+FROM (VALUES
+  ('espresso', 'espresso', 'none', 'none', true),
+  ('cortado', 'espresso', 'none', 'steamed', true),
+  ('americano', 'espresso', 'water', 'none', true),
+  ('americano_milk', 'espresso', 'water', 'cold', true),
+  ('iced_americano', 'espresso', 'ice', 'none', true),
+  ('latte', 'espresso', 'none', 'steamed', true),
+  ('iced_latte', 'espresso', 'ice', 'cold', true),
+  ('drip_black', 'filter', 'none', 'none', true),
+  ('drip_milk', 'filter', 'none', 'cold', true),
+  ('iced_coffee', 'filter', 'ice', 'none', true),
+  ('french_press', 'immersion', 'none', 'none', true),
+  ('cold_brew', 'cold_brew', 'none', 'none', true),
+  ('moka_turkish', 'stovetop', 'none', 'none', true),
+  ('pod', 'pod', 'none', 'none', true),
+  ('buy_out', 'none', 'none', 'none', false),
+  ('other', 'none', 'none', 'none', true)
+) AS v(code, base_method, dilution, milk, is_home_drink)
+JOIN brew_profile_field f ON f.code = 'usual_drink'
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = v.code
+JOIN brew_drink_base_method bm ON bm.code = v.base_method
+JOIN brew_drink_dilution dl ON dl.code = v.dilution
+JOIN brew_drink_milk mk ON mk.code = v.milk
+ON CONFLICT (field_value_id) DO NOTHING;
+
+-- ── A2b. brands ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS brew_cupboard_brand_kind (
+  id SERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, label TEXT NOT NULL, sort_order INT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()), updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO brew_cupboard_brand_kind (code, label, sort_order) VALUES
+  ('chain', 'Chain', 1), ('mass_market', 'Mass market', 2), ('specialty', 'Specialty', 3),
+  ('unknown', 'Unknown', 4), ('none', 'None', 5)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS brew_cupboard_brand (
+  id             SERIAL PRIMARY KEY,
+  field_value_id INT NOT NULL UNIQUE REFERENCES brew_profile_field_value(id),
+  brand_kind_id  INT NOT NULL REFERENCES brew_cupboard_brand_kind(id),
+  roaster_id     UUID REFERENCES roaster(id),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO brew_cupboard_brand (field_value_id, brand_kind_id)
+SELECT fv.id, k.id
+FROM (VALUES
+  ('dont_know', 'unknown'), ('nothing', 'none'), ('pods_unknown', 'unknown'), ('other', 'unknown'),
+  ('dunkin', 'chain'), ('starbucks', 'chain'), ('peets', 'chain'), ('mcdonalds', 'chain'),
+  ('tim_hortons', 'chain'), ('caribou', 'chain'), ('wawa', 'chain'),
+  ('folgers', 'mass_market'), ('maxwell_house', 'mass_market'), ('bustelo', 'mass_market'), ('pilon', 'mass_market'),
+  ('lavazza', 'mass_market'), ('illy', 'mass_market'), ('eight_oclock', 'mass_market'), ('chock_full', 'mass_market'),
+  ('green_mountain', 'mass_market'), ('donut_shop', 'mass_market'), ('seattles_best', 'mass_market'), ('gevalia', 'mass_market'),
+  ('community', 'mass_market'), ('death_wish', 'mass_market'), ('black_rifle', 'mass_market'), ('kirkland', 'mass_market'),
+  ('trader_joes', 'mass_market'), ('aldi', 'mass_market'), ('store_brand', 'mass_market'),
+  ('counter_culture', 'specialty'), ('intelligentsia', 'specialty'), ('stumptown', 'specialty'), ('blue_bottle', 'specialty'),
+  ('la_colombe', 'specialty'), ('verve', 'specialty'), ('onyx', 'specialty'), ('equator', 'specialty'), ('ritual', 'specialty'),
+  ('joe_coffee', 'specialty'), ('utopian', 'specialty'), ('joe_bean', 'specialty'), ('path', 'specialty'), ('temecula', 'specialty'),
+  ('devocion', 'specialty'), ('partners', 'specialty'), ('irving_farm', 'specialty'), ('cafe_grumpy', 'specialty'),
+  ('brooklyn_roasting', 'specialty'), ('birch', 'specialty'), ('stone_street', 'specialty'), ('orens', 'specialty'),
+  ('porto_rico', 'specialty'), ('variety', 'specialty'), ('rook', 'specialty'), ('small_world', 'specialty'),
+  ('modcup', 'specialty'), ('hidden_grounds', 'specialty'), ('local_roaster', 'specialty')
+) AS v(code, kind)
+JOIN brew_profile_field f ON f.code = 'cupboard_coffee'
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = v.code
+JOIN brew_cupboard_brand_kind k ON k.code = v.kind
+ON CONFLICT (field_value_id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS brew_cupboard_brand_alias (
+  id         SERIAL PRIMARY KEY,
+  brand_id   INT NOT NULL REFERENCES brew_cupboard_brand(id),
+  alias      TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  UNIQUE (brand_id, alias)
+);
+INSERT INTO brew_cupboard_brand_alias (brand_id, alias)
+SELECT b.id, lower(trim(v.alias))
+FROM (VALUES
+  ('pods_unknown', 'k-cup'), ('pods_unknown', 'keurig'), ('pods_unknown', 'nespresso'),
+  ('dunkin', 'dunkin donuts'), ('dunkin', 'dd'), ('starbucks', 'sbux'), ('peets', 'peets'),
+  ('mcdonalds', 'mcdonalds'), ('mcdonalds', 'mccafe'),
+  ('bustelo', 'bustelo'), ('bustelo', 'cafe bustelo'), ('pilon', 'pilon'), ('eight_oclock', '8 oclock'),
+  ('chock_full', 'chock full of nuts'), ('donut_shop', 'donut shop'), ('black_rifle', 'brcc'),
+  ('kirkland', 'costco'), ('aldi', 'barissimo'),
+  ('store_brand', 'shoprite'), ('store_brand', 'wegmans'), ('store_brand', 'whole foods 365'), ('store_brand', 'stop and shop'),
+  ('counter_culture', 'ccc'), ('joe_coffee', 'joe'), ('joe_coffee', 'joe coffee company'), ('joe_bean', 'joe bean'),
+  ('devocion', 'devocion'), ('cafe_grumpy', 'cafe grumpy'), ('orens', 'orens'),
+  ('local_roaster', 'local'), ('local_roaster', 'roastery')
+) AS v(code, alias)
+JOIN brew_profile_field f ON f.code = 'cupboard_coffee'
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = v.code
+JOIN brew_cupboard_brand b ON b.field_value_id = fv.id
+ON CONFLICT (brand_id, alias) DO NOTHING;
+
+-- ── A2c. feelings (D19): each feeling mirrors one map move, by FK ─────────
+CREATE TABLE IF NOT EXISTS brew_coffee_feeling (
+  id             SERIAL PRIMARY KEY,
+  field_value_id INT NOT NULL UNIQUE REFERENCES brew_profile_field_value(id),
+  move_id        INT NOT NULL REFERENCES dial_move(id),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO brew_coffee_feeling (field_value_id, move_id)
+SELECT fv.id, m.id
+FROM (VALUES ('happy', 'stay'), ('bolder', 'bolder'), ('gentler', 'gentler'), ('different', 'different')) AS v(code, move)
+JOIN brew_profile_field f ON f.code = 'coffee_feeling'
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = v.code
+JOIN dial_move m ON m.code = v.move
+ON CONFLICT (field_value_id) DO NOTHING;
+
+-- ── A3b. quiz_funnel_event_type ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS quiz_funnel_event_type (
+  id SERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, label TEXT NOT NULL, sort_order INT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()), updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO quiz_funnel_event_type (code, label, sort_order) VALUES
+  ('quiz_start', 'Quiz started', 1), ('quiz_complete', 'Quiz completed (pre-branch score)', 2),
+  ('email_submitted', 'Email submitted', 3), ('quiz_final', 'Final on-screen archetype', 4),
+  ('post_result_shown', 'Post-result card shown', 5), ('post_result_saved', 'Post-result card saved', 6),
+  ('post_result_skipped', 'Post-result card skipped', 7)
+ON CONFLICT (code) DO NOTHING;
+
+-- ── A3c. the two new fact columns (nullable; existing rows stay NULL) ──────
+ALTER TABLE customer_brew_profile_change ADD COLUMN IF NOT EXISTS quiz_session_id UUID REFERENCES quiz_session(id);
+ALTER TABLE customer_brew_profile_change ADD COLUMN IF NOT EXISTS customer_words TEXT;
+-- Rows written in one transaction (the post-result card) get distinct,
+-- ordered times, so the fold's "latest wins" is never a tie (as Ella map 3's
+-- facts). One request per write in production: no behaviour change there.
+ALTER TABLE customer_brew_profile_change ALTER COLUMN occurred_at SET DEFAULT timezone('utc', clock_timestamp());
+ALTER TABLE customer_brew_profile_change ALTER COLUMN recorded_at SET DEFAULT timezone('utc', clock_timestamp());
+
+-- ── A3a / A3b. CHECK -> FK. The CHECKs go by the names Task 0 read from
+-- pg_constraint; each FK is added only when no row violates it, else a
+-- WARNING and integrity check 27 lists the rows. Never fails boot (G2.18).
+DO $$ DECLARE n int; BEGIN
+  ALTER TABLE customer_brew_profile_change DROP CONSTRAINT IF EXISTS customer_brew_profile_change_field_check;
+  ALTER TABLE customer_brew_profile_change DROP CONSTRAINT IF EXISTS customer_brew_profile_change_op_check;
+  ALTER TABLE quiz_funnel_event DROP CONSTRAINT IF EXISTS quiz_funnel_event_event_check;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'customer_brew_profile_change_field_fkey') THEN
+    SELECT count(*) INTO n FROM customer_brew_profile_change c WHERE NOT EXISTS (SELECT 1 FROM brew_profile_field f WHERE f.code = c.field);
+    IF n = 0 THEN
+      ALTER TABLE customer_brew_profile_change ADD CONSTRAINT customer_brew_profile_change_field_fkey FOREIGN KEY (field) REFERENCES brew_profile_field(code);
+    ELSE
+      RAISE WARNING '[usual-drink] customer_brew_profile_change.field FK skipped: % row(s) with no brew_profile_field', n;
+    END IF;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'customer_brew_profile_change_op_fkey') THEN
+    SELECT count(*) INTO n FROM customer_brew_profile_change c WHERE NOT EXISTS (SELECT 1 FROM brew_profile_op o WHERE o.code = c.op);
+    IF n = 0 THEN
+      ALTER TABLE customer_brew_profile_change ADD CONSTRAINT customer_brew_profile_change_op_fkey FOREIGN KEY (op) REFERENCES brew_profile_op(code);
+    ELSE
+      RAISE WARNING '[usual-drink] customer_brew_profile_change.op FK skipped: % row(s) with no brew_profile_op', n;
+    END IF;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quiz_funnel_event_event_fkey') THEN
+    SELECT count(*) INTO n FROM quiz_funnel_event e WHERE NOT EXISTS (SELECT 1 FROM quiz_funnel_event_type t WHERE t.code = e.event);
+    IF n = 0 THEN
+      ALTER TABLE quiz_funnel_event ADD CONSTRAINT quiz_funnel_event_event_fkey FOREIGN KEY (event) REFERENCES quiz_funnel_event_type(code);
+    ELSE
+      RAISE WARNING '[usual-drink] quiz_funnel_event.event FK skipped: % row(s) with no quiz_funnel_event_type', n;
+    END IF;
+  END IF;
+END $$;
+
+-- ── A5. views ──────────────────────────────────────────────────────────────
+-- The field list: one row per field x allowed value (a field with no value
+-- rows, aversions, once with NULL value columns). Inactive rows included; the
+-- one reader (brewProfile.getBrewProfileFieldsConfig) filters (A4).
+DROP VIEW IF EXISTS v_brew_profile_field_current CASCADE;
+CREATE VIEW v_brew_profile_field_current AS
+SELECT f.id AS field_id, f.code AS field_code, f.label AS field_label, f.prompt,
+       k.code AS value_kind, p.code AS picker, f.max_items, f.max_item_len, f.liam_topic, f.ask_when_empty,
+       f.sort_order AS field_sort_order, f.is_active AS field_is_active,
+       fv.id AS value_id, fv.code AS value_code, fv.label AS value_label, fv.sort_order AS value_sort_order,
+       fv.pinned, fv.accepts_words,
+       COALESCE((SELECT array_agg(a.alias ORDER BY a.alias) FROM brew_cupboard_brand b
+                 JOIN brew_cupboard_brand_alias a ON a.brand_id = b.id WHERE b.field_value_id = fv.id), ARRAY[]::text[]) AS aliases,
+       fv.is_active AS value_is_active
+FROM brew_profile_field f
+JOIN brew_profile_value_kind k ON k.id = f.value_kind_id
+JOIN brew_profile_picker p ON p.id = f.picker_id
+LEFT JOIN brew_profile_field_value fv ON fv.field_id = f.id;
+
+-- Per canonical customer: the latest non-declined row of a field (source,
+-- quiz session) and the latest row carrying the customer's own words.
+DROP VIEW IF EXISTS v_customer_usual_drink CASCADE;
+CREATE VIEW v_customer_usual_drink AS
+SELECT b.canonical_user_id, fv.id AS field_value_id, fv.code, fv.label,
+       bm.code AS base_method, dl.code AS dilution, mk.code AS milk, bd.is_home_drink,
+       CASE WHEN fv.accepts_words THEN w.customer_words END AS customer_words,
+       b.captured_at, b.source, l.quiz_session_id
+FROM v_customer_brew_profile b
+CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(b.value_jsonb) = 'array' THEN b.value_jsonb ELSE '[]'::jsonb END) AS d(code)
+JOIN brew_profile_field f ON f.code = b.field
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = d.code
+JOIN brew_drink bd ON bd.field_value_id = fv.id
+JOIN brew_drink_base_method bm ON bm.id = bd.base_method_id
+JOIN brew_drink_dilution dl ON dl.id = bd.dilution_id
+JOIN brew_drink_milk mk ON mk.id = bd.milk_id
+LEFT JOIN LATERAL (
+  SELECT c.quiz_session_id FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
+  WHERE vi.canonical_user_id = b.canonical_user_id AND c.field = b.field AND c.op <> 'declined'
+  ORDER BY c.occurred_at DESC LIMIT 1
+) l ON true
+LEFT JOIN LATERAL (
+  SELECT c.customer_words FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
+  WHERE vi.canonical_user_id = b.canonical_user_id AND c.field = b.field AND c.op IN ('set', 'add') AND c.customer_words IS NOT NULL
+  ORDER BY c.occurred_at DESC LIMIT 1
+) w ON true
+WHERE b.field = 'usual_drink';
+
+DROP VIEW IF EXISTS v_customer_cupboard_coffee CASCADE;
+CREATE VIEW v_customer_cupboard_coffee AS
+SELECT b.canonical_user_id, fv.id AS field_value_id, fv.code, fv.label,
+       k.code AS brand_kind, cb.roaster_id,
+       CASE WHEN fv.accepts_words THEN l.customer_words END AS customer_words,
+       b.captured_at, b.source, l.quiz_session_id
+FROM v_customer_brew_profile b
+JOIN brew_profile_field f ON f.code = b.field
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = (b.value_jsonb #>> '{}')
+JOIN brew_cupboard_brand cb ON cb.field_value_id = fv.id
+JOIN brew_cupboard_brand_kind k ON k.id = cb.brand_kind_id
+LEFT JOIN LATERAL (
+  SELECT c.quiz_session_id, c.customer_words FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
+  WHERE vi.canonical_user_id = b.canonical_user_id AND c.field = b.field AND c.op <> 'declined'
+  ORDER BY c.occurred_at DESC LIMIT 1
+) l ON true
+WHERE b.field = 'cupboard_coffee';
+
+DROP VIEW IF EXISTS v_customer_coffee_feeling CASCADE;
+CREATE VIEW v_customer_coffee_feeling AS
+SELECT b.canonical_user_id, fv.id AS field_value_id, fv.code, fv.label, m.code AS move_code,
+       b.captured_at, b.source, l.quiz_session_id
+FROM v_customer_brew_profile b
+JOIN brew_profile_field f ON f.code = b.field
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = (b.value_jsonb #>> '{}')
+JOIN brew_coffee_feeling cf ON cf.field_value_id = fv.id
+JOIN dial_move m ON m.id = cf.move_id
+LEFT JOIN LATERAL (
+  SELECT c.quiz_session_id FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
+  WHERE vi.canonical_user_id = b.canonical_user_id AND c.field = b.field AND c.op <> 'declined'
+  ORDER BY c.occurred_at DESC LIMIT 1
+) l ON true
+WHERE b.field = 'coffee_feeling';
+
+-- reporting_ro: the four new views only, no table grants (Dana 2026-11-12, Task 0 answer 3).
+GRANT SELECT ON v_brew_profile_field_current, v_customer_usual_drink, v_customer_cupboard_coffee, v_customer_coffee_feeling TO reporting_ro;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END USUAL DRINK 1 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.
@@ -11777,6 +12308,9 @@ REVOKE UPDATE, DELETE, TRUNCATE ON subscription_event FROM ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON household_event FROM ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON household_parameter FROM ab_app;
 GRANT UPDATE (superseded_at) ON household_parameter TO ab_app;
+-- Usual Drink 1 (2026-11-12): brew_parameter is superseded only, like household_parameter.
+REVOKE UPDATE, DELETE, TRUNCATE ON brew_parameter FROM ab_app;
+GRANT UPDATE (superseded_at) ON brew_parameter TO ab_app;
 REVOKE DELETE, TRUNCATE ON household, household_member, household_member_role, household_invitation FROM ab_app;
 GRANT SELECT ON v_roastery_remark, v_cupping_session, v_cupping_session_coffee TO reporting_ro;
 
@@ -11790,6 +12324,24 @@ DO $$ DECLARE t text; BEGIN
     SELECT tablename FROM pg_tables WHERE schemaname = 'public'
       AND (tablename IN ('quiz', 'quiz_type', 'quiz_question', 'quiz_answer', 'quiz_answer_archetype_score')
            OR tablename LIKE 'quiz\_backup\_20261008\_%' ESCAPE '\')
+  LOOP
+    EXECUTE format('REVOKE ALL ON %I FROM ab_app', t);
+    EXECUTE format('GRANT SELECT ON %I TO ab_app', t);
+  END LOOP;
+END $$;
+
+-- Usual Drink 1, A6 (2026-11-12): the brew-profile reference tables have one
+-- writer, the boot seed above under the owner role (edits by owner SQL). The
+-- request pool only reads them, overriding the operating grant. An explicit
+-- list, not brew\_%: brew_card_view_event is app-written and keeps its grants.
+-- customerIntegrity check 29 reports a drift.
+DO $$ DECLARE t text; BEGIN
+  FOR t IN
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+      AND tablename IN ('brew_profile_value_kind', 'brew_profile_picker', 'brew_profile_op', 'brew_profile_field',
+                        'brew_profile_field_value', 'brew_drink', 'brew_drink_base_method', 'brew_drink_dilution',
+                        'brew_drink_milk', 'brew_cupboard_brand', 'brew_cupboard_brand_kind', 'brew_cupboard_brand_alias',
+                        'brew_coffee_feeling', 'quiz_funnel_event_type')
   LOOP
     EXECUTE format('REVOKE ALL ON %I FROM ab_app', t);
     EXECUTE format('GRANT SELECT ON %I TO ab_app', t);

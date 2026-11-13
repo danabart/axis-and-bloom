@@ -1870,3 +1870,12 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 - **Liam access widened.** Liam access (`liamAccess.hasLiamAccess`) and the SUBSCRIBER lifecycle stage (`userSignals.hasActiveSubscription`) now read `subscription_status.counts_as_subscriber` instead of `status = 'active'`. Active, past_due (a card retry in progress) and paused keep Liam; lapsed and canceled do not (Dana, 2026-10-31). Sponsored seats are only ever active or lapsed, so company-gift access is unchanged. Tested in `subscriptionService.test.ts`.
 - **Renewals fire the same order beats.** Each renewal is an ordinary paid order through `finalizePaidOrder`: the order-placed line, the delayed beats, tokens and the lifecycle refresh run per renewal, as for any order.
 - **Not changed:** the gate's `customer_subscription` resolver and the customer block still print the raw status code. Moving them to `customer_label` is in OPEN_TASKS OT-62.
+
+#### S128. Usual Drink 1: Liam's field list comes from the rows (2026-11-12)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #271.
+- **The field list is data.** The "Remembering facts" rules no longer name five fields; the list of fields and allowed values follows them in the shared prompt tier, built from `brew_profile_field` / `brew_profile_field_value` (`brewProfile.formatBrewProfileFieldList`); for the kitchen brand the labels and aliases too, so "the Costco one" maps to `kirkland`.
+- **Three new fields:** `usual_drink` (a named drink or the full preparation, one `add` per drink; a partial cue such as "I add milk" stays `takes_it`), `cupboard_coffee` (a named brand at home) and `coffee_feeling` (stated in one of the four senses). Nothing in Liam's recommendation reads them (D5).
+- **`ask_when_empty`:** when a field with the flag is empty and the turn's topic is the field's `liam_topic`, the turn context offers its question once per conversation (`context_data.brewAskedFields`), never on the customer's first message (`getAskWhenEmptyNudge`). `TOPIC_TO_FIELD` is gone; the stale nudge reads `liam_topic`.
+- **The `|words` marker part:** `<<remember:cupboard_coffee=other|Café du Monde>>` stores `other` with the customer's words, only on a value that accepts them and within the field's `max_item_len`. An `add` past `max_items` is now dropped and counted.
+- **The setup line** keeps its exact wording for the five original fields; a new field with a value is added by its own label.

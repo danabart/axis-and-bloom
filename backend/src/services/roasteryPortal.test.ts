@@ -25,7 +25,7 @@ import {
   getActiveLinkByToken, getVocabulary, getLineupCoffee, getCurrentResponse, getLineup,
   getCurrentLineupResponse, listResponseVersions,
 } from './roasteryPortalReads.js';
-import { getBrewProfileFieldsConfig } from './brewProfile.js';
+import { getBrewProfileFieldsConfig, loadBrewProfileFields } from './brewProfile.js';
 import roasteryPortalRouter from '../routes/roasteryPortal.js';
 
 // Every query crosses the Cloud SQL Auth Proxy from a dev machine; the default 5s is too tight.
@@ -400,6 +400,8 @@ describe('vocabulary validation', () => {
 
 describe('brew vocabulary drift guard', () => {
   it('roastery_portal_brew_method values equal the customer brew profile vocabulary exactly', async () => {
+    // Usual Drink 1: the customer vocabulary is the brew_profile_field_value rows (the field-list cache).
+    await loadBrewProfileFields();
     const customer = getBrewProfileFieldsConfig().brew_methods.allowedValues ?? [];
     const portal = (await getVocabulary({ fresh: true })).brewMethods.map(b => b.value);
     expect([...portal].sort()).toEqual([...customer].sort());

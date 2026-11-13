@@ -25,6 +25,7 @@ import coffeesRouter from './routes/coffees.js';
 import homeRouter from './routes/home.js'; // Website 2 (2026-11-04)
 import householdRouter from './routes/household.js';
 import householdAdminRouter from './routes/householdAdmin.js'; // Family Household 1 (2026-11-07)
+import brewProfileAdminRouter from './routes/brewProfileAdmin.js'; // Usual Drink 1 (2026-11-12)
 import axisRouter from './routes/axis.js';
 import sommelierRouter from './routes/sommelier.js';
 import tokensRouter from './routes/tokens.js';
@@ -48,6 +49,7 @@ import { handleStripeWebhook } from './routes/stripeWebhook.js';
 import { stripeMode } from './services/stripe.js';
 import { runEvidenceIntegrityChecks, formatEvidenceIntegrityLog } from './services/evidenceIntegrity.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
+import { startBrewProfileFieldsCache } from './services/brewProfile.js';
 import { seedSommelierAnswers } from './db/seeds/sommelier_answer_seed.js';
 import { seedGateRules } from './db/seeds/sommelier_gate_rule_seed.js';
 import { seedEvals } from './db/seeds/sommelier_eval_seed.js';
@@ -167,6 +169,7 @@ app.use('/api/admin/commerce', commerceAdminRouter);
 app.use('/api/admin/orders', adminOrdersRouter);          // Commerce 3
 app.use('/api/admin/subscriptions', adminSubscriptionsRouter); // Commerce 3
 app.use('/api/admin/household', householdAdminRouter);    // Family Household 1 (D17)
+app.use('/api/admin/brew-profile', brewProfileAdminRouter); // Usual Drink 1 (Part D)
 
 // Observability Foundation Part B -- central boundary handler, mounted AFTER
 // every router so it only sees what Express itself routes here: a
@@ -307,6 +310,18 @@ async function start() {
     await initSommelierConfig();
   } catch (err) {
     console.error('Sommelier config init error (non-fatal):', err);
+  }
+
+  // Usual Drink 1 (2026-11-12), B1 — the brew-profile field list
+  // (v_brew_profile_field_current) loads before the server accepts requests
+  // and refreshes every brew_parameter field_list_refresh_seconds. Non-fatal:
+  // a failure leaves the list empty and every brew-profile write refused and
+  // counted until a retry lands.
+  try {
+    const n = await startBrewProfileFieldsCache();
+    console.log(`[brew-profile] field list loaded: ${n} fields`);
+  } catch (err) {
+    console.error('[brew-profile] field list load error (non-fatal):', err);
   }
 
   // Liam brand answers (brief Rev 3, A2, 2026-10-24) — insert-only, and only

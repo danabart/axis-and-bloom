@@ -3,7 +3,7 @@ import type { Tx } from '../db/client.js';
 import { getAliases, type CatalogBlock, type RagParams } from './sommelierRag.js';
 import { archetypeCode, archetypeLabel, getSellableSlots } from './catalogReads.js';
 import { getSommelierConfig } from './sommelierConfig.js';
-import { formatBrewProfileSummary, getStaleFieldNudge, type BrewProfileDoc } from './brewProfile.js';
+import { formatBrewProfileSummary, getStaleFieldNudge, getAskWhenEmptyNudge, type BrewProfileDoc } from './brewProfile.js';
 import type { SommelierConfig } from './sommelierConfig.js';
 import {
   getQuizCurrent, getBrewProfileCurrent, getFeedbackCurrent, getPalateEvidence, getSharedTraits,
@@ -581,11 +581,16 @@ export function sessionRagFromReads(
 /** /message's per-turn context: the brew line with the stale nudge, and the story of the coffee the message names. */
 export function messageTurnContext(args: {
   message: string; topic: string | null; brewProfile: BrewProfileDoc | null; storyCandidates: StoryCandidate[]; staleNudgeSent: boolean;
-}): { brewProfileContext: string; staleNudge: string | null; storyContext: string | undefined; selectedStoryCoffeeId: number | null; storySelection: string | null } {
+  /** Usual Drink 1, B4: fields already asked in this conversation, and sommelier_sessions.turn_count (1 = the customer's first message). */
+  askedFields?: string[]; turn?: number;
+}): { brewProfileContext: string; staleNudge: string | null; askField: string | null; storyContext: string | undefined; selectedStoryCoffeeId: number | null; storySelection: string | null } {
   // Brew profile (§4.5, §3.5) plus the stale-re-confirm nudge (write rule 5):
   // at most once per session, only when relevant to this turn's topic.
   const staleNudge = getStaleFieldNudge(args.brewProfile, args.topic, args.staleNudgeSent);
-  const brewProfileContext = [formatBrewProfileSummary(args.brewProfile), staleNudge].filter(Boolean).join(' ');
+  // Usual Drink 1, B4: one empty ask_when_empty field of this topic, once per
+  // conversation, never on the first reply (getAskWhenEmptyNudge).
+  const ask = staleNudge ? null : getAskWhenEmptyNudge(args.brewProfile, args.topic, args.askedFields ?? [], args.turn ?? 0);
+  const brewProfileContext = [formatBrewProfileSummary(args.brewProfile), staleNudge, ask?.text].filter(Boolean).join(' ');
   // Story layer (§4.4, HOME_TASK_5/5b) — only on the two topics that ask
   // about the customer's own coffee; the coffee the customer named, else the
   // first candidate with a story; a named coffee without a story gets none.
@@ -601,5 +606,5 @@ export function messageTurnContext(args: {
     selectedStoryCoffeeId = selected?.coffeeId ?? null;
     storySelection = matched ? 'named match' : fallback ? 'fallback' : 'no candidate story';
   }
-  return { brewProfileContext, staleNudge, storyContext, selectedStoryCoffeeId, storySelection };
+  return { brewProfileContext, staleNudge, askField: ask?.field ?? null, storyContext, selectedStoryCoffeeId, storySelection };
 }

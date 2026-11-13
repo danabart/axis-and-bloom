@@ -784,3 +784,115 @@ export async function getBrewDecafByProfile(profileId: string, runner: Runner = 
   const v = r.rows[0].value_jsonb;
   return v === true || v === 'true';
 }
+
+// ── Usual Drink 1 (2026-11-12): the three new brew-profile fields ────────────
+// Reads through v_customer_usual_drink / v_customer_cupboard_coffee /
+// v_customer_coffee_feeling (lookups joined regardless of is_active, A4).
+// Callers in Usual Drink 1: the admin stats row only; not Liam's
+// recommendation, not the map, not the dial (D5).
+export interface UsualDrinkRow {
+  fieldValueId: number; code: string; label: string; baseMethod: string; dilution: string; milk: string;
+  isHomeDrink: boolean; customerWords: string | null; capturedAt: string | null; source: string | null; quizSessionId: string | null;
+}
+export async function getUsualDrinks(uid: string, runner: Runner = db): Promise<UsualDrinkRow[]> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return [];
+  const r = await runner.query(
+    `SELECT field_value_id, code, label, base_method, dilution, milk, is_home_drink, customer_words, captured_at, source, quiz_session_id
+     FROM v_customer_usual_drink WHERE canonical_user_id = $1 ORDER BY field_value_id`, [canonicalId]);
+  return r.rows.map(x => ({
+    fieldValueId: x.field_value_id, code: x.code, label: x.label, baseMethod: x.base_method, dilution: x.dilution, milk: x.milk,
+    isHomeDrink: x.is_home_drink, customerWords: x.customer_words, capturedAt: x.captured_at ? new Date(x.captured_at).toISOString() : null,
+    source: x.source, quizSessionId: x.quiz_session_id,
+  }));
+}
+
+export interface CupboardCoffeeRow {
+  fieldValueId: number; code: string; label: string; brandKind: string; roasterId: string | null;
+  customerWords: string | null; capturedAt: string | null; source: string | null; quizSessionId: string | null;
+}
+export async function getCupboardCoffee(uid: string, runner: Runner = db): Promise<CupboardCoffeeRow | null> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return null;
+  const x = (await runner.query(
+    `SELECT field_value_id, code, label, brand_kind, roaster_id, customer_words, captured_at, source, quiz_session_id
+     FROM v_customer_cupboard_coffee WHERE canonical_user_id = $1`, [canonicalId])).rows[0];
+  return x ? {
+    fieldValueId: x.field_value_id, code: x.code, label: x.label, brandKind: x.brand_kind, roasterId: x.roaster_id,
+    customerWords: x.customer_words, capturedAt: x.captured_at ? new Date(x.captured_at).toISOString() : null, source: x.source, quizSessionId: x.quiz_session_id,
+  } : null;
+}
+
+export interface CoffeeFeelingRow {
+  fieldValueId: number; code: string; label: string; moveCode: string; capturedAt: string | null; source: string | null; quizSessionId: string | null;
+}
+export async function getCoffeeFeeling(uid: string, runner: Runner = db): Promise<CoffeeFeelingRow | null> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return null;
+  const x = (await runner.query(
+    `SELECT field_value_id, code, label, move_code, captured_at, source, quiz_session_id
+     FROM v_customer_coffee_feeling WHERE canonical_user_id = $1`, [canonicalId])).rows[0];
+  return x ? {
+    fieldValueId: x.field_value_id, code: x.code, label: x.label, moveCode: x.move_code,
+    capturedAt: x.captured_at ? new Date(x.captured_at).toISOString() : null, source: x.source, quizSessionId: x.quiz_session_id,
+  } : null;
+}
+
+export interface BrewProfileFieldCounts {
+  /** per field: customers with a value; declined rows and customers; coverage over quiz-sourced rows (set / (set + declined)) */
+  fields: Array<{ field: string; customersWithValue: number; declinedRows: number; declinedCustomers: number; quizSet: number; quizDeclined: number; coverage: number | null }>;
+  drinks: Array<{ code: string; label: string; customers: number }>;
+  baseMethods: Array<{ code: string; customers: number }>;
+  brands: Array<{ code: string; label: string; customers: number }>;
+  brandKinds: Array<{ code: string; customers: number }>;
+  feelings: Array<{ code: string; label: string; moveCode: string; customers: number }>;
+  otherWords: Array<{ field: string; words: string; occurredAt: string; source: string }>;
+  cardEvents: Array<{ event: string; n: number }>;
+}
+/** The admin stats row (Part D): one read over the views and customer_brew_profile_change (declines, words). */
+export async function getBrewProfileFieldCounts(runner: Runner = db): Promise<BrewProfileFieldCounts> {
+  const [fields, drinks, methods, brands, kinds, feelings, words, events] = await Promise.all([
+    runner.query(
+      `WITH c AS (
+         SELECT vi.canonical_user_id, c.field, c.op, c.source FROM customer_brew_profile_change c
+         JOIN v_customer_identity vi ON vi.user_id = c.user_id
+       )
+       SELECT f.field,
+              (SELECT count(*)::int FROM v_customer_brew_profile b WHERE b.field = f.field) AS customers_with_value,
+              count(*) FILTER (WHERE c.op = 'declined')::int AS declined_rows,
+              count(DISTINCT c.canonical_user_id) FILTER (WHERE c.op = 'declined')::int AS declined_customers,
+              count(*) FILTER (WHERE c.source = 'quiz' AND c.op = 'set')::int AS quiz_set,
+              count(*) FILTER (WHERE c.source = 'quiz' AND c.op = 'declined')::int AS quiz_declined
+       FROM (SELECT DISTINCT field FROM c UNION SELECT DISTINCT field FROM v_customer_brew_profile) f
+       LEFT JOIN c ON c.field = f.field
+       GROUP BY f.field ORDER BY f.field`),
+    runner.query(`SELECT code, label, count(DISTINCT canonical_user_id)::int AS customers FROM v_customer_usual_drink GROUP BY code, label ORDER BY customers DESC, code`),
+    runner.query(`SELECT base_method AS code, count(DISTINCT canonical_user_id)::int AS customers FROM v_customer_usual_drink GROUP BY base_method ORDER BY customers DESC, code`),
+    runner.query(`SELECT code, label, count(*)::int AS customers FROM v_customer_cupboard_coffee GROUP BY code, label ORDER BY customers DESC, code`),
+    runner.query(`SELECT brand_kind AS code, count(*)::int AS customers FROM v_customer_cupboard_coffee GROUP BY brand_kind ORDER BY customers DESC, code`),
+    runner.query(`SELECT code, label, move_code, count(*)::int AS customers FROM v_customer_coffee_feeling GROUP BY code, label, move_code ORDER BY customers DESC, code`),
+    runner.query(`SELECT field, customer_words AS words, occurred_at, source FROM customer_brew_profile_change WHERE customer_words IS NOT NULL ORDER BY occurred_at DESC LIMIT 100`),
+    runner.query(`SELECT event, count(*)::int AS n FROM quiz_funnel_event WHERE event LIKE 'post\_result\_%' GROUP BY event ORDER BY event`),
+  ]);
+  return {
+    fields: fields.rows.map(r => ({
+      field: r.field, customersWithValue: r.customers_with_value, declinedRows: r.declined_rows, declinedCustomers: r.declined_customers,
+      quizSet: r.quiz_set, quizDeclined: r.quiz_declined,
+      coverage: r.quiz_set + r.quiz_declined > 0 ? Math.round((r.quiz_set / (r.quiz_set + r.quiz_declined)) * 1000) / 1000 : null,
+    })),
+    drinks: drinks.rows, baseMethods: methods.rows, brands: brands.rows, brandKinds: kinds.rows,
+    feelings: feelings.rows.map(r => ({ code: r.code, label: r.label, moveCode: r.move_code, customers: r.customers })),
+    otherWords: words.rows.map(r => ({ field: r.field, words: r.words, occurredAt: new Date(r.occurred_at).toISOString(), source: r.source })),
+    cardEvents: events.rows,
+  };
+}
+
+/**
+ * Usual Drink 1 (D13): the purge guard's predicate, kept here so the one read
+ * path for customer_* stays this file (lint-customer rule 4). `alias` is the
+ * caller's user_profile alias, a fixed identifier from code, never input.
+ */
+export function hasBrewProfileFactsSql(alias: string): string {
+  if (!/^[a-z_]+$/.test(alias)) throw new Error('hasBrewProfileFactsSql: alias must be a plain identifier');
+  return `EXISTS (SELECT 1 FROM customer_brew_profile_change cbpc_guard WHERE cbpc_guard.user_id = ${alias}.id)`;
+}

@@ -4,6 +4,7 @@ import { guardClaudeCall, guardClaudeCallMetered } from './anthropicGuard.js';
 import type { RoasterVoice } from './roasterVoiceReads.js';
 import { brewLine, takesItLine, BREW_RULE, GAP_RULE } from './contentGuard.js';
 import { getCurrentAnswers } from './sommelierReads.js';
+import { formatBrewProfileFieldList } from './brewProfile.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -93,7 +94,7 @@ Action markers (internal — never mention, explain, or hint at these to the cus
 
 Remembering facts (internal marker, same rule as action markers — never mention, explain, or hint at these to the customer):
 - When the customer states a durable fact about their own setup or habits — not a guess, not something you inferred — confirm it in-voice in the same reply, then end with <<remember:field=value>>.
-- The field name must be exactly one of these five (plural/singular matters — use exactly as written): brew_methods, grinder, takes_it, decaf_constraint, aversions.
+- The field name and the value must come from the brew-profile field list given after these instructions (plural/singular matters — use exactly as written).
   Good: they say "I've got a V60" → "V60 — noted." <<remember:brew_methods=v60>>
   Good: they say "I take it black" → "Black. Good to know." <<remember:takes_it=black>>
   Good: they say "I only drink decaf now" → "Decaf only — noted." <<remember:decaf_constraint=true>> (decaf_constraint is true or false, never a phrase)
@@ -106,6 +107,10 @@ Remembering facts (internal marker, same rule as action markers — never mentio
   Bad (three facts stated, only two markable): "Aeropress with sugar — got it. Nothing cinnamon-forward." <<remember:brew_methods=aeropress>><<remember:takes_it=sugar>> — cinnamon was never marked, yet "nothing cinnamon-forward" tells them it was heard and registered. Good instead: "Aeropress with sugar — noted. What's on your mind for today?" <<remember:brew_methods=aeropress>><<remember:takes_it=sugar>> — the cinnamon comment simply isn't mentioned.
   Bad: <<remember:brew_methods=french_press, v60>> — one marker, one value. To add a second brew method, use a second complete marker: <<remember:brew_methods=v60>>.
 - Never save an inference or a guess — only what the customer actually stated.
+- How they make coffee at home: save a drink only when they name it or describe the full preparation ("espresso with hot water and a splash of cold milk" → americano_milk) — <<remember:usual_drink=americano_milk>>, one marker per drink. A partial cue is not a drink: "I add milk" is takes_it.
+- The coffee in their kitchen: when they name the brand they have at home, save it — "Counter Culture, noted." <<remember:cupboard_coffee=counter_culture>>. A brand not on the list is other with their words: <<remember:cupboard_coffee=other|Café du Monde>>.
+- How they feel about the coffee they drink now: save it only when they say it in one of the four senses — happy with it, want something bolder, gentler, or different ("I'm bored of it, I want something with more punch" → <<remember:coffee_feeling=bolder>>).
+- When the context says they haven't told you one of these yet, you may ask that question once, in your own voice, when it fits the conversation; never on your first reply, never twice. Once a field is in the ABOUT THIS CUSTOMER block, don't ask for it again.
 - Mark a fact only on the turn the customer states it. Never re-mark something already in the ABOUT THIS CUSTOMER block.
 - These tokens are stripped before the customer ever sees your reply, exactly like action markers.
 
@@ -154,6 +159,8 @@ type SystemPromptParams = {
   brandAnswersBlock?: string;
   /** Liam sees everything brief Rev 2, A2/A3 — the FIT FOR THIS CUSTOMER block (session tier); '' or absent = none. */
   fitContext?: string;
+  /** Usual Drink 1, B4 — brewProfile.formatBrewProfileFieldList(): the fields and values Liam may remember (shared tier); '' or absent = none. */
+  brewFieldList?: string;
 };
 
 /** Rev 2, B1 — `{supportContact}` in a rule becomes config brandFacts.supportContact. */
@@ -264,12 +271,19 @@ type CacheTier = 'shared' | 'session' | 'turn';
 // API call. Both come from this one function, so the text the model receives
 // and the text the old string return gave can't drift apart.
 function assembleSystemPromptParts(params: SystemPromptParams): Array<{ text: string; tier: CacheTier }> {
-  const { session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine, brandAnswersBlock, fitContext } = params;
+  const { session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine, brandAnswersBlock, fitContext, brewFieldList } = params;
   const intentCfg = config?.intents?.[session.intent];
   const maxTurns = intentCfg?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
 
   const parts: Array<{ text: string; tier: CacheTier }> = [{ text: LIAM_BASE_PROMPT, tier: 'shared' }];
   const push = (text: string, tier: CacheTier = 'turn') => { parts.push({ text, tier }); };
+
+  // Usual Drink 1, B4 — the brew-profile field list from the field rows, right
+  // after the base prompt's "Remembering facts" rules: the same for every
+  // customer until a field row changes, so shared tier. Absent = no part.
+  if (brewFieldList) push(`
+
+${brewFieldList}`, 'shared');
 
   // Brief Rev 3, A4 — the brand facts, right after LIAM_BASE_PROMPT in the
   // shared tier: the same for every customer until an admin edits a row.
@@ -553,7 +567,8 @@ export async function chatWithSommelier(params: {
 
   // Part C1 — prompt caching: the same text assembleSystemPrompt() returns,
   // split into cache_control blocks (see assembleSystemPromptBlocks).
-  const system = assembleSystemPromptBlocks({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine, brandAnswersBlock, fitContext });
+  const brewFieldList = formatBrewProfileFieldList();
+  const system = assembleSystemPromptBlocks({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine, brandAnswersBlock, fitContext, brewFieldList });
 
   // C2 Part 2 (M4 fix) — model choice is decided purely by surface, never by
   // message content. chatWithSommelier is the authenticated Liam

@@ -1,5 +1,6 @@
 import { db, whoAmI, type Tx } from '../db/client.js';
 import { getCatalogVersion } from './catalogReads.js';
+import { getBrewProfileFieldsConfig, incrementBrewProfileCounter } from './brewProfile.js';
 
 // ── Customer Blueprint · brief C1, Part C (2026-09-27) ────────────────────────
 // The only INSERT path onto any customer_* table (plus the customer_-less
@@ -18,7 +19,8 @@ import { getCatalogVersion } from './catalogReads.js';
 
 type Runner = Tx | typeof db;
 
-export type FactSource = 'onsite' | 'liam' | 'sms' | 'shopify' | 'qr' | 'backfill' | 'backfill_detected';
+// 'quiz' (Usual Drink 1, 2026-11-12): the quiz post-result card's brew-profile rows.
+export type FactSource = 'onsite' | 'liam' | 'quiz' | 'sms' | 'shopify' | 'qr' | 'backfill' | 'backfill_detected';
 
 export interface FactResult {
   id: string | null;
@@ -166,17 +168,80 @@ const feedbackDescriptor = Object.assign(feedbackDescriptorFn, { backfill: feedb
 // ── customer_brew_profile_change ──────────────────────────────────────────────
 export interface BrewProfileChangeInput extends CommonFields {
   userId: string;
-  field: 'brew_methods' | 'grinder' | 'takes_it' | 'decaf_constraint' | 'aversions';
+  /** a brew_profile_field code (FK); validated at the door against the field rows (Usual Drink 1, B1) */
+  field: string;
   value?: string | null;
-  op: 'set' | 'add' | 'remove' | 'clear';
+  /** a brew_profile_op code (FK): set, add, remove, clear, declined */
+  op: string;
   sessionId?: number | null;
+  /** quiz writer only (D12) */
+  quizSessionId?: string | null;
+  /** the customer's own words, only on a value that accepts them (D17) */
+  customerWords?: string | null;
 }
+
+/** A brew-profile write the door refuses (Usual Drink 1, B1): counted in brew_profile.failures; callers answer 400, never 500. */
+export class BrewProfileChangeRejected extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BrewProfileChangeRejected';
+  }
+}
+
+/** The door's checks: field exists and is active, op fits the field's kind, value and words match the field rows. */
+export function checkBrewProfileChange(input: BrewProfileChangeInput): string | null {
+  const cfg = getBrewProfileFieldsConfig()[input.field];
+  if (!cfg) return `unknown or inactive field '${input.field}'`;
+  const isArray = cfg.type === 'array' || cfg.type === 'array_freeform';
+  const valueOps = isArray ? ['set', 'add', 'remove'] : ['set'];
+  if (input.source === 'quiz' && !input.quizSessionId) return 'a quiz row carries its quiz_session_id';
+  if (input.source !== 'quiz' && input.quizSessionId) return 'only the quiz writer sets quiz_session_id';
+  if (input.op === 'clear' || input.op === 'declined') {
+    if (input.value != null) return `${input.op} carries value NULL`;
+    if (input.customerWords) return `${input.op} carries no words`;
+    if (input.op === 'declined' && input.source !== 'quiz' && input.source !== 'onsite') return 'declined comes from the card or the profile';
+    return null;
+  }
+  if (!valueOps.includes(input.op)) return `op '${input.op}' does not fit ${cfg.type} field ${cfg.code}`;
+  let parsed: unknown;
+  try { parsed = JSON.parse(String(input.value)); } catch { return 'value is not JSON'; }
+  const items: unknown[] = input.op === 'set' && isArray ? (Array.isArray(parsed) ? parsed : [null]) : [parsed];
+  if (input.op === 'set' && isArray) {
+    if (cfg.maxLength !== undefined && items.length > cfg.maxLength) return `${cfg.code} takes at most ${cfg.maxLength} values`;
+    if (new Set(items.map(String)).size !== items.length) return `${cfg.code} has a duplicate value`;
+  }
+  for (const item of items) {
+    if (cfg.type === 'array_freeform') {
+      if (typeof item !== 'string' || !item.trim() || (cfg.maxItemLength !== undefined && item.length > cfg.maxItemLength)) return `invalid item for ${cfg.code}`;
+    } else if (cfg.type === 'bool') {
+      if (typeof item !== 'boolean' || !cfg.allowedValues?.includes(String(item))) return `invalid value for ${cfg.code}`;
+    } else if (input.op === 'remove') {
+      if (!cfg.values.some(v => v.code === item)) return `unknown value for ${cfg.code}`;
+    } else if (typeof item !== 'string' || !cfg.allowedValues?.includes(item)) {
+      return `invalid value for ${cfg.code}`;
+    }
+  }
+  if (input.customerWords) {
+    const takesWords = items.some(i => cfg.values.find(v => v.code === i)?.acceptsWords === true);
+    if (!takesWords) return `${cfg.code} does not take words for this value`;
+    if (cfg.maxItemLength === undefined || input.customerWords.length > cfg.maxItemLength) return `words for ${cfg.code} are over the cap`;
+  }
+  return null;
+}
+
 async function brewProfileChangeFn(input: BrewProfileChangeInput, tx?: Tx): Promise<FactResult> {
   const runner = tx ?? db;
+  const problem = checkBrewProfileChange(input);
+  if (problem) {
+    await incrementBrewProfileCounter('failures');
+    console.warn(`[customerFacts:brew-profile] rejected source=${input.source} field=${input.field} op=${input.op}: ${problem}`);
+    throw new BrewProfileChangeRejected(problem);
+  }
   const catalogVersion = await resolveCatalogVersion(runner, input.catalogVersion);
   return insertFact(runner, 'customer_brew_profile_change',
-    ['user_id', 'source', 'source_id', 'catalog_version', 'field', 'value', 'op', 'session_id'],
-    [input.userId, input.source, input.sourceId, catalogVersion, input.field, input.value ?? null, input.op, input.sessionId ?? null]);
+    ['user_id', 'source', 'source_id', 'catalog_version', 'field', 'value', 'op', 'session_id', 'quiz_session_id', 'customer_words'],
+    [input.userId, input.source, input.sourceId, catalogVersion, input.field, input.value ?? null, input.op, input.sessionId ?? null,
+     input.quizSessionId ?? null, input.customerWords ?? null]);
 }
 async function brewProfileChangeBackfill(input: BrewProfileChangeInput & BackfillFields, runner: Runner): Promise<FactResult> {
   await assertOwner(runner);

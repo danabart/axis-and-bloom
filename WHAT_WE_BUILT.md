@@ -6805,6 +6805,23 @@ Brief: `backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_3_MATCH_
 **Tests.** `matchService.test.ts` (10, on version 1 as Dana cut it, in rolled-back transactions); the map, route, integrity, comment-format and `customerFacts` suites pass; lints clean.
 
 
+### 271. Usual Drink 1: capture the daily cups, the kitchen and the feeling (2026-11-12)
+
+Brief: `backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_1_CAPTURE.md` (Rev 4). Closing report: `backend/src/features/usual_drink/CLOSING_REPORT_1.md`. Test mode; capture only: nothing in matching, the map, the dial, Liam's recommendation or the profile line reads the new fields (D5).
+
+**What it is.** Three new brew-profile fields, asked in three places, through the existing one door.
+- **Fields:** `usual_drink` (the drinks they make at home, several), `cupboard_coffee` (the coffee in their kitchen right now) and `coffee_feeling` (how they feel about the coffee they drink now: happy, bolder, gentler, different, each mapped to a `dial_move` by FK).
+- **Field definitions are rows:** `brew_profile_field`, `brew_profile_field_value` (every allowed value of every field, one table), `brew_profile_value_kind`, `brew_profile_picker`, `brew_profile_op` (`declined` added), with the decompositions `brew_drink` (base method, dilution, milk), `brew_cupboard_brand` (+ kind, aliases) and `brew_coffee_feeling`. The Firestore `sommelier_config.brewProfile.fields` whitelist, the `field`/`op` CHECKs, the TS unions, `FALLBACK_FIELDS` and `TOPIC_TO_FIELD` are retired; the next field is a row.
+- **The cache:** `brewProfile.loadBrewProfileFields()`, the one reader of `v_brew_profile_field_current`, loads at boot and refreshes every `brew_parameter.field_list_refresh_seconds` (300; new parameter table in the household shape, admin-editable); `getBrewProfileFieldsConfig()` stays synchronous.
+- **Where they are asked:** an optional card under the quiz result (`components/quiz/PostResultCard.tsx`, `POST /api/quiz/post-result`, anonymous allowed, owner-checked, refused on a proxy quiz; every shown field without an answer is a `declined` row); the Profile mirror, rebuilt from `GET /api/users/brew-profile/options` with the shared `BrewFieldControl` and a small `BrewTypeahead`; Liam, from a field list built from the rows (`formatBrewProfileFieldList`) and a once-per-conversation "ask when empty" nudge, with the marker's new `|words` part.
+- **Fact columns:** `customer_brew_profile_change.quiz_session_id` (quiz writer only) and `customer_words` (the two `other` answers). The view's "last updated" and source ignore `declined` rows.
+- **Funnel:** `quiz_funnel_event.event` is an FK to `quiz_funnel_event_type` (the boot-time CHECK re-add is gone); an unknown event is logged and dropped; three card events.
+- **Purge guard:** the empty-guest rule skips a guest holding brew-profile facts (`keptForFacts` in the log); the stale-quiz rule is unchanged (Dana 2026-11-12).
+- **Visibility:** `customerReads.getBrewProfileFieldCounts` behind a new admin row on the Liam flow page (per field coverage, the four distributions, the other + words list) and the brew parameters card; customer integrity check 17 now reads `brew_profile_op`, and checks 22–32 are new (informational).
+
+**Tests.** `usualDrink.test.ts` (17, rolled-back transactions on the test DB); `BrewTypeahead.test.ts` (7, frontend); the customer integrity, facts, Liam and roastery suites pass.
+
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

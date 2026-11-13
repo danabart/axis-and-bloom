@@ -6,14 +6,15 @@ import { getUserSignals } from '../services/userSignals.js';
 import { classifyStage, getPendingFeedbackOrder, refreshLifecycleState } from '../services/userLifecycle.js';
 import {
   getBrewProfileFieldsConfig,
-  validateSingleValue,
+  validateFullValue,
   incrementBrewProfileCounter,
 } from '../services/brewProfile.js';
+import { brewProfileOptions } from '../services/brewProfileCard.js';
 import { getUserBrewCards } from '../services/brewCard.js';
 import { hasLiamAccess } from '../services/liamAccess.js';
 import { getAliases } from '../services/sommelierRag.js';
 import { archetypeCode, archetypeLabel as catalogArchetypeLabel, archetypeCustomerWords } from '../services/catalogReads.js';
-import { record } from '../services/customerFacts.js';
+import { record, BrewProfileChangeRejected } from '../services/customerFacts.js';
 import { getTimeline, getFeedbackCurrent, getBrewProfileCurrent } from '../services/customerReads.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { resolveSlot, ownSortOrder, savePosition, DIAL_EVENT_TRIGGERS } from '../services/dialPositionService.js';
@@ -891,59 +892,44 @@ router.get('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthReq
   }
 });
 
+// ── GET /api/users/brew-profile/options ──────────────────────────────────────
+// Usual Drink 1 (2026-11-12), B3 — what the Profile mirror renders: every
+// active field with its picker, caps, prompt and active values, plus the
+// labels of every value (inactive included) so a stored value still displays.
+router.get('/brew-profile/options', requireAuth, blockAnonymousAuth, async (_req: AuthRequest, res) => {
+  try {
+    res.json(await brewProfileOptions('mirror'));
+  } catch (err) {
+    console.error('[GET /api/users/brew-profile/options]', err);
+    res.status(500).json({ error: 'Failed to load the brew-profile fields' });
+  }
+});
+
 // ── PATCH /api/users/brew-profile ─────────────────────────────────────────────
 // Self-serve edit — the customer supplies the full intended value for a field
 // (replace, not append; the conversation path's append/dedup semantics in
 // sommelier.ts's resolveRemember() are a separate, incremental capture mode).
-// Validated against the same whitelist as the conversation path, source
-// stamped 'profile_page'. Direct API input gets a clear 400, not a silent drop
-// — but still counted, same as the conversation path (write rule 3).
+// Validated against the same field rows as every other writer (Usual Drink 1:
+// an array over max_items is rejected, no longer truncated; optional `words`
+// only on a value that accepts them), source 'onsite'. Direct API input gets
+// a clear 400, not a silent drop — but still counted (write rule 3).
 router.patch('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
-  const { field, value } = req.body ?? {};
+  const { field, value, words } = req.body ?? {};
   if (typeof field !== 'string') { res.status(400).json({ error: 'field required' }); return; }
 
-  const fieldsCfg = getBrewProfileFieldsConfig();
-  const fieldCfg = fieldsCfg[field];
+  const fieldCfg = getBrewProfileFieldsConfig()[field];
   if (!fieldCfg) {
     await incrementBrewProfileCounter('failures');
     res.status(400).json({ error: `Unknown field: ${field}` });
     return;
   }
-
-  let validatedValue: unknown;
-  if (fieldCfg.type === 'array' || fieldCfg.type === 'array_freeform') {
-    if (!Array.isArray(value)) {
-      await incrementBrewProfileCounter('failures');
-      res.status(400).json({ error: `${field} must be an array` });
-      return;
-    }
-    const seen = new Set<string>();
-    const validatedItems: string[] = [];
-    for (const item of value) {
-      if (typeof item !== 'string') continue;
-      const v = validateSingleValue(fieldCfg, item);
-      if (v !== null && !seen.has(v as string)) { seen.add(v as string); validatedItems.push(v as string); }
-    }
-    if (validatedItems.length !== value.length) {
-      await incrementBrewProfileCounter('failures');
-      res.status(400).json({ error: `One or more values for ${field} are not allowed` });
-      return;
-    }
-    validatedValue = validatedItems.slice(0, fieldCfg.maxLength ?? 10);
-  } else {
-    if (typeof value !== 'string') {
-      await incrementBrewProfileCounter('failures');
-      res.status(400).json({ error: `${field} must be a string` });
-      return;
-    }
-    const v = validateSingleValue(fieldCfg, value);
-    if (v === null) {
-      await incrementBrewProfileCounter('failures');
-      res.status(400).json({ error: `Invalid value for ${field}: ${value}` });
-      return;
-    }
-    validatedValue = v;
+  const check = validateFullValue(fieldCfg, value, words);
+  if (!check.ok) {
+    await incrementBrewProfileCounter('failures');
+    res.status(400).json({ error: check.error });
+    return;
   }
+  const validatedValue = check.value;
 
   // Customer Blueprint C3, Part C — the Firestore users/{uid}/metadata/
   // brew_profile doc write is retired; record.brewProfileChange() (C2) is
@@ -952,12 +938,13 @@ router.patch('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthR
     const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
     const profileId = profileResult.rows[0]?.id;
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
-    const sourceId = res.locals.apiEventId ?? brewProfileFallbackSourceId(req.uid!, field, 'set', validatedValue);
-    await record.brewProfileChange({ userId: profileId, source: 'onsite', sourceId, field: field as any, op: 'set', value: JSON.stringify(validatedValue) });
+    const sourceId = res.locals.apiEventId ?? brewProfileFallbackSourceId(req.uid!, field, 'set', [validatedValue, check.words]);
+    await record.brewProfileChange({ userId: profileId, source: 'onsite', sourceId, field, op: 'set', value: JSON.stringify(validatedValue), customerWords: check.words });
     await incrementBrewProfileCounter('writes');
 
     res.json({ ok: true, field, value: validatedValue });
   } catch (err) {
+    if (err instanceof BrewProfileChangeRejected) { res.status(400).json({ error: err.message }); return; }
     console.error('[PATCH /api/users/brew-profile]', err);
     await incrementBrewProfileCounter('failures');
     res.status(500).json({ error: 'Failed to save brew profile field' });
@@ -980,7 +967,7 @@ router.delete('/brew-profile', requireAuth, blockAnonymousAuth, async (req: Auth
     const profileId = profileResult.rows[0]?.id;
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
     const sourceId = res.locals.apiEventId ?? brewProfileFallbackSourceId(req.uid!, field, 'clear', null);
-    await record.brewProfileChange({ userId: profileId, source: 'onsite', sourceId, field: field as any, op: 'clear', value: null });
+    await record.brewProfileChange({ userId: profileId, source: 'onsite', sourceId, field, op: 'clear', value: null });
     await incrementBrewProfileCounter('writes');
 
     res.json({ ok: true, field });

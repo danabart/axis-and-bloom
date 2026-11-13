@@ -9,7 +9,7 @@
 // and, on an actual refresh, re-reads getSlotCandidates/getFeedbackCurrent
 // live rather than trusting a stored snapshot of either — both mocked here
 // via customerReads.js, alongside the pre-existing mocks.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 vi.mock('../services/catalogReads.js', () => ({
   getCatalogVersion: vi.fn(),
@@ -251,6 +251,16 @@ describe('assembleSystemPrompt — profile line (Liam L1, Part C.4)', () => {
 // Liam L2, Part 0 — a re-affirmed scalar fact is not a new fact (D14): the
 // exact "two takes_it=milk rows" case the L1 smoke surfaced, now fixed.
 describe('resolveRemember — re-affirmed scalar facts (Liam L2, Part 0)', () => {
+  // Usual Drink 1: the field list is the brew_profile rows, loaded into a
+  // cache at boot; this unit test (mocked db) primes it with a fixture row of
+  // the one field it uses, shaped as v_brew_profile_field_current.
+  beforeAll(async () => {
+    const { primeBrewProfileFields } = await import('../services/brewProfile.js');
+    const field = { field_id: 3, field_code: 'takes_it', field_label: 'Takes it', prompt: null, value_kind: 'enum' as const, picker: 'select',
+      max_items: null, max_item_len: null, liam_topic: 'my_coffee', ask_when_empty: false, field_sort_order: 3, field_is_active: true,
+      pinned: false, accepts_words: false, aliases: [], value_is_active: true };
+    primeBrewProfileFields(['black', 'milk', 'sugar', 'milk_and_sugar'].map((code, i) => ({ ...field, value_id: 100 + i, value_code: code, value_label: code, value_sort_order: i + 1 })));
+  });
   it('two turns marking the same scalar value produce one customer_brew_profile_change row', async () => {
     mockedDbQuery.mockResolvedValue({ rows: [{ id: 'profile-1' }] });
 

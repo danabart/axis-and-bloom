@@ -34,7 +34,8 @@ export async function saveQuizResult(payload: {
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error('Failed to save quiz result');
-  return res.json();
+  // { id } is the quiz_session id (Usual Drink 1: the post-result card writes against it).
+  return res.json() as Promise<{ id: string; forMemberId?: string }>;
 }
 
 export async function getCoffeeRecommendations(archetype: string) {
@@ -340,7 +341,9 @@ export async function logQuizFunnelEvent(
   // 'quiz_final' added Quiz Resync Fix Part A4 (2026-09-25) — the post-branch,
   // on-screen archetype, logged on its own row so the funnel carries the true
   // final result even when quiz_complete (pre-branch) and the actual result differ.
-  event: 'quiz_start' | 'quiz_complete' | 'email_submitted' | 'quiz_final',
+  // Usual Drink 1 (2026-11-12): the event codes are quiz_funnel_event_type rows;
+  // the post-result card adds post_result_shown / _saved / _skipped.
+  event: 'quiz_start' | 'quiz_complete' | 'email_submitted' | 'quiz_final' | 'post_result_shown' | 'post_result_saved' | 'post_result_skipped',
   archetype?: string,
   attribution?: { campaign: string; vid: string },
 ) {
@@ -504,11 +507,11 @@ export async function getBrewProfile(): Promise<BrewProfileData> {
   return res.json();
 }
 
-export async function setBrewProfileField(field: string, value: string | boolean | string[]) {
+export async function setBrewProfileField(field: string, value: string | boolean | string[], words?: string | null) {
   const res = await fetch(`${BASE}/users/brew-profile`, {
     method: 'PATCH',
     headers: await getHeaders(),
-    body: JSON.stringify({ field, value }),
+    body: JSON.stringify(words ? { field, value, words } : { field, value }),
   });
   if (!res.ok) {
     // Error responses aren't guaranteed to be valid JSON (e.g. a raw 500
@@ -632,4 +635,37 @@ export async function resolveQrToken(token?: string): Promise<QrResolveResult> {
     reportError('[api/resolveQrToken]', err);
     return { status: 'error' };
   }
+}
+
+// ── Usual Drink 1 (2026-11-12): brew-profile fields from data ────────────────
+// The card and the Profile mirror render whatever these payloads carry: the
+// fields in sort order, each with its picker, caps, prompt and active values,
+// the labels of every value for display, and the card's words. Nothing about a
+// field is typed in the frontend (G4.2).
+export interface BrewOptionValue { code: string; label: string; pinned: boolean; acceptsWords: boolean; aliases: string[] }
+export interface BrewOptionField {
+  code: string; label: string; prompt: string | null; type: 'enum' | 'array' | 'bool' | 'array_freeform'; picker: string;
+  maxItems: number | null; maxItemLen: number | null; values: BrewOptionValue[]; displayLabels: Record<string, string>;
+}
+export interface BrewProfileOptions { fields: BrewOptionField[]; copy: Record<string, string> }
+
+export async function getBrewProfileOptions(): Promise<BrewProfileOptions> {
+  const res = await fetch(`${BASE}/users/brew-profile/options`, { headers: await getHeaders() });
+  if (!res.ok) throw new Error('Failed to load the brew-profile fields');
+  return res.json();
+}
+
+export async function getPostResultOptions(): Promise<BrewProfileOptions> {
+  const res = await fetch(`${BASE}/quiz/post-result/options`);
+  if (!res.ok) throw new Error('Failed to load the card');
+  return res.json();
+}
+
+export async function savePostResultCard(body: { quizSessionId: string; shown: string[]; answers: Array<{ field: string; value: unknown; words?: string }> }) {
+  const res = await fetch(`${BASE}/quiz/post-result`, { method: 'POST', headers: await getHeaders(), body: JSON.stringify(body) });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j.error ?? 'Failed to save');
+  }
+  return res.json();
 }

@@ -335,3 +335,14 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **A hop names a coffee in the caller's move set** (server-verified, 409 `NOT_IN_MOVE_SET`); `stay` re-picks the position; `forMemberId` goes through `assertMayTurnDialFor` and records the actor.
 - [ ] **No slot and no `coffee_hop` in the map code** (`matchService`, `routes/map.ts`, the map pages); no price or add-to-cart on `/map` until prices move to `coffee_retail_price` (brief 4).
 - [ ] **Nothing typed in:** button labels and edge phrases from `dial_hop_phrase`, sentences from `dial_customer_copy`; the customer page names no ring, lane, cell, seam, grade or version.
+
+## Usual Drink 1: capture the daily cups, the kitchen and the feeling (2026-11-12)
+
+- [ ] **Facts are insert-only:** every brew-profile write (card, Profile, Liam) goes through `customerFacts.record.brewProfileChange`; a changed answer is a new row and the fold's latest wins.
+- [ ] **A declined question is a fact:** each card field shown and not answered is a `declined` row (value NULL, quiz session set); the fold, `captured_at`, `source` and `v_palate_evidence` ignore it.
+- [ ] **No card after a proxy quiz:** the card is not rendered on `?for=`, and `POST /api/quiz/post-result` answers 409 on a session with `taken_by_user_id`; 403 on a session the caller does not own.
+- [ ] **Pickers come from data:** the card, the Profile mirror and Liam's field list read `getBrewProfileFieldsConfig()` only; a field with `prompt` NULL or `is_active` false leaves the card on the next refresh; no component logic keys on a field code.
+- [ ] **Over-cap is rejected:** an array over `max_items`, words on a value that does not take them, or words over `max_item_len` is refused and counted in `brew_profile.failures`, never truncated, never a 500.
+- [ ] **The purge keeps guests with facts:** the empty-guest rule skips a guest with a `customer_brew_profile_change` row; the stale-quiz rule still deletes the Auth record only.
+- [ ] **Unknown funnel events are dropped:** `POST /api/quiz/event` with a code not in `quiz_funnel_event_type` answers ok with `dropped`, writes nothing.
+- [ ] **Nothing reads the three fields for matching:** the quiz result, the first match, the map, the dial and Liam's recommendation are unchanged.

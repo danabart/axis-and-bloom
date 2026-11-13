@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAuth, blockAnonymousAuth, requireLiamAccess, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
-import { db } from '../db/client.js';
+import { db, type Tx } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { evaluateSommelier } from '../services/sommelierEvaluator.js';
@@ -28,6 +28,7 @@ import { getPreviousQuizArchetype, getFeedbackCurrent, getBrewProfileCurrent, ge
 import {
   getBrewProfileFieldsConfig,
   validateSingleValue,
+  validateFullValue,
   incrementBrewProfileCounter,
   formatBrewProfileSummary,
   normalizeFieldName,
@@ -432,14 +433,17 @@ export async function resolveRemember(
   uid: string,
   rememberOps: Array<{ field: string; rawValue: string }>,
   sessionId: number,
-  turn: number
+  turn: number,
+  // Usual Drink 1: tests run it inside a rolled-back transaction; requests use the pool.
+  runner?: Tx,
 ): Promise<void> {
   if (!rememberOps.length) return;
+  const q = runner ?? db;
   const fieldsCfg = getBrewProfileFieldsConfig();
 
   let current: BrewProfileDoc = {};
   try {
-    current = (await getBrewProfileCurrent(uid)) as unknown as BrewProfileDoc;
+    current = (await getBrewProfileCurrent(uid, q)) as unknown as BrewProfileDoc;
   } catch (err) {
     console.error('[resolveRemember] read failed', err);
   }
@@ -447,7 +451,7 @@ export async function resolveRemember(
   // One accepted op per field (at most one per field per call regardless,
   // since a field can only be validated once per rememberOps batch below).
   // Ops dropped by validation never reach this list — they never became a fact.
-  const accepted: Array<{ field: string; op: 'add' | 'set'; value: unknown }> = [];
+  const accepted: Array<{ field: string; op: 'add' | 'set'; value: unknown; words: string | null }> = [];
 
   for (const rawOp of rememberOps) {
     // Defense-in-depth: a plausible singular/plural near-miss (e.g. the model
@@ -460,17 +464,38 @@ export async function resolveRemember(
       await incrementBrewProfileCounter('failures');
       continue;
     }
-    const validated = validateSingleValue(fieldCfg, rawOp.rawValue);
+    // Usual Drink 1 (B4): one optional `|words` part carries the customer's
+    // own words for a value that accepts them (<<remember:cupboard_coffee=other|Café du Monde>>).
+    const bar = fieldCfg.type === 'array_freeform' ? -1 : rawOp.rawValue.indexOf('|');
+    const rawCode = bar >= 0 ? rawOp.rawValue.slice(0, bar).trim() : rawOp.rawValue;
+    const rawWords = bar >= 0 ? rawOp.rawValue.slice(bar + 1).trim() : '';
+    const validated = validateSingleValue(fieldCfg, rawCode);
     if (validated === null) {
       console.warn(`[resolveRemember] invalid value for "${field}": "${rawOp.rawValue}" dropped for uid=${uid}`);
       await incrementBrewProfileCounter('failures');
       continue;
     }
+    let words: string | null = null;
+    if (rawWords) {
+      const check = validateFullValue(fieldCfg, fieldCfg.type === 'array' ? [validated] : validated, rawWords);
+      if (!check.ok) {
+        console.warn(`[resolveRemember] words refused for "${field}": ${check.error} uid=${uid}`);
+        await incrementBrewProfileCounter('failures');
+        continue;
+      }
+      words = check.words;
+    }
 
     if (fieldCfg.type === 'array' || fieldCfg.type === 'array_freeform') {
       const existingArr = Array.isArray(current[field]?.value) ? (current[field]!.value as string[]) : [];
       if (existingArr.includes(validated as string)) continue; // already known — nothing new to write
-      accepted.push({ field, op: 'add', value: validated });
+      // Usual Drink 1: an add past max_items is rejected and counted (was uncapped).
+      if (fieldCfg.maxLength !== undefined && existingArr.length >= fieldCfg.maxLength) {
+        console.warn(`[resolveRemember] "${field}" already holds ${existingArr.length} of ${fieldCfg.maxLength}; add dropped for uid=${uid}`);
+        await incrementBrewProfileCounter('failures');
+        continue;
+      }
+      accepted.push({ field, op: 'add', value: validated, words });
     } else {
       // Liam L2, Part 0 — a re-affirmed fact is not a new fact (D14): the
       // model sometimes re-emits a <<remember:...>> marker for a scalar field
@@ -482,22 +507,22 @@ export async function resolveRemember(
         await incrementBrewProfileCounter('noop');
         continue;
       }
-      accepted.push({ field, op: 'set', value: validated });
+      accepted.push({ field, op: 'set', value: validated, words });
     }
   }
 
   if (!accepted.length) return;
 
   try {
-    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [uid]);
+    const profileResult = await q.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [uid]);
     const profileId = profileResult.rows[0]?.id;
     if (profileId) {
       for (const op of accepted) {
         const sourceId = `${sessionId}:${turn}:${op.field}:${op.value}`;
         await record.brewProfileChange({
           userId: profileId, source: 'liam', sourceId, sessionId,
-          field: op.field as any, op: op.op, value: JSON.stringify(op.value),
-        });
+          field: op.field, op: op.op, value: JSON.stringify(op.value), customerWords: op.words,
+        }, runner);
       }
       await incrementBrewProfileCounter('writes');
     }
@@ -1096,6 +1121,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     let modelUsed: string;
     let actions: Awaited<ReturnType<typeof resolveActions>> = [];
     let staleNudge: string | null = null;
+    let brewAskField: string | null = null;
     let recommendAlias: string | null = null;
     let askKind: 'thread' | 'palate' | 'brew' | null = null;
     let exploreArchetypeCode: string | null = null;
@@ -1136,8 +1162,10 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       const storyCandidates: StoryCandidate[] = Array.isArray(ctx.storyCandidates) ? ctx.storyCandidates : [];
       const turnContext = messageTurnContext({
         message, topic: topicResult.topic, brewProfile, storyCandidates, staleNudgeSent: ctx.staleNudgeSent === true,
+        askedFields: Array.isArray(ctx.brewAskedFields) ? ctx.brewAskedFields : [], turn: session.turn_count,
       });
       staleNudge = turnContext.staleNudge;
+      brewAskField = turnContext.askField;
       const { brewProfileContext, storyContext, selectedStoryCoffeeId } = turnContext;
       if (turnContext.storySelection) {
         console.log(`[storyLayer] turn selected coffeeId=${selectedStoryCoffeeId ?? 'none'} (${turnContext.storySelection}) for session=${sessionId}`);
@@ -1276,6 +1304,8 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       currentTopicTurnsSinceMatch: topicResult.turnsSinceMatch,
       topicLog,
       staleNudgeSent: ctx.staleNudgeSent === true || !!staleNudge,
+      // Usual Drink 1, B4: an ask-when-empty field offered once stays offered.
+      brewAskedFields: [...new Set([...(Array.isArray(ctx.brewAskedFields) ? ctx.brewAskedFields : []), ...(brewAskField ? [brewAskField] : [])])],
       openQuestionId: writeBackResult ? writeBackResult.openQuestionId : openQuestionId,
       openQuestionTurn: writeBackResult ? writeBackResult.openQuestionTurn : openQuestionTurn,
     };

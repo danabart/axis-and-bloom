@@ -36,16 +36,9 @@ export interface AiControls {
   features: Record<AiFeature, AiFeatureControls>;
 }
 
-// HOME_TASK_4 (§4.5) — the brew-profile field whitelist. `enum`/`array` values
-// are checked against `allowedValues`; `bool` accepts 'true'/'false' strings
-// (marker values arrive as text); `array_freeform` (aversions) accepts any
-// trimmed string up to `maxItemLength`, capped at `maxLength` items total.
-export interface BrewProfileFieldConfig {
-  type: 'enum' | 'bool' | 'array' | 'array_freeform';
-  allowedValues?: string[];
-  maxLength?: number;
-  maxItemLength?: number;
-}
+// Usual Drink 1 (2026-11-12): the brew-profile field whitelist moved to
+// Postgres (brew_profile_field, v_brew_profile_field_current; services/
+// brewProfile.ts). Its type lives there now.
 
 export interface SommelierConfig {
   confidenceWeights: {
@@ -202,7 +195,7 @@ export interface SommelierConfig {
   // the stale-re-confirm window (write rule 5). Full self-serve field set
   // (culture/background/timing) arrives in Task 10; this is captured-fields-only.
   brewProfile?: {
-    fields: Record<string, BrewProfileFieldConfig>;
+    // Usual Drink 1 (2026-11-12): `fields` retired (Postgres brew_profile_field).
     staleAfterDays: number;
     // HOME_TASK_5b — Defect 2 fix: how many <<remember:...>> markers a single
     // reply may carry. Was an unconfigured "at most one" prompt rule only;
@@ -220,7 +213,7 @@ export interface SommelierConfig {
   // HOME_TASK_6 (§3.2, §3.1) — the brew-card recipe generator's base recipes,
   // dimension-driven adjustment rules, and the whitelisted <<card:adjust=...>>
   // vocabulary. Code + config, never an LLM call — see brewCard.ts. Every
-  // method key here must also be a valid brewProfile.fields.brew_methods value
+  // method key here must also be a valid brew_methods value (brew_profile_field_value)
   // (checked by brewCard.ts at read time, not duplicated as a second whitelist).
   brewDefaults?: {
     grindScale: string[];

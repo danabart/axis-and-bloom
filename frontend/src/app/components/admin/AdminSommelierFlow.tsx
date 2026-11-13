@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
+import AdminBrewProfileStats from './AdminBrewProfileStats';
 
 interface SommelierConfig {
   confidenceWeights: Record<string, number>;
@@ -392,6 +393,9 @@ export default function AdminSommelierFlow() {
             </div>
           </div>
         </div>
+
+        {/* ── Row 10: Brew Profile Fields (Usual Drink 1, Part D) ── */}
+        <AdminBrewProfileStats />
 
       </div>
     </div>

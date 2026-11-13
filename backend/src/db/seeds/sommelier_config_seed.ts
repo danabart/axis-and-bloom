@@ -379,30 +379,9 @@ export const DEFAULT_SOMMELIER_CONFIG = {
     // field here must change a sentence Liam can say (§3.5's own rule) — the
     // culture/background/timing fields from the full self-serve list arrive
     // in Task 10, not here.
+    // Usual Drink 1 (2026-11-12): `fields` retired; the field list is the
+    // Postgres brew_profile_field / brew_profile_field_value rows.
     brewProfile: {
-      fields: {
-        brew_methods: {
-          type: 'array',
-          allowedValues: ['v60', 'french_press', 'espresso', 'moka', 'aeropress', 'cold_brew', 'drip', 'other'],
-          maxLength: 8,
-        },
-        grinder: {
-          type: 'enum',
-          allowedValues: ['none', 'blade', 'burr_hand', 'burr_electric', 'unknown_type'],
-        },
-        takes_it: {
-          type: 'enum',
-          allowedValues: ['black', 'milk', 'sugar', 'milk_and_sugar'],
-        },
-        decaf_constraint: {
-          type: 'bool',
-        },
-        aversions: {
-          type: 'array_freeform',
-          maxLength: 10,
-          maxItemLength: 40,
-        },
-      },
       staleAfterDays: 120,
       // HOME_TASK_5b — Defect 2: raised from an unconfigured "at most one"
       // prompt rule so two distinct facts stated in one message can both be

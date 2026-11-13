@@ -1,107 +1,67 @@
 import { useEffect, useState } from 'react';
-import { getBrewProfile, setBrewProfileField, deleteBrewProfileField, type BrewProfileData } from '../../lib/api';
+import {
+  getBrewProfile, getBrewProfileOptions, setBrewProfileField, deleteBrewProfileField,
+  type BrewProfileData, type BrewProfileOptions, type BrewOptionField,
+} from '../../lib/api';
 import { reportError } from '../../lib/errorReporter';
+import BrewFieldControl, { draftFromValue, emptyDraft, valueFromDraft, draftTakesWords, type BrewDraft } from '../quiz/BrewFieldControl';
 
-const BREW_METHOD_OPTIONS = [
-  { value: 'v60', label: 'V60' },
-  { value: 'french_press', label: 'French press' },
-  { value: 'espresso', label: 'Espresso' },
-  { value: 'moka', label: 'Moka pot' },
-  { value: 'aeropress', label: 'Aeropress' },
-  { value: 'cold_brew', label: 'Cold brew' },
-  { value: 'drip', label: 'Drip' },
-  { value: 'other', label: 'Other' },
-];
-const GRINDER_OPTIONS = [
-  { value: 'none', label: 'No grinder' },
-  { value: 'blade', label: 'Blade grinder' },
-  { value: 'burr_hand', label: 'Hand burr grinder' },
-  { value: 'burr_electric', label: 'Electric burr grinder' },
-  { value: 'unknown_type', label: 'Not sure what type' },
-];
-const TAKES_IT_OPTIONS = [
-  { value: 'black', label: 'Black' },
-  { value: 'milk', label: 'With milk' },
-  { value: 'sugar', label: 'With sugar' },
-  { value: 'milk_and_sugar', label: 'With milk and sugar' },
-];
+// HOME_TASK_4 (§4.5 write rule 2) — "What Liam knows about your setup." Every
+// field visible, editable and deletable.
+//
+// Usual Drink 1 (2026-11-12), B3: the fields, their order, labels, pickers,
+// values and caps come from GET /api/users/brew-profile/options (the field
+// rows), not from lists in this file; a new field is a row, not a deploy. The
+// control is the same BrewFieldControl the quiz post-result card uses. Every
+// active field shows: a stored value displays through the labels of every
+// value (a retired option still reads right, A4); a field with a prompt and no
+// value shows the prompt as its empty state, the same question the card asks.
+// The page's own chrome words (heading, Edit/Remove/Save/Cancel) are unchanged.
 
-const FIELD_META: Record<string, { label: string; type: 'array' | 'enum' | 'bool' | 'array_freeform'; options?: { value: string; label: string }[] }> = {
-  brew_methods:      { label: 'Brew methods',      type: 'array',          options: BREW_METHOD_OPTIONS },
-  grinder:           { label: 'Grinder',            type: 'enum',           options: GRINDER_OPTIONS },
-  takes_it:          { label: 'Takes it',           type: 'enum',           options: TAKES_IT_OPTIONS },
-  decaf_constraint:  { label: 'Decaf',              type: 'bool' },
-  aversions:         { label: 'Never wants to taste', type: 'array_freeform' },
-};
-const FIELD_ORDER = ['brew_methods', 'grinder', 'takes_it', 'decaf_constraint', 'aversions'];
-
-function optionLabel(options: { value: string; label: string }[] | undefined, value: string): string {
-  return options?.find(o => o.value === value)?.label ?? value;
+function displayValue(field: BrewOptionField, value: unknown): string {
+  const label = (code: unknown) => field.displayLabels[String(code)] ?? String(code);
+  return Array.isArray(value) ? value.map(label).join(', ') : label(value);
 }
 
-function displayValue(field: string, value: unknown): string {
-  const meta = FIELD_META[field];
-  if (field === 'decaf_constraint') return value === true ? 'Needed' : 'Not needed';
-  if (Array.isArray(value)) {
-    if (meta?.type === 'array') return value.map(v => optionLabel(meta.options, v)).join(', ');
-    return value.join(', ');
-  }
-  if (meta?.type === 'enum') return optionLabel(meta.options, String(value));
-  return String(value);
-}
-
-/** HOME_TASK_4 (§4.5 write rule 2) — "What Liam knows about your setup." The
- * day-one mirror: every captured field visible, editable, and deletable.
- * Shows captured fields only (the full self-serve add-a-new-field section is
- * Task 10) — Liam's own progressive capture in conversation is how a field
- * gets here in the first place. */
 export default function BrewProfileMirror() {
   const [profile, setProfile] = useState<BrewProfileData | null>(null);
+  const [options, setOptions] = useState<BrewProfileOptions | null>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
-  const [draftValue, setDraftValue] = useState<string[]>([]);
-  const [draftText, setDraftText] = useState('');
+  const [draft, setDraft] = useState<BrewDraft>(null);
+  const [words, setWords] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   function load() {
     getBrewProfile().then(setProfile).catch(err => { reportError('[BrewProfileMirror/load]', err); setProfile({}); });
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    getBrewProfileOptions().then(setOptions).catch(err => { reportError('[BrewProfileMirror/options]', err); setOptions({ fields: [], copy: {} }); });
+  }, []);
 
-  if (!profile) return null;
-  const capturedFields = FIELD_ORDER.filter(f => profile[f]?.value !== undefined);
+  if (!profile || !options) return null;
+  const has = (f: BrewOptionField) => {
+    const v = profile[f.code]?.value;
+    return v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0);
+  };
+  const visible = options.fields.filter(f => has(f) || f.prompt);
 
-  function startEdit(field: string) {
-    const meta = FIELD_META[field];
-    const current = profile![field]?.value;
+  function startEdit(field: BrewOptionField) {
     setError('');
-    if (meta.type === 'array') {
-      setDraftValue(Array.isArray(current) ? current as string[] : []);
-    } else if (meta.type === 'array_freeform') {
-      setDraftText(Array.isArray(current) ? (current as string[]).join(', ') : '');
-    } else if (meta.type === 'bool') {
-      setDraftValue([current === true ? 'true' : 'false']);
-    } else {
-      setDraftValue([String(current ?? '')]);
-    }
-    setEditingField(field);
+    setDraft(has(field) ? draftFromValue(field, profile![field.code].value) : emptyDraft(field));
+    setWords('');
+    setEditingField(field.code);
   }
 
-  async function saveEdit(field: string) {
-    const meta = FIELD_META[field];
+  async function saveEdit(field: BrewOptionField) {
+    const value = valueFromDraft(field, draft);
+    if (value === undefined) { setEditingField(null); return; }
     setSaving(true);
     setError('');
     try {
-      if (meta.type === 'array') {
-        await setBrewProfileField(field, draftValue);
-      } else if (meta.type === 'array_freeform') {
-        const items = draftText.split(',').map(s => s.trim()).filter(Boolean);
-        await setBrewProfileField(field, items);
-      } else if (meta.type === 'bool') {
-        await setBrewProfileField(field, draftValue[0] === 'true');
-      } else {
-        await setBrewProfileField(field, draftValue[0]);
-      }
+      const w = draftTakesWords(field, draft) ? words.trim() : '';
+      await setBrewProfileField(field.code, value as string | boolean | string[], w || null);
       setEditingField(null);
       load();
     } catch (e: unknown) {
@@ -130,10 +90,10 @@ export default function BrewProfileMirror() {
     // Part 22 — full column width (was max-w-2xl), per PROMPT_one_column_pages.md
     // §3 item 6: "full column width." Only consumer is Profile.tsx's ~760px
     // column, so widening here can't affect anything else.
-    <div className="flex flex-col gap-4 w-full">
+    <div className="flex flex-col gap-4 w-full" data-testid="brew-profile-mirror">
       <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">What Liam knows about your setup</p>
 
-      {capturedFields.length === 0 && (
+      {visible.length === 0 && (
         <p className="text-sm text-[#6b5c54]/70">
           Nothing yet — mention your gear or how you take it next time you chat with Liam, and it'll show up here.
         </p>
@@ -142,81 +102,31 @@ export default function BrewProfileMirror() {
       {error && <p className="text-xs text-red-500">{error}</p>}
 
       <div className="flex flex-col divide-y divide-[#a33726]/10 border-y border-[#a33726]/10">
-        {capturedFields.map((field) => {
-          const meta = FIELD_META[field];
-          const isEditing = editingField === field;
+        {visible.map((field) => {
+          const isEditing = editingField === field.code;
+          const captured = has(field);
           return (
-            <div key={field} className="py-3">
+            <div key={field.code} className="py-3" data-testid={`mirror-${field.code}`}>
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="text-[10px] uppercase tracking-[0.15em] text-[#a33726]/40">{meta.label}</p>
-                  {!isEditing && <p className="text-sm text-[#3a2e28] mt-0.5">{displayValue(field, profile[field].value)}</p>}
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-[#a33726]/40">{field.label}</p>
+                  {!isEditing && (captured
+                    ? <p className="text-sm text-[#3a2e28] mt-0.5" data-testid={`mirror-${field.code}-value`}>{displayValue(field, profile[field.code].value)}</p>
+                    : <p className="text-sm text-[#6b5c54]/70 mt-0.5">{field.prompt}</p>)}
                 </div>
                 {!isEditing && (
                   <div className="flex gap-3 shrink-0 text-[10px] uppercase tracking-[0.15em]">
-                    <button onClick={() => startEdit(field)} className="text-[#a33726]/50 hover:text-[#a33726] transition-colors">Edit</button>
-                    <button onClick={() => removeField(field)} disabled={saving} className="text-[#a33726]/50 hover:text-[#a33726] transition-colors">Remove</button>
+                    <button onClick={() => startEdit(field)} className="text-[#a33726]/50 hover:text-[#a33726] transition-colors" data-testid={`mirror-${field.code}-edit`}>Edit</button>
+                    {captured && <button onClick={() => removeField(field.code)} disabled={saving} className="text-[#a33726]/50 hover:text-[#a33726] transition-colors">Remove</button>}
                   </div>
                 )}
               </div>
 
               {isEditing && (
                 <div className="mt-3 flex flex-col gap-3">
-                  {meta.type === 'array' && (
-                    <div className="flex flex-wrap gap-2">
-                      {meta.options!.map((opt) => {
-                        const checked = draftValue.includes(opt.value);
-                        return (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => setDraftValue(v => checked ? v.filter(x => x !== opt.value) : [...v, opt.value])}
-                            className={`text-xs px-3 py-1 rounded-full border transition-colors ${checked ? 'border-[#a33726] text-[#a33726]' : 'border-[#a33726]/20 text-[#6b5c54]/70'}`}
-                          >
-                            {opt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {meta.type === 'enum' && (
-                    <select
-                      value={draftValue[0] ?? ''}
-                      onChange={(e) => setDraftValue([e.target.value])}
-                      className="text-sm border border-[#a33726]/20 rounded px-3 py-1.5 bg-white"
-                    >
-                      {meta.options!.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                    </select>
-                  )}
-                  {meta.type === 'bool' && (
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setDraftValue(['true'])}
-                        className={`text-xs px-3 py-1 rounded-full border transition-colors ${draftValue[0] === 'true' ? 'border-[#a33726] text-[#a33726]' : 'border-[#a33726]/20 text-[#6b5c54]/70'}`}
-                      >
-                        Needed
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDraftValue(['false'])}
-                        className={`text-xs px-3 py-1 rounded-full border transition-colors ${draftValue[0] === 'false' ? 'border-[#a33726] text-[#a33726]' : 'border-[#a33726]/20 text-[#6b5c54]/70'}`}
-                      >
-                        Not needed
-                      </button>
-                    </div>
-                  )}
-                  {meta.type === 'array_freeform' && (
-                    <input
-                      type="text"
-                      value={draftText}
-                      onChange={(e) => setDraftText(e.target.value)}
-                      placeholder="Comma-separated"
-                      className="text-sm border border-[#a33726]/20 rounded px-3 py-1.5 bg-white"
-                    />
-                  )}
+                  <BrewFieldControl field={field} draft={draft} words={words} copy={options.copy} onChange={setDraft} onWords={setWords} />
                   <div className="flex gap-3 text-[10px] uppercase tracking-[0.15em]">
-                    <button onClick={() => saveEdit(field)} disabled={saving} className="text-[#a33726] border-b border-[#a33726] pb-0.5">
+                    <button onClick={() => saveEdit(field)} disabled={saving} className="text-[#a33726] border-b border-[#a33726] pb-0.5" data-testid={`mirror-${field.code}-save`}>
                       {saving ? 'Saving…' : 'Save'}
                     </button>
                     <button onClick={() => setEditingField(null)} className="text-[#a33726]/50 hover:text-[#a33726] transition-colors">

@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
 import MapQuizStart from './bloom/map/MapQuizStart';
+import PostResultCard from './quiz/PostResultCard';
 import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter, getCoffeeCards, type CoffeeCards } from '../lib/api';
 import { getActiveCampaign, CAMPAIGNS } from '../lib/campaign';
 import { trackEvent, trackLead } from '../lib/analytics';
@@ -386,6 +387,10 @@ export default function FlavorQuiz() {
   const [userName, setUserName]           = useState('');
   const [currentStep, setCurrentStep]     = useState(0);
   const [isWrapping, setIsWrapping]       = useState(false);
+  // Usual Drink 1 (2026-11-12): the saved quiz_session id ({ id } from POST
+  // /api/quiz/results), kept at the three save calls; the post-result card
+  // writes against it and shows only once it is set.
+  const [savedQuizSessionId, setSavedQuizSessionId] = useState<string | null>(null);
   const [resultHeroShown, setResultHeroShown] = useState(() => isPreview);
   const [answers, setAnswers]             = useState<Record<number, number>>({});
   const [selectedIds, setSelectedIds]   = useState<Record<number, string>>({});
@@ -982,7 +987,7 @@ export default function FlavorQuiz() {
 
       if (user) {
         saveQuizResult(buildQuizResultPayload(score, score.archetype))
-          .then(refreshUserProfile)
+          .then(r => { setSavedQuizSessionId(r?.id ?? null); refreshUserProfile(); })
           // Fire-and-forget: the results screen already shows the real,
           // independently-computed archetype match regardless of whether
           // this persistence call succeeds — no "saved" claim is made here
@@ -1008,6 +1013,7 @@ export default function FlavorQuiz() {
     setIsWrapping(false);
     setResultHeroShown(false);
     setIsComplete(false);
+    setSavedQuizSessionId(null);
     setShowBranch(false);
     setBranchQuestion(null);
     setSelectedBranchAnswerId(null);
@@ -1098,7 +1104,7 @@ export default function FlavorQuiz() {
         // shows Balanced; the picked answer still travels as branchAnswerId (Prompt 4B).
         const branchedFrom = finalArchetypeName !== scoreData.archetype ? scoreData.archetype : null;
         saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName, branchedFrom, answerId))
-          .then(refreshUserProfile)
+          .then(r => { setSavedQuizSessionId(r?.id ?? null); refreshUserProfile(); })
           // Fire-and-forget: the results screen already shows the real,
           // independently-computed archetype match regardless of whether
           // this persistence call succeeds — no "saved" claim is made here
@@ -1397,7 +1403,7 @@ export default function FlavorQuiz() {
     logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_final', scoreData!.archetype, activeCampaignFinalTie ? { campaign: activeCampaignFinalTie.slug, vid: activeCampaignFinalTie.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
     if (user) {
       saveQuizResult(buildQuizResultPayload(scoreData!, scoreData!.archetype))
-        .then(refreshUserProfile).catch(err => reportError('[FlavorQuiz/save-quiz-result]', err));
+        .then(r => { setSavedQuizSessionId(r?.id ?? null); refreshUserProfile(); }).catch(err => reportError('[FlavorQuiz/save-quiz-result]', err));
     }
     setIsWrapping(true);
   };
@@ -1582,6 +1588,13 @@ export default function FlavorQuiz() {
                 {/* Share row — available before gate unlock, hidden for Experimental (no share page) */}
                 {proxy ? <div className="qz-col"><ProxyShareBlock proxy={proxy} /></div>
                   : resultLabel && <ShareMatchRow archetypeName={resultLabel} shareSlug={shareSlug} />}
+
+                {/* Usual Drink 1 (2026-11-12), B2 — the optional post-result card: after the
+                    save lands and the reveal has finished, outside the ceremony and the email
+                    gate; never on a proxy quiz (G2.19). Its fields come from data. */}
+                {!isProxy && !proxy && savedQuizSessionId && !isWrapping && (
+                  <PostResultCard quizSessionId={savedQuizSessionId} funnelSessionKey={sessionKeyRef.current ?? savedQuizSessionId} />
+                )}
 
                 {emailGateUnlocked ? (
                   <>

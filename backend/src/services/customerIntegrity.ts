@@ -474,14 +474,17 @@ export async function checkActiveCoffeesHaveDimensionRange(scope: CheckScope = {
 // set/add/remove/clear, so this should structurally never fail — verifies
 // the constraint holds rather than trusting it silently.
 export async function checkBrewProfileReplayKnownOps(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  // Usual Drink 1 (2026-11-12): the known ops are the brew_profile_op rows
+  // (declined included), no longer a list typed here.
   const runner = scope.tx ?? db;
   const result = await runner.query<{ op: string }>(
-    `SELECT DISTINCT op FROM customer_brew_profile_change WHERE op NOT IN ('set', 'add', 'remove', 'clear')`
+    `SELECT DISTINCT c.op FROM customer_brew_profile_change c
+     WHERE NOT EXISTS (SELECT 1 FROM brew_profile_op o WHERE o.code = c.op)`
   );
   const n = result.rows.length;
   return {
     id: 17,
-    name: 'customer_brew_profile_change.op is always set/add/remove/clear',
+    name: 'customer_brew_profile_change.op is always a brew_profile_op code',
     pass: n === 0,
     expected: '0 distinct unknown ops',
     actual: n === 0 ? 'all rows use a known op' : `${n} unknown op(s): ${result.rows.map(r => r.op).join(', ')}`,
@@ -674,10 +677,285 @@ export async function runCustomerIntegrityChecks(scope: CheckScope = {}): Promis
     await checkInterpretationScd2(scope),
     await checkInterpretationMatchFields(scope),
     await checkBranchAnswerIsBranch(scope),
+    await checkBrewProfileFactsResolve(scope),
+    await checkBrewProfileValueRows(scope),
+    await checkBrewProfileValuesResolve(scope),
+    await checkBrewDecompositions(scope),
+    await checkUsualDrinkSeedCoverage(scope),
+    await checkBrewProfileForeignKeys(scope),
+    await checkBrewFieldsRetiredFromFirestore(scope),
+    await checkBrewReferenceGrants(scope),
+    await checkGuestsKeptForFacts(scope),
+    await checkTakesItVsUsualDrink(scope),
+    await checkBrewProfileRowShape(scope),
   ];
   return {
     ranAt: new Date().toISOString(),
     allPass: checks.filter(c => (c.severity ?? 'fail') === 'fail').every(c => c.pass),
     checks,
   };
+}
+
+// ── Usual Drink 1 (2026-11-12), Part D: checks 22–32 ──────────────────────────
+// All informational (G2.18): they report on the admin panel with detail rows
+// and never block. Ids 22–32 because 1–21 are taken (Task 0 deviation 2).
+// backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_1_CAPTURE.md
+
+const UD_INFO = 'info' as const;
+function udCheck(id: number, name: string, problems: string[], expected: string, okText: string): CustomerIntegrityCheck {
+  return {
+    id, name, pass: problems.length === 0, expected,
+    actual: problems.length === 0 ? okText : `${problems.length} finding(s)`,
+    details: problems.length ? problems.slice(0, 25) : undefined,
+    severity: UD_INFO,
+  };
+}
+
+// The codes the Usual Drink 1 seed inserts (check 26 detects a seed that failed
+// at boot; rows in the DB beyond these are allowed). Mirrors the seed in
+// schema.sql's USUAL DRINK 1 block, the same way dataCatalogIntegrity lists
+// the dial seed codes.
+export const USUAL_DRINK_SEED_CODES: Record<string, string[]> = {
+  brew_profile_value_kind: ['enum', 'array', 'bool', 'array_freeform'],
+  brew_profile_picker: ['select', 'multi_select', 'typeahead', 'toggle', 'freeform_list'],
+  brew_profile_op: ['set', 'add', 'remove', 'clear', 'declined'],
+  brew_profile_field: ['brew_methods', 'grinder', 'takes_it', 'decaf_constraint', 'aversions', 'usual_drink', 'cupboard_coffee', 'coffee_feeling'],
+  brew_drink_base_method: ['espresso', 'filter', 'immersion', 'cold_brew', 'stovetop', 'pod', 'none'],
+  brew_drink_dilution: ['none', 'water', 'ice'],
+  brew_drink_milk: ['none', 'cold', 'steamed'],
+  brew_cupboard_brand_kind: ['chain', 'mass_market', 'specialty', 'unknown', 'none'],
+  quiz_funnel_event_type: ['quiz_start', 'quiz_complete', 'email_submitted', 'quiz_final', 'post_result_shown', 'post_result_saved', 'post_result_skipped'],
+};
+export const USUAL_DRINK_SEED_VALUE_COUNTS: Record<string, number> = {
+  brew_methods: 8, grinder: 5, takes_it: 4, decaf_constraint: 2, usual_drink: 16, cupboard_coffee: 59, coffee_feeling: 4,
+};
+const UD_REFERENCE_TABLES = [
+  'brew_profile_value_kind', 'brew_profile_picker', 'brew_profile_op', 'brew_profile_field', 'brew_profile_field_value',
+  'brew_drink', 'brew_drink_base_method', 'brew_drink_dilution', 'brew_drink_milk', 'brew_cupboard_brand',
+  'brew_cupboard_brand_kind', 'brew_cupboard_brand_alias', 'brew_coffee_feeling', 'quiz_funnel_event_type',
+];
+
+/** 22 — every fact's field and op is a lookup row; inactive fields still carrying facts are listed (allowed). */
+export async function checkBrewProfileFactsResolve(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ kind: string; code: string; n: number }>(
+    `SELECT 'unknown field' AS kind, c.field AS code, count(*)::int AS n FROM customer_brew_profile_change c
+       WHERE NOT EXISTS (SELECT 1 FROM brew_profile_field f WHERE f.code = c.field) GROUP BY c.field
+     UNION ALL
+     SELECT 'unknown op', c.op, count(*)::int FROM customer_brew_profile_change c
+       WHERE NOT EXISTS (SELECT 1 FROM brew_profile_op o WHERE o.code = c.op) GROUP BY c.op
+     UNION ALL
+     SELECT 'inactive field with facts (allowed)', f.code, count(*)::int FROM customer_brew_profile_change c
+       JOIN brew_profile_field f ON f.code = c.field WHERE NOT f.is_active GROUP BY f.code`
+  );
+  const problems = r.rows.filter(x => !x.kind.endsWith('(allowed)')).map(x => `${x.kind}: ${x.code} (${x.n} rows)`);
+  const check = udCheck(22, 'customer_brew_profile_change.field / .op resolve to brew_profile_field / brew_profile_op', problems, '0 unresolved rows', 'every row resolves');
+  const allowed = r.rows.filter(x => x.kind.endsWith('(allowed)')).map(x => `${x.kind}: ${x.code} (${x.n} rows)`);
+  if (allowed.length) check.details = [...(check.details ?? []), ...allowed];
+  return check;
+}
+
+/** 23 — value rows fit the field's kind and picker. */
+export async function checkBrewProfileValueRows(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ code: string; kind: string; picker: string; active_values: number; all_values: number; pinned: number; codes: string[] }>(
+    `SELECT f.code, k.code AS kind, p.code AS picker,
+            count(v.id) FILTER (WHERE v.is_active)::int AS active_values, count(v.id)::int AS all_values,
+            count(v.id) FILTER (WHERE v.is_active AND v.pinned)::int AS pinned,
+            COALESCE(array_agg(v.code ORDER BY v.code) FILTER (WHERE v.id IS NOT NULL), ARRAY[]::text[]) AS codes
+     FROM brew_profile_field f JOIN brew_profile_value_kind k ON k.id = f.value_kind_id JOIN brew_profile_picker p ON p.id = f.picker_id
+     LEFT JOIN brew_profile_field_value v ON v.field_id = f.id
+     WHERE f.is_active GROUP BY f.code, k.code, p.code ORDER BY f.code`
+  );
+  const problems: string[] = [];
+  for (const f of r.rows) {
+    if ((f.kind === 'enum' || f.kind === 'array') && f.active_values === 0) problems.push(`${f.code}: no active value`);
+    if (f.kind === 'array_freeform' && f.all_values > 0) problems.push(`${f.code}: array_freeform field has value rows`);
+    if (f.kind === 'bool' && f.codes.join(',') !== 'false,true') problems.push(`${f.code}: a bool field has exactly the two values true and false (has ${f.codes.join(', ') || 'none'})`);
+    if (f.picker === 'typeahead' && f.pinned === 0) problems.push(`${f.code}: typeahead field has no pinned value`);
+  }
+  return udCheck(23, 'brew-profile value rows fit each field (enum/array ≥1 active, bool exactly true/false, freeform none, typeahead ≥1 pinned)', problems, '0 findings', 'every field fits');
+}
+
+/** 24 — every set/add/remove value resolves to a value row of its field (active or not; array: every element). */
+export async function checkBrewProfileValuesResolve(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ id: string; field: string; item: string }>(
+    `WITH rows AS (
+       SELECT c.id, c.field, c.op, c.value::jsonb AS v FROM customer_brew_profile_change c
+       JOIN brew_profile_field f ON f.code = c.field JOIN brew_profile_value_kind k ON k.id = f.value_kind_id
+       WHERE c.op IN ('set', 'add', 'remove') AND c.value IS NOT NULL AND k.code IN ('enum', 'array', 'bool')
+     ), items AS (
+       SELECT id, field, CASE WHEN jsonb_typeof(v) = 'array' THEN e.item ELSE v #>> '{}' END AS item
+       FROM rows LEFT JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(v) = 'array' THEN v ELSE '[]'::jsonb END) AS e(item) ON true
+       WHERE jsonb_typeof(v) <> 'array' OR e.item IS NOT NULL
+     )
+     SELECT i.id::text, i.field, i.item FROM items i
+     WHERE NOT EXISTS (SELECT 1 FROM brew_profile_field f JOIN brew_profile_field_value fv ON fv.field_id = f.id
+                       WHERE f.code = i.field AND fv.code = i.item)
+     ORDER BY i.field, i.item LIMIT 50`
+  );
+  return udCheck(24, 'brew-profile values resolve to a value row of their field', r.rows.map(x => `${x.field}=${x.item} (row ${x.id})`), '0 drift rows', 'every value resolves');
+}
+
+/** 25 — decompositions are one-to-one and point back at the right field. */
+export async function checkBrewDecompositions(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ problem: string }>(
+    `SELECT 'usual_drink value without brew_drink: ' || fv.code AS problem FROM brew_profile_field_value fv JOIN brew_profile_field f ON f.id = fv.field_id
+       WHERE f.code = 'usual_drink' AND NOT EXISTS (SELECT 1 FROM brew_drink d WHERE d.field_value_id = fv.id)
+     UNION ALL SELECT 'cupboard_coffee value without brew_cupboard_brand: ' || fv.code FROM brew_profile_field_value fv JOIN brew_profile_field f ON f.id = fv.field_id
+       WHERE f.code = 'cupboard_coffee' AND NOT EXISTS (SELECT 1 FROM brew_cupboard_brand b WHERE b.field_value_id = fv.id)
+     UNION ALL SELECT 'coffee_feeling value without brew_coffee_feeling: ' || fv.code FROM brew_profile_field_value fv JOIN brew_profile_field f ON f.id = fv.field_id
+       WHERE f.code = 'coffee_feeling' AND NOT EXISTS (SELECT 1 FROM brew_coffee_feeling x WHERE x.field_value_id = fv.id)
+     UNION ALL SELECT 'brew_drink on a non-usual_drink value: ' || fv.code FROM brew_drink d JOIN brew_profile_field_value fv ON fv.id = d.field_value_id
+       JOIN brew_profile_field f ON f.id = fv.field_id WHERE f.code <> 'usual_drink'
+     UNION ALL SELECT 'brew_cupboard_brand on a non-cupboard_coffee value: ' || fv.code FROM brew_cupboard_brand b JOIN brew_profile_field_value fv ON fv.id = b.field_value_id
+       JOIN brew_profile_field f ON f.id = fv.field_id WHERE f.code <> 'cupboard_coffee'
+     UNION ALL SELECT 'brew_coffee_feeling on a non-coffee_feeling value: ' || fv.code FROM brew_coffee_feeling x JOIN brew_profile_field_value fv ON fv.id = x.field_value_id
+       JOIN brew_profile_field f ON f.id = fv.field_id WHERE f.code <> 'coffee_feeling'
+     UNION ALL SELECT 'brand roaster missing: ' || b.roaster_id::text FROM brew_cupboard_brand b
+       WHERE b.roaster_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM roaster r WHERE r.id = b.roaster_id)
+     UNION ALL SELECT 'feeling mapped to a non-customer move: ' || m.code FROM brew_coffee_feeling x JOIN dial_move m ON m.id = x.move_id
+       WHERE NOT m.is_customer_move`
+  );
+  return udCheck(25, 'drink, brand and feeling decompositions are one-to-one (feelings map to customer moves)', r.rows.map(x => x.problem), '0 findings', 'all one-to-one');
+}
+
+/** 26 — seed coverage: every code the Usual Drink 1 seed inserts exists. */
+export async function checkUsualDrinkSeedCoverage(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const problems: string[] = [];
+  for (const [table, codes] of Object.entries(USUAL_DRINK_SEED_CODES)) {
+    // table is a key of the constant above, never external input (G3.2 allow-list)
+    const r = await runner.query<{ code: string }>(`SELECT code FROM ${table} WHERE code = ANY($1::text[])`, [codes]);
+    const have = new Set(r.rows.map(x => x.code));
+    for (const c of codes) if (!have.has(c)) problems.push(`${table}.${c} missing`);
+  }
+  const v = await runner.query<{ code: string; n: number }>(
+    `SELECT f.code, count(fv.id)::int AS n FROM brew_profile_field f LEFT JOIN brew_profile_field_value fv ON fv.field_id = f.id GROUP BY f.code`
+  );
+  const counts = new Map(v.rows.map(x => [x.code, x.n]));
+  for (const [field, n] of Object.entries(USUAL_DRINK_SEED_VALUE_COUNTS)) {
+    if ((counts.get(field) ?? 0) < n) problems.push(`${field}: ${counts.get(field) ?? 0} value rows, the seed has ${n}`);
+  }
+  return udCheck(26, 'Usual Drink 1 seed rows are all present', problems, 'every seed code present', 'all present');
+}
+
+/** 27 — the three FKs from A3a/A3b exist; a skipped one lists its violating rows. */
+export async function checkBrewProfileForeignKeys(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const want = [
+    { name: 'customer_brew_profile_change_field_fkey', violators: `SELECT DISTINCT field AS code FROM customer_brew_profile_change c WHERE NOT EXISTS (SELECT 1 FROM brew_profile_field f WHERE f.code = c.field)` },
+    { name: 'customer_brew_profile_change_op_fkey', violators: `SELECT DISTINCT op AS code FROM customer_brew_profile_change c WHERE NOT EXISTS (SELECT 1 FROM brew_profile_op o WHERE o.code = c.op)` },
+    { name: 'quiz_funnel_event_event_fkey', violators: `SELECT DISTINCT event AS code FROM quiz_funnel_event e WHERE NOT EXISTS (SELECT 1 FROM quiz_funnel_event_type t WHERE t.code = e.event)` },
+  ];
+  const have = new Set((await runner.query<{ conname: string }>(
+    `SELECT conname FROM pg_constraint WHERE conname = ANY($1::text[])`, [want.map(w => w.name)])).rows.map(r => r.conname));
+  const problems: string[] = [];
+  for (const w of want) {
+    if (have.has(w.name)) continue;
+    const v = await runner.query<{ code: string }>(w.violators);
+    problems.push(`${w.name} missing; violating codes: ${v.rows.map(x => x.code).join(', ') || 'none (re-applied next boot)'}`);
+  }
+  return udCheck(27, 'brew-profile field/op and funnel event FKs exist', problems, '3 FKs present', 'all 3 present');
+}
+
+/** 28 — the Firestore sommelier_config doc no longer carries brewProfile.fields (retired by Usual Drink 1). */
+export async function checkBrewFieldsRetiredFromFirestore(_scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  let problems: string[] = [];
+  try {
+    const snap = await firestoreDb.doc('config/sommelier').get();
+    const data = snap.exists ? snap.data() as { brewProfile?: { fields?: unknown } } : undefined;
+    if (data?.brewProfile && 'fields' in data.brewProfile) problems = ['config/sommelier brewProfile.fields is still present'];
+  } catch (err) {
+    problems = [`could not read config/sommelier: ${err instanceof Error ? err.message : String(err)}`];
+  }
+  return udCheck(28, 'Firestore config/sommelier has no brewProfile.fields key', problems, 'key absent', 'key absent');
+}
+
+/** 29 — ab_app only reads the brew-profile reference tables; brew_card_view_event keeps its INSERT. */
+export async function checkBrewReferenceGrants(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ t: string; ins: boolean; upd: boolean; del: boolean }>(
+    `SELECT t,
+            has_table_privilege('ab_app', t, 'INSERT') AS ins,
+            has_table_privilege('ab_app', t, 'UPDATE') AS upd,
+            has_table_privilege('ab_app', t, 'DELETE') AS del
+     FROM unnest($1::text[]) AS t WHERE to_regclass(t) IS NOT NULL`, [[...UD_REFERENCE_TABLES, 'brew_card_view_event']]
+  );
+  const problems: string[] = [];
+  for (const row of r.rows) {
+    if (row.t === 'brew_card_view_event') { if (!row.ins) problems.push('brew_card_view_event lost its INSERT'); continue; }
+    const extra = [row.ins && 'INSERT', row.upd && 'UPDATE', row.del && 'DELETE'].filter(Boolean);
+    if (extra.length) problems.push(`${row.t}: ab_app holds ${extra.join(', ')}`);
+  }
+  return udCheck(29, 'ab_app holds SELECT only on the brew-profile reference tables', problems, 'SELECT only', 'SELECT only');
+}
+
+/** 30 — purge guard (D13): guests the empty-guest rule keeps because they hold brew-profile facts. */
+export async function checkGuestsKeptForFacts(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM user_profile up
+     WHERE NOT EXISTS (SELECT 1 FROM quiz_session qs WHERE qs.user_id = up.id)
+       AND NOT EXISTS (SELECT 1 FROM "order" o WHERE o.user_id = up.id)
+       AND NOT EXISTS (SELECT 1 FROM user_email ue WHERE ue.user_id = up.id AND ue.is_verified = true)
+       AND EXISTS (SELECT 1 FROM customer_brew_profile_change c WHERE c.user_id = up.id)`
+  );
+  const n = r.rows[0]?.n ?? 0;
+  return { id: 30, name: 'Guests without a quiz kept by the purge because they hold brew-profile facts', pass: true, expected: 'a count (informational)', actual: `${n} guest(s)`, severity: UD_INFO };
+}
+
+/** 31 — takes_it vs usual_drink, and an empty kitchen with no buy_out (informational). */
+export async function checkTakesItVsUsualDrink(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ canonical_user_id: string; note: string }>(
+    `WITH t AS (SELECT canonical_user_id, value_jsonb #>> '{}' AS takes_it FROM v_customer_brew_profile WHERE field = 'takes_it'),
+          d AS (SELECT canonical_user_id, bool_or(milk <> 'none') AS any_milk, bool_and(milk <> 'none') AS all_milk,
+                       bool_or(code = 'buy_out') AS buys_out FROM v_customer_usual_drink GROUP BY canonical_user_id)
+     SELECT t.canonical_user_id::text, 'takes it ' || t.takes_it || ' but no drink has milk' AS note FROM t JOIN d USING (canonical_user_id)
+       WHERE t.takes_it IN ('milk', 'milk_and_sugar') AND NOT d.any_milk
+     UNION ALL
+     SELECT t.canonical_user_id::text, 'takes it black but every drink has milk' FROM t JOIN d USING (canonical_user_id)
+       WHERE t.takes_it = 'black' AND d.all_milk
+     UNION ALL
+     SELECT k.canonical_user_id::text, 'nothing in the kitchen and buy_out not among the drinks' FROM v_customer_cupboard_coffee k
+       LEFT JOIN d USING (canonical_user_id) WHERE k.code = 'nothing' AND COALESCE(d.buys_out, false) = false`
+  );
+  return udCheck(31, 'takes_it agrees with the drinks; an empty kitchen goes with buy_out (informational)', r.rows.map(x => `${x.canonical_user_id}: ${x.note}`), '0 findings (a finding is a fact to look at, not an error)', 'all agree');
+}
+
+/** 32 — row shape of customer_brew_profile_change. */
+export async function checkBrewProfileRowShape(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ id: string; problem: string }>(
+    `SELECT c.id::text, 'quiz row without quiz_session_id' AS problem FROM customer_brew_profile_change c WHERE c.source = 'quiz' AND c.quiz_session_id IS NULL
+     UNION ALL
+     SELECT c.id::text, 'quiz row on a session that is not the user''s (or a proxy session)' FROM customer_brew_profile_change c
+       JOIN quiz_session qs ON qs.id = c.quiz_session_id
+       WHERE c.source = 'quiz' AND (qs.taken_by_user_id IS NOT NULL OR NOT EXISTS (
+         SELECT 1 FROM v_customer_identity a JOIN v_customer_identity b ON a.canonical_user_id = b.canonical_user_id
+         WHERE a.user_id = c.user_id AND b.user_id = qs.user_id))
+     UNION ALL
+     SELECT c.id::text, 'non-quiz row with quiz_session_id' FROM customer_brew_profile_change c WHERE c.source <> 'quiz' AND c.quiz_session_id IS NOT NULL
+     UNION ALL
+     SELECT c.id::text, 'declined row with a value' FROM customer_brew_profile_change c WHERE c.op = 'declined' AND c.value IS NOT NULL
+     UNION ALL
+     SELECT c.id::text, 'words on a value that does not accept them' FROM customer_brew_profile_change c
+       JOIN brew_profile_field f ON f.code = c.field
+       WHERE c.customer_words IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM brew_profile_field_value fv WHERE fv.field_id = f.id AND fv.accepts_words
+           AND (fv.code = c.value::jsonb #>> '{}' OR (jsonb_typeof(c.value::jsonb) = 'array' AND c.value::jsonb ? fv.code)))
+     UNION ALL
+     SELECT c.id::text, 'array set is not a JSON array, has duplicates or is over max_items' FROM customer_brew_profile_change c
+       JOIN brew_profile_field f ON f.code = c.field JOIN brew_profile_value_kind k ON k.id = f.value_kind_id
+       WHERE c.op = 'set' AND k.code IN ('array', 'array_freeform') AND c.value IS NOT NULL
+         AND CASE WHEN jsonb_typeof(c.value::jsonb) <> 'array' THEN true
+                  ELSE (f.max_items IS NOT NULL AND jsonb_array_length(c.value::jsonb) > f.max_items)
+                    OR (SELECT count(*) FROM jsonb_array_elements_text(c.value::jsonb)) <> (SELECT count(DISTINCT x) FROM jsonb_array_elements_text(c.value::jsonb) x)
+             END
+     LIMIT 50`
+  );
+  return udCheck(32, 'customer_brew_profile_change rows have the right shape (quiz session, declined, words, arrays)', r.rows.map(x => `${x.problem} (row ${x.id})`), '0 findings', 'all rows fit');
 }

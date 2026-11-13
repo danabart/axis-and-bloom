@@ -1,5 +1,6 @@
 import { db } from '../db/client.js';
 import admin, { firestoreDb } from './firebase-admin.js';
+import { hasBrewProfileFactsSql } from './customerReads.js';
 
 // Daily purge of stale anonymous Firebase identities — see
 // backend/src/features/guest_identity/CLAUDE_CODE_PROMPT_GUEST_IDENTITY_FOLLOWUP_NAV_AND_CLEANUP.md
@@ -38,29 +39,43 @@ interface Candidate {
 
 type CandidateKind = 'empty' | 'identityOnly';
 
-export async function purgeStaleAnonymousGuests(): Promise<{
-  checked: number;
-  purgedEmpty: number;
-  purgedIdentityOnly: number;
-  skipped: number;
-}> {
-  // No-quiz candidates: created >7 days ago, never took the quiz, never ordered.
-  const noQuizResult = await db.query<Candidate>(
-    `SELECT up.firebase_uid
-     FROM user_profile up
-     WHERE up.created_at < now() - interval '7 days'
+// Usual Drink 1 (2026-11-12, D13; Dana's Task 0 answer 4): the empty-guest
+// rule skips a guest who holds a customer_brew_profile_change row (any op,
+// declined included) — without it, Auth and Firestore were deleted, the
+// Postgres DELETE then failed on the FK and the guest was left half-purged,
+// retried daily. The stale-quiz (identity-only) rule is unchanged: it deletes
+// the Auth record only and keeps every Postgres row (2026-09-24), brew rows
+// included. keptForFacts counts the empty guests the guard keeps.
+const HAS_BREW_FACTS = hasBrewProfileFactsSql('up');
+const EMPTY_GUEST_RULE = `up.created_at < now() - interval '7 days'
        AND NOT EXISTS (SELECT 1 FROM quiz_session qs WHERE qs.user_id = up.id)
        AND NOT EXISTS (SELECT 1 FROM "order" o WHERE o.user_id = up.id)
        AND NOT EXISTS (SELECT 1 FROM user_email ue WHERE ue.user_id = up.id AND ue.is_verified = true)
-       ${SKIP_MANAGED}
+       ${SKIP_MANAGED}`;
+
+type Runner = Pick<typeof db, 'query'>;
+
+/** The two candidate queries (and the count the purge guard keeps). */
+export async function staleGuestCandidates(runner: Runner = db): Promise<{ empty: string[]; identityOnly: string[]; keptForFacts: number }> {
+  // No-quiz candidates: created >7 days ago, never took the quiz, never ordered, no brew-profile facts.
+  const noQuizResult = await runner.query<Candidate>(
+    `SELECT up.firebase_uid
+     FROM user_profile up
+     WHERE ${EMPTY_GUEST_RULE}
+       AND NOT ${HAS_BREW_FACTS}
      LIMIT $1`,
     [BATCH_SIZE]
+  );
+  const kept = await runner.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM user_profile up
+     WHERE ${EMPTY_GUEST_RULE}
+       AND ${HAS_BREW_FACTS}`
   );
 
   // Quiz-taken-but-stale candidates: most recent quiz >90 days ago, never ordered.
   // Mutually exclusive with noQuizResult by construction — a row here always
   // has at least one quiz_session, which noQuizResult's NOT EXISTS excludes.
-  const staleQuizResult = await db.query<Candidate>(
+  const staleQuizResult = await runner.query<Candidate>(
     `SELECT up.firebase_uid
      FROM user_profile up
      JOIN (
@@ -75,10 +90,21 @@ export async function purgeStaleAnonymousGuests(): Promise<{
      LIMIT $1`,
     [BATCH_SIZE]
   );
+  return { empty: noQuizResult.rows.map(r => r.firebase_uid), identityOnly: staleQuizResult.rows.map(r => r.firebase_uid), keptForFacts: kept.rows[0]?.n ?? 0 };
+}
+
+export async function purgeStaleAnonymousGuests(): Promise<{
+  checked: number;
+  purgedEmpty: number;
+  purgedIdentityOnly: number;
+  skipped: number;
+  keptForFacts: number;
+}> {
+  const { empty, identityOnly, keptForFacts } = await staleGuestCandidates();
 
   const candidates: { firebase_uid: string; kind: CandidateKind }[] = [
-    ...noQuizResult.rows.map(r => ({ firebase_uid: r.firebase_uid, kind: 'empty' as const })),
-    ...staleQuizResult.rows.map(r => ({ firebase_uid: r.firebase_uid, kind: 'identityOnly' as const })),
+    ...empty.map(firebase_uid => ({ firebase_uid, kind: 'empty' as const })),
+    ...identityOnly.map(firebase_uid => ({ firebase_uid, kind: 'identityOnly' as const })),
   ];
   const checked = candidates.length;
   let purgedEmpty = 0;
@@ -150,6 +176,6 @@ export async function purgeStaleAnonymousGuests(): Promise<{
     }
   }
 
-  console.log(`[staleGuestCleanup] checked=${checked} purgedEmpty=${purgedEmpty} purgedIdentityOnly=${purgedIdentityOnly} skipped=${skipped}`);
-  return { checked, purgedEmpty, purgedIdentityOnly, skipped };
+  console.log(`[staleGuestCleanup] checked=${checked} purgedEmpty=${purgedEmpty} purgedIdentityOnly=${purgedIdentityOnly} skipped=${skipped} keptForFacts=${keptForFacts}`);
+  return { checked, purgedEmpty, purgedIdentityOnly, skipped, keptForFacts };
 }

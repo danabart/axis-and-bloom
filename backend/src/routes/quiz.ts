@@ -12,6 +12,8 @@ import { archetypeUuid } from '../services/catalogReads.js';
 import { assertMayQuizFor, recordProxyQuiz, HouseholdError, type ProxyTarget } from '../services/householdService.js';
 import { profileIdForUid } from '../services/householdReads.js';
 import { decide as matchDecide } from '../services/matchService.js';
+import { brewProfileOptions, recordPostResultCard, PostResultCardError } from '../services/brewProfileCard.js';
+import { BrewProfileChangeRejected } from '../services/customerFacts.js';
 
 const router = Router();
 
@@ -146,11 +148,44 @@ const funnelEventLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, keyGenerato
 router.post('/event', funnelEventLimiter, async (req, res) => {
   const { sessionKey, event, archetype, campaign, campaignVid } = req.body ?? {};
   try {
-    await logFunnelEvent(sessionKey, event, archetype, campaign, campaignVid);
-    res.json({ ok: true });
+    const logged = await logFunnelEvent(sessionKey, event, archetype, campaign, campaignVid);
+    res.json(logged ? { ok: true } : { ok: true, dropped: true });
   } catch (err: any) {
     console.error('[quiz/event]', err);
     res.status(400).json({ error: err.message ?? 'Invalid funnel event' });
+  }
+});
+
+// ─── Usual Drink 1 (2026-11-12), B2: the optional post-result card ───────────
+// GET options: the card-eligible fields (active, with a prompt) in sort order,
+// their active values and the card's words, all from data; an empty list means
+// no card. POST: requireAuth only (quiz takers are anonymous guests); the
+// service checks the caller owns the session (403) and refuses a proxy quiz
+// (409); behind the same limiter as /event. Nothing here touches /results.
+router.get('/post-result/options', async (_req, res) => {
+  try {
+    res.json(await brewProfileOptions('card'));
+  } catch (err) {
+    console.error('[quiz/post-result/options]', err);
+    res.status(500).json({ error: 'Failed to load the card' });
+  }
+});
+
+router.post('/post-result', funnelEventLimiter, requireAuth, async (req: AuthRequest, res) => {
+  const { quizSessionId, answers, shown } = req.body ?? {};
+  if (typeof quizSessionId !== 'string' || !/^[0-9a-f-]{36}$/i.test(quizSessionId)) { res.status(400).json({ error: 'quizSessionId required' }); return; }
+  if (!Array.isArray(shown) || shown.some(f => typeof f !== 'string')) { res.status(400).json({ error: 'shown must be a list of fields' }); return; }
+  if (answers !== undefined && (!Array.isArray(answers) || answers.some(a => !a || typeof a.field !== 'string'))) {
+    res.status(400).json({ error: 'answers must be a list of { field, value }' }); return;
+  }
+  try {
+    const result = await recordPostResultCard({ uid: req.uid!, quizSessionId, answers: answers ?? [], shown });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof PostResultCardError) { res.status(err.status).json({ error: err.message, code: err.code }); return; }
+    if (err instanceof BrewProfileChangeRejected) { res.status(400).json({ error: err.message, code: 'REJECTED' }); return; }
+    console.error('[quiz/post-result]', err);
+    res.status(500).json({ error: 'Failed to save the card' });
   }
 });
 
