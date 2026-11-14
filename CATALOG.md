@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-12 from database `axisandbloom` · 197 tables · 102 views · 1702 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `a3b61d9a8012` (full value in the footer).
+Generated 2026-11-14 from database `axisandbloom` · 212 tables · 106 views · 1814 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `c147c40dd51b` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -43,7 +43,246 @@ Copied verbatim from the top of `backend/src/db/comments.sql`.
 
 ## Tables
 
-### master (71)
+### master (85)
+
+#### `brew_coffee_feeling`
+
+Maps each coffee_feeling value to the map move it mirrors (happy to stay, bolder, gentler, different) by FK to dial_move (D19); the mapping is this row, never code. Nothing reads it for matching in Usual Drink 1 (D5). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** v_customer_coffee_feeling, customerIntegrity
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `field_value_id` | integer | no | References brew_profile_field_value.id (a coffee_feeling value); UNIQUE, the natural key. |
+| `move_id` | integer | no | References dial_move.id: a customer move (is_customer_move). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_cupboard_brand`
+
+Decomposes each cupboard_coffee value into its brand kind and, when Dana links it by owner SQL, a partner roaster (D15); no roast or archetype attribute (D4). Edits by owner SQL; no app writer; new brands come from the other + words list
+
+- **Writer:** seed
+- **Readers:** brew_cupboard_brand_alias, v_brew_profile_field_current, v_customer_cupboard_coffee, customerIntegrity
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `field_value_id` | integer | no | References brew_profile_field_value.id (a cupboard_coffee value); UNIQUE, the natural key. |
+| `brand_kind_id` | integer | no | References brew_cupboard_brand_kind.id. |
+| `roaster_id` | uuid | yes | References roaster.id when the brand is a partner roaster; NULL at seed, set only by owner SQL (D15). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_cupboard_brand_alias`
+
+Typeahead search strings for a kitchen brand (lower-cased, trimmed); the typeahead matches the label and these. Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** v_brew_profile_field_current
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `brand_id` | integer | no | References brew_cupboard_brand.id. |
+| `alias` | text | no | Lower-cased, trimmed search string; UNIQUE with brand_id. |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+
+#### `brew_cupboard_brand_kind`
+
+Lookup of the channel a kitchen brand sells through: chain, mass_market, specialty, unknown, none; a fact about the brand, not about its coffee (D4). Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** brew_cupboard_brand, v_customer_cupboard_coffee
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `code` | text | no | Stable code of the brand kind; UNIQUE, the FK target. |
+| `label` | text | no | Label shown on the admin pages. |
+| `sort_order` | integer | no | Display order. |
+| `is_active` | boolean | no | false = retired; rows are never deleted (G2.11). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_drink`
+
+Decomposes each usual_drink value into base method, dilution and milk, and whether it is made at home; one row per value (D11). Facts about the drink, never a shift of a start position (D4). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** v_customer_usual_drink, customerIntegrity
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `field_value_id` | integer | no | References brew_profile_field_value.id (a usual_drink value); UNIQUE, the natural key. |
+| `base_method_id` | integer | no | References brew_drink_base_method.id. |
+| `dilution_id` | integer | no | References brew_drink_dilution.id. |
+| `milk_id` | integer | no | References brew_drink_milk.id. latte groups cappuccino and flat white, whose milk ratios differ widely; steamed is a kind, not a quantity. |
+| `is_home_drink` | boolean | no | false for buy_out only; buy_out may be picked together with home drinks, nothing excludes it. |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_drink_base_method`
+
+Lookup of a drink's base preparation: espresso, filter, immersion, cold_brew, stovetop, pod, none. Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** brew_drink, v_customer_usual_drink
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `code` | text | no | Stable code of the base method; UNIQUE, the FK target. |
+| `label` | text | no | Label shown on the admin pages. |
+| `sort_order` | integer | no | Display order. |
+| `is_active` | boolean | no | false = retired; rows are never deleted (G2.11). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_drink_dilution`
+
+Lookup of what dilutes a drink: none, water, ice (ice counts as water dilution). Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** brew_drink, v_customer_usual_drink
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `code` | text | no | Stable code of the dilution; UNIQUE, the FK target. |
+| `label` | text | no | Label shown on the admin pages. |
+| `sort_order` | integer | no | Display order. |
+| `is_active` | boolean | no | false = retired; rows are never deleted (G2.11). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_drink_milk`
+
+Lookup of the milk in a drink: none, cold, steamed (a kind, not a quantity). Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** brew_drink, v_customer_usual_drink
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `code` | text | no | Stable code of the milk kind; UNIQUE, the FK target. |
+| `label` | text | no | Label shown on the admin pages. |
+| `sort_order` | integer | no | Display order. |
+| `is_active` | boolean | no | false = retired; rows are never deleted (G2.11). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_profile_field`
+
+One row per brew-profile field (brew_methods, grinder, takes_it, decaf_constraint, aversions, usual_drink, cupboard_coffee, coffee_feeling): label, the question as asked, kind, picker, caps, Liam topic, ask_when_empty; FK target of customer_brew_profile_change.field. Replaces the Firestore sommelier_config.brewProfile.fields whitelist (D6). Edits by owner SQL; no app writer. A field with prompt NULL or is_active false is off the card on the next cache refresh (kill switch)
+
+- **Writer:** seed
+- **Readers:** v_brew_profile_field_current, customer_brew_profile_change (FK), customerIntegrity
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `code` | text | no | Field code as stored in customer_brew_profile_change.field; UNIQUE. |
+| `label` | text | no | Customer-facing label on the Profile mirror. |
+| `prompt` | text | yes | The question as asked on the card, the mirror empty state and by Liam; NULL = never on the card. |
+| `value_kind_id` | integer | no | References brew_profile_value_kind.id. |
+| `picker_id` | integer | no | References brew_profile_picker.id: the control the card and the mirror render. |
+| `max_items` | integer | yes | Most items an array field holds; NULL for non-arrays. |
+| `max_item_len` | integer | yes | Longest freeform item, and the cap on customer_words, in characters. |
+| `liam_topic` | text | yes | The Liam router topic that makes this field's nudge or question relevant (replaces the in-code TOPIC_TO_FIELD map). |
+| `ask_when_empty` | boolean | no | true = Liam may ask the prompt once, in a fitting topic, when the customer has no value (D8). |
+| `sort_order` | integer | no | Order on the card, the mirror and in the prompt. |
+| `is_active` | boolean | no | false = retired; stored facts still resolve and display. |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_profile_field_value`
+
+Every allowed value of every enum, array and bool field in one table (D11): the drinks, the brands, the feelings, the existing fields' codes and the decaf field's two display words; brew_drink, brew_cupboard_brand and brew_coffee_feeling decompose a row of it. Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** v_brew_profile_field_current, brew_drink, brew_cupboard_brand, brew_coffee_feeling, v_customer_usual_drink, v_customer_cupboard_coffee, v_customer_coffee_feeling, customerIntegrity
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `field_id` | integer | no | References brew_profile_field.id. |
+| `code` | text | no | Value code as stored in the fact value; UNIQUE with field_id. |
+| `label` | text | no | Customer-facing answer text. |
+| `sort_order` | integer | no | Order within the field. |
+| `pinned` | boolean | no | Shown before typing in a typeahead (D18). |
+| `accepts_words` | boolean | no | The fact may carry customer_words (the two other rows, D17). |
+| `is_active` | boolean | no | false = retired: off the pickers, still resolved for customers who stored it (A4). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_profile_op`
+
+Lookup of brew-profile fact ops: set, add, remove, clear, and declined (asked on the card or the profile and not answered; value NULL; ignored by the fold, D16); FK target of customer_brew_profile_change.op. Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** customer_brew_profile_change (FK), customerFacts.brewProfileChange, customerIntegrity
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `code` | text | no | Stable code of the op; UNIQUE, the FK target. |
+| `label` | text | no | Label shown on the admin pages. |
+| `sort_order` | integer | no | Display order. |
+| `is_active` | boolean | no | false = retired; rows are never deleted (G2.11). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_profile_picker`
+
+Lookup of the control that renders a brew-profile field on the card and the Profile mirror: select, multi_select, typeahead, toggle, freeform_list (D18). Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** v_brew_profile_field_current
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `code` | text | no | Stable code of the picker; UNIQUE, the FK target. |
+| `label` | text | no | Label shown on the admin pages. |
+| `sort_order` | integer | no | Display order. |
+| `is_active` | boolean | no | false = retired; rows are never deleted (G2.11). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
+#### `brew_profile_value_kind`
+
+Lookup of brew-profile value kinds: enum, array, bool, array_freeform; decides how a value is validated and stored. Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** v_brew_profile_field_current
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `code` | text | no | Stable code of the value kind; UNIQUE, the FK target. |
+| `label` | text | no | Label shown on the admin pages. |
+| `sort_order` | integer | no | Display order. |
+| `is_active` | boolean | no | false = retired; rows are never deleted (G2.11). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
 
 #### `coffee_archetype`
 
@@ -1096,6 +1335,24 @@ Lookup of why money went back on an order (requested_by_customer, damaged_in_tra
 | `customer_label` | text | no | Customer-facing words for the reason; nothing in the frontend types a reason. |
 | `stripe_reason` | text | yes | The value sent as the Stripe refund's reason (Stripe accepts duplicate, fraudulent, requested_by_customer); NULL sends none. The mapping is data, not code (G2.1). |
 
+#### `quiz_funnel_event_type`
+
+Lookup of quiz funnel event codes (quiz_start, quiz_complete, email_submitted, quiz_final, post_result_shown, post_result_saved, post_result_skipped); FK target of quiz_funnel_event.event; funnelEvents.logFunnelEvent logs and drops an unknown code. Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+
+- **Writer:** seed
+- **Readers:** quiz_funnel_event (FK), funnelEvents.logFunnelEvent
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `code` | text | no | Stable code of the funnel event; UNIQUE, the FK target. |
+| `label` | text | no | Label shown on the admin pages. |
+| `sort_order` | integer | no | Display order. |
+| `is_active` | boolean | no | false = retired; rows are never deleted (G2.11). |
+| `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+
 #### `shipping_carrier`
 
 Lookup of shipping carriers (usps, ups, fedex, dhl, other) with the tracking-link template the shipping email and Profile build from
@@ -1512,8 +1769,8 @@ Append-only fact of a signed-in customer scanning a coffee-token QR on a bag the
 
 Append-only log of changes to a customer's brew profile (methods, grinder, preferences), replayed in order to produce the current profile
 
-- **Writer:** customerFacts.brewProfileChange (called from users.PATCH /brew-profile, users.DELETE /brew-profile and sommelier.resolveRemember), customerFacts.brewProfileChangeBackfill
-- **Readers:** v_customer_brew_profile, v_customer_timeline, customerReads.getFactsWatermark, customerIntegrity
+- **Writer:** customerFacts.brewProfileChange (called from users.PATCH /brew-profile, users.DELETE /brew-profile, sommelier.resolveRemember and brewProfileCard.recordPostResultCard), customerFacts.brewProfileChangeBackfill
+- **Readers:** v_customer_brew_profile, v_customer_timeline, v_customer_usual_drink, v_customer_cupboard_coffee, v_customer_coffee_feeling, customerReads.getFactsWatermark, customerReads.getBrewProfileFieldCounts, customerIntegrity, staleGuestCleanup
 - **Since:** 2026-09-27
 
 | column | type | null | comment |
@@ -1522,13 +1779,15 @@ Append-only log of changes to a customer's brew profile (methods, grinder, prefe
 | `user_id` | uuid | no | References user_profile.id of the customer whose profile changed; never firebase_uid or email. |
 | `occurred_at` | timestamp with time zone | no | UTC timestamp the change happened; database clock at insert, set explicitly only by backfill; ops are replayed in this order. |
 | `recorded_at` | timestamp with time zone | no | UTC timestamp the row was recorded; differs from occurred_at only for rows learned of later (backfill). |
-| `source` | text | no | Origin of the fact, idempotency key with source_id. Code allows: onsite, liam, sms, shopify, qr, backfill, backfill_detected (no DB CHECK); this table gets onsite, liam or backfill. |
-| `source_id` | text | no | Idempotency key within source: the api_event id (or a derived fallback key) for onsite edits, session:turn:field:value for Liam; UNIQUE (source, source_id). |
+| `source` | text | no | Origin of the fact, idempotency key with source_id. Code allows: onsite, liam, quiz, sms, shopify, qr, backfill, backfill_detected (no DB CHECK); this table gets onsite, liam, quiz (the post-result card, Usual Drink 1) or backfill. |
+| `source_id` | text | no | Idempotency key within source: the api_event id (or a derived fallback key) for onsite edits, session:turn:field:value for Liam, quiz_session_id:field:value (or :declined) for the post-result card; UNIQUE (source, source_id). |
 | `catalog_version` | text | yes | Catalog version string from getCatalogVersion() when the fact was recorded; NULL only on backfilled rows. |
-| `field` | text | no | Which brew-profile field changed. One of: brew_methods, grinder, takes_it, decaf_constraint, aversions. |
-| `value` | text | yes | The new value as a JSON-encoded string; NULL for a clear op. |
-| `op` | text | no | How the value applies to the field. One of: set, add, remove, clear. |
+| `field` | text | no | Which brew-profile field changed; FK to brew_profile_field(code) (a CHECK list until Usual Drink 1). |
+| `value` | text | yes | The new value as a JSON-encoded string (a code as "latte", an array as ["latte","drip_black"], a bool as true); NULL for a clear or declined op. |
+| `op` | text | no | How the value applies to the field; FK to brew_profile_op(code): set, add, remove, clear, declined (asked and not answered; ignored by the fold). |
 | `session_id` | integer | yes | References sommelier_sessions.id when the change came from a Liam conversation; NULL for onsite edits. |
+| `quiz_session_id` | uuid | yes | References quiz_session.id; set only by the quiz post-result writer (brewProfileCard.recordPostResultCard); NULL for onsite and Liam writes (D12). |
+| `customer_words` | text | yes | The customer's typed text when the picked value has accepts_words (the two other rows); NULL otherwise; capped at the field's max_item_len (D17). |
 
 #### `customer_dial_event`
 
@@ -2096,7 +2355,7 @@ Everything that happens to a subscription, one insert-only row per event (same s
 | `source` | text | no | FK to subscription_event_source(code); who wrote it: checkout, cron, webhook, admin or customer. |
 | `created_at` | timestamp with time zone | no | UTC timestamp of the event. |
 
-### operating (74)
+### operating (75)
 
 #### `address`
 
@@ -2216,6 +2475,24 @@ Coarse log of each render of a brew card in the Flavor Memory section, feeding t
 | `user_id` | uuid | no | References user_profile.id (uuid, ON DELETE CASCADE): the customer who viewed the card. |
 | `card_id` | integer | no | References user_brew_card.id (ON DELETE CASCADE): the card that was rendered. |
 | `viewed_at` | timestamp with time zone | yes | UTC timestamp of the render; deliberately not deduplicated, so rows are a per-render count and not unique viewers. |
+
+#### `brew_parameter`
+
+The numbers and card words of the brew-profile capture: field_list_refresh_seconds (the field-list cache interval) and the post-result card's words (post_result_title, post_result_save, post_result_skip, words_placeholder, search_placeholder), with history; a change supersedes the current row (Dana 2026-11-12)
+
+- **Writer:** brewParameters.setParameterInTx; seed
+- **Readers:** brewParameters.brewParam (brewProfile field-list refresh), brewParameters.brewTextParams (brewProfileCard options for routes/quiz and routes/users), brewParameters.getParameters (routes/brewProfileAdmin)
+- **Since:** 2026-11-12 (Usual Drink 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `key` | text | no | Parameter name; one current row per key (partial unique brew_parameter_current). |
+| `value_numeric` | numeric | yes | Numeric value; exactly one of value_numeric and value_text is set. |
+| `value_text` | text | yes | Text value; exactly one of value_numeric and value_text is set. |
+| `since` | timestamp with time zone | no | Timestamp this value took effect. |
+| `superseded_at` | timestamp with time zone | yes | Timestamp a newer row replaced this one; NULL on the current row. |
+| `note` | text | yes | What the value means and, for a number, its sane range (Range: ...), plus the change trail. |
 
 #### `campaign_landing_event`
 
@@ -2766,7 +3043,7 @@ First-party log of quiz funnel steps (start, complete, email submitted, final), 
 |---|---|---|---|
 | `id` | uuid | no | Surrogate key (UUID) for the event. |
 | `session_key` | text | no | Client-generated per-quiz-run random UUID held in memory; not a foreign key because most rows are guests. |
-| `event` | text | no | Funnel step reached. One of: quiz_start, quiz_complete (pre-branch score), email_submitted, quiz_final (post-branch archetype shown) (CHECK). |
+| `event` | text | no | Funnel step reached; FK to quiz_funnel_event_type(code) (a CHECK list until Usual Drink 1): quiz_start, quiz_complete (pre-branch score), email_submitted, quiz_final (post-branch archetype shown), post_result_shown, post_result_saved, post_result_skipped. |
 | `archetype` | text | yes | Archetype display name text recorded on quiz_complete and quiz_final events; NULL on other events. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp the event was logged. |
 | `campaign` | text | yes | Campaign slug the visitor arrived through (for example hoboken-crawl-2026); NULL for non-campaign traffic. |
@@ -3987,6 +4264,15 @@ Sellable coffees per origin region (coffees.origin_region_id → lookup_value or
 - **Since:** 2026-11-05 (Website 6)
 - **reads:** `coffees`, `lookup_value`, `v_coffee_sellable_slot`
 
+#### `v_brew_profile_field_current`
+
+One row per brew-profile field x allowed value (a field with no value rows once, value columns NULL), with kind, picker, caps, topic, prompt and the brand aliases; inactive rows included, the reader filters (A4). The only source of the validator, the Profile mirror, the card options and Liam's field list
+
+- **Writer:** none (derived)
+- **Readers:** brewProfile.getBrewProfileFieldsConfig (the one reader)
+- **Since:** 2026-11-12 (Usual Drink 1)
+- **reads:** `brew_cupboard_brand`, `brew_cupboard_brand_alias`, `brew_profile_field`, `brew_profile_field_value`, `brew_profile_picker`, `brew_profile_value_kind`
+
 #### `v_coffee`
 
 One row per coffee (active or not) with roaster name, current match archetype and category codes, the one read model for a coffee's identity
@@ -4232,10 +4518,10 @@ One row per order line item saying which user drank the bag (D24: a bag claim by
 
 #### `v_customer_brew_profile`
 
-One row per canonical customer and brew-profile field holding the current value, replayed from customer_brew_profile_change (set/clear/add/remove) in occurred_at order; cleared fields are omitted.
+One row per canonical customer and brew-profile field holding the current value, replayed from customer_brew_profile_change (set/clear/add/remove) in occurred_at order; cleared fields are omitted; declined rows change neither the value nor captured_at/source (Usual Drink 1).
 
 - **Writer:** none (derived)
-- **Readers:** customerReads.getBrewProfileCurrent, engagementMetrics, v_palate_evidence
+- **Readers:** customerReads.getBrewProfileCurrent, engagementMetrics, v_palate_evidence, v_customer_usual_drink, v_customer_cupboard_coffee, v_customer_coffee_feeling
 - **Since:** 2026-09-27 (Customer Blueprint C3 Part A2)
 - **reads:** `customer_brew_profile_change`, `v_customer_identity`
 
@@ -4247,6 +4533,24 @@ One row per canonical customer's latest quiz with email, interpretation, raw qui
 - **Readers:** scripts/exportCalibration, scripts/quizRecalibrate
 - **Since:** 2026-09-28 (Liam L3 #200)
 - **reads:** `customer_liam_recommendation`, `newsletter_subscriber`, `order`, `order_line_item`, `quiz_session`, `v_customer_bag_attribution`, `v_customer_feedback_current`, `v_customer_identity`, `v_customer_quiz_current`, `v_palate_threads`
+
+#### `v_customer_coffee_feeling`
+
+One row per canonical customer: how they feel about the coffee they drink now, with the map move it mirrors (move_code); nothing reads it for matching yet (D5)
+
+- **Writer:** none (derived)
+- **Readers:** customerReads.getCoffeeFeeling, customerReads.getBrewProfileFieldCounts
+- **Since:** 2026-11-12 (Usual Drink 1)
+- **reads:** `brew_coffee_feeling`, `brew_profile_field`, `brew_profile_field_value`, `customer_brew_profile_change`, `dial_move`, `v_customer_brew_profile`, `v_customer_identity`
+
+#### `v_customer_cupboard_coffee`
+
+One row per canonical customer: the kitchen brand with its kind, linked roaster and the customer's words on the other row
+
+- **Writer:** none (derived)
+- **Readers:** customerReads.getCupboardCoffee, customerReads.getBrewProfileFieldCounts, customerIntegrity
+- **Since:** 2026-11-12 (Usual Drink 1)
+- **reads:** `brew_cupboard_brand`, `brew_cupboard_brand_kind`, `brew_profile_field`, `brew_profile_field_value`, `customer_brew_profile_change`, `v_customer_brew_profile`, `v_customer_identity`
 
 #### `v_customer_dial_current`
 
@@ -4310,6 +4614,15 @@ Union of every customer fact (quiz, order line, feedback, brew profile change, d
 - **Readers:** customerReads.getTimeline
 - **Since:** 2026-09-27 (Customer Blueprint C3 Part A3)
 - **reads:** `coffee_archetype`, `coffee_sku`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `order`, `order_line_item`, `quiz_session`, `quiz_session_interpretation`, `v_coffee`, `v_customer_bag_attribution`, `v_customer_identity`
+
+#### `v_customer_usual_drink`
+
+One row per canonical customer x drink from the folded usual_drink array, with base method, dilution, milk, home flag, the customer's words on the other row, captured_at, source and the quiz session of the latest non-declined row; lookups joined regardless of is_active
+
+- **Writer:** none (derived)
+- **Readers:** customerReads.getUsualDrinks, customerReads.getBrewProfileFieldCounts, customerIntegrity
+- **Since:** 2026-11-12 (Usual Drink 1)
+- **reads:** `brew_drink`, `brew_drink_base_method`, `brew_drink_dilution`, `brew_drink_milk`, `brew_profile_field`, `brew_profile_field_value`, `customer_brew_profile_change`, `v_customer_brew_profile`, `v_customer_identity`
 
 #### `v_data_catalog`
 
@@ -4857,6 +5170,20 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `archetype_vector` | seed | seed (INSERT) | — | v_archetype_dimension_comparison, v_archetype_vectors |
 | `beat_event` | backfill:backfill-beat-respond-tokens, beatEngine, cron | backfill:backfill-beat-respond-tokens (UPDATE), beatEngine (INSERT, UPDATE), cron (UPDATE) | backfill-beat-respond-tokens, beatEngine, cron, engagementMetrics | — |
 | `brew_card_view_event` | users | users (INSERT) | engagementMetrics | — |
+| `brew_coffee_feeling` | seed | seed (INSERT) | customerIntegrity, customerReads | v_customer_coffee_feeling |
+| `brew_cupboard_brand` | seed | seed (INSERT) | brewProfile, customerIntegrity, customerReads | v_brew_profile_field_current, v_customer_cupboard_coffee |
+| `brew_cupboard_brand_alias` | seed | seed (INSERT) | brewProfile | v_brew_profile_field_current |
+| `brew_cupboard_brand_kind` | seed | seed (INSERT) | customerIntegrity, customerReads | v_customer_cupboard_coffee |
+| `brew_drink` | seed | seed (INSERT) | customerIntegrity, customerReads | v_customer_usual_drink |
+| `brew_drink_base_method` | seed | seed (INSERT) | customerIntegrity, customerReads | v_customer_usual_drink |
+| `brew_drink_dilution` | seed | seed (INSERT) | customerIntegrity, customerReads | v_customer_usual_drink |
+| `brew_drink_milk` | seed | seed (INSERT) | customerIntegrity, customerReads | v_customer_usual_drink |
+| `brew_parameter` | brewParameters, seed | brewParameters (INSERT, UPDATE), seed (INSERT) | brewParameters | — |
+| `brew_profile_field` | seed | seed (INSERT) | brewProfile, customerIntegrity, customerReads | v_brew_profile_field_current, v_customer_coffee_feeling, v_customer_cupboard_coffee, v_customer_usual_drink |
+| `brew_profile_field_value` | seed | seed (INSERT) | brewProfile, customerIntegrity, customerReads | v_brew_profile_field_current, v_customer_coffee_feeling, v_customer_cupboard_coffee, v_customer_usual_drink |
+| `brew_profile_op` | seed | seed (INSERT) | customerIntegrity | — |
+| `brew_profile_picker` | seed | seed (INSERT) | brewProfile, customerIntegrity | v_brew_profile_field_current |
+| `brew_profile_value_kind` | seed | seed (INSERT) | brewProfile, customerIntegrity | v_brew_profile_field_current |
 | `campaign_landing_event` | campaign | campaign (INSERT) | — | campaign_funnel_v |
 | `catalog_change` | customerFacts | customerFacts (INSERT) | customerIntegrity | — |
 | `checkout_session` | checkoutService | checkoutService (INSERT, UPDATE) | checkoutService | — |
@@ -4899,12 +5226,12 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `cupping_sheet_format` | seed | seed (INSERT) | cuppingReads, cuppingService | — |
 | `cupping_sheet_line` | seed | seed (INSERT) | cuppingReads, evidenceReads | v_cupping_sheet_line |
 | `customer_bag_claim` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration | v_customer_bag_attribution, v_customer_timeline |
-| `customer_brew_profile_change` | customerFacts | customerFacts (INSERT) | backfillCustomerFacts, customerIntegrity, customerReads, engagementMetrics | v_customer_brew_profile, v_customer_timeline |
+| `customer_brew_profile_change` | customerFacts | customerFacts (INSERT) | backfillCustomerFacts, customerIntegrity, customerReads, engagementMetrics | v_customer_brew_profile, v_customer_coffee_feeling, v_customer_cupboard_coffee, v_customer_timeline, v_customer_usual_drink |
 | `customer_dial_event` | customerFacts | customerFacts (INSERT) | backfillCustomerFacts, customerReads | v_customer_timeline |
 | `customer_feedback_descriptor` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, catalogService, cuppingReads, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceReads, exportCalibration | v_collaborative_flavor_wheel, v_customer_feedback_current |
 | `customer_feedback_event` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, catalogService, cuppingReads, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceReads, exportCalibration | v_collaborative_flavor_wheel, v_customer_feedback_current, v_customer_timeline |
 | `customer_identity_link` | customerFacts | customerFacts (INSERT) | admin, backfillClaimedSessionLinks, catalogService, checkoutService, customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialPositionService, dialReads, engagementMetrics, evidenceReads, exportCalibration, householdEmails, householdReads, householdService, liamAccess, quizInterpretationBackfill, quizSession, subscriptionService, subscriptionShipment, userSignals, users | v_customer_identity, v_customer_timeline, v_household_member, v_household_membership, v_household_numbers |
-| `customer_identity_unlink` | customerFacts | customerFacts (INSERT) | admin, catalogService, checkoutService, customerReads, dataCatalogIntegrity, dialPlacementService, dialPositionService, dialReads, engagementMetrics, evidenceReads, exportCalibration, householdEmails, householdReads, householdService, liamAccess, quizInterpretationBackfill, quizSession, subscriptionService, subscriptionShipment, userSignals, users | v_customer_identity, v_household_member, v_household_membership, v_household_numbers |
+| `customer_identity_unlink` | customerFacts | customerFacts (INSERT) | admin, catalogService, checkoutService, customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialPositionService, dialReads, engagementMetrics, evidenceReads, exportCalibration, householdEmails, householdReads, householdService, liamAccess, quizInterpretationBackfill, quizSession, subscriptionService, subscriptionShipment, userSignals, users | v_customer_identity, v_household_member, v_household_membership, v_household_numbers |
 | `customer_liam_action` | customerFacts | customerFacts (INSERT) | customerReads | v_customer_timeline |
 | `customer_liam_question` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration, quizInterpretationBackfill | v_customer_timeline, v_palate_evidence, v_palate_threads |
 | `customer_liam_recommendation` | customerFacts | customerFacts (INSERT) | admin, backfillLiamRecommendations, customerReads, exportCalibration | v_customer_calibration, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome |
@@ -4926,7 +5253,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `dial_map_version` | dialPlacementService | dialPlacementService (INSERT, UPDATE) | customerReads, dataCatalogIntegrity, dialPlacementService, dialReads | v_customer_match_current, v_customer_match_trail, v_dial_placement, v_dial_point |
 | `dial_map_version_status` | seed | seed (INSERT) | dataCatalogIntegrity, dialPlacementService, dialReads | — |
 | `dial_model` | seed | seed (INSERT) | dataCatalogIntegrity, dialPlacementService, dialReads | v_dial_surface |
-| `dial_move` | seed | seed (INSERT) | customerReads, dataCatalogIntegrity, dialPlacementService, dialReads | v_customer_match_current, v_customer_match_trail |
+| `dial_move` | seed | seed (INSERT) | customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads | v_customer_coffee_feeling, v_customer_match_current, v_customer_match_trail |
 | `dial_placement` | dialPlacementService | dialPlacementService (INSERT) | customerReads, dataCatalogIntegrity, dialPlacementService, dialReads | v_customer_match_current, v_dial_placement |
 | `dial_position_signal` | dialPositionSignal, dialSuggestion, orders, seed | dialPositionSignal (INSERT), dialSuggestion (INSERT, UPDATE), orders (UPDATE), seed (UPDATE) | admin, axisStatsReads, evidenceReads | v_coffee_dial_position_consensus, v_dial_position_signal_current |
 | `dial_provisional_sample_pattern` | seed | seed (INSERT) | catalogService, dataCatalogIntegrity, dialPlacementService, dialReads | v_dial_placement_input |
@@ -4961,7 +5288,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `newsletter_subscriber` | backfill:backfillUnsubscribeTokens, backfill:correct-subscriber-archetypes, newsletter, seed, unsubscribe | backfill:backfillUnsubscribeTokens (UPDATE), backfill:correct-subscriber-archetypes (UPDATE), newsletter (INSERT), seed (UPDATE), unsubscribe (UPDATE) | admin, audit-quiz-emails, auth, backfillClaimedSessionLinks, backfillUnsubscribeTokens, correct-subscriber-archetypes, exportCalibration, mailchimp-backfill, newsletter, newsletterReconcile, quizIntegrity, quizInterpretationBackfill, unsubscribe, users | campaign_funnel_v, campaign_subscriber_archetype_v, v_archetype_distribution, v_customer_calibration, v_newsletter_subscribers, v_subscriber_quiz_results, v_subscribers_weekly |
 | `newsletter_subscriber_backup_20260925` | backfill:correct-subscriber-archetypes | — | — | — |
 | `notification_log` | smsProvider | smsProvider (INSERT) | — | — |
-| `order` | checkoutService | checkoutService (INSERT) | admin, behavioralConfidence, brewCard, catalogService, checkoutService, commerceAdminReads, customerReads, engagementMetrics, exportCalibration, householdEmails, householdReads, index, orders, qrDoor, shipmentService, staleGuestCleanup, userSignals, users | v_customer_bag_attribution, v_customer_calibration, v_customer_timeline, v_household_numbers, v_order_status, v_orders_weekly, v_palate_evidence, v_palate_recommendation_outcome |
+| `order` | checkoutService | checkoutService (INSERT) | admin, behavioralConfidence, brewCard, catalogService, checkoutService, commerceAdminReads, customerIntegrity, customerReads, engagementMetrics, exportCalibration, householdEmails, householdReads, index, orders, qrDoor, shipmentService, staleGuestCleanup, userSignals, users | v_customer_bag_attribution, v_customer_calibration, v_customer_timeline, v_household_numbers, v_order_status, v_orders_weekly, v_palate_evidence, v_palate_recommendation_outcome |
 | `order_event` | checkoutService | checkoutService (INSERT) | catalogService, checkoutService, commerceAdminReads, index, orders, shipmentService, users | v_order_status |
 | `order_event_kind` | seed | seed (INSERT) | commerceAdminReads | — |
 | `order_fulfillment_status` | seed | seed (INSERT, UPDATE) | catalogService, checkoutService, commerceAdminReads, index, orders, shipmentService, users | v_order_status |
@@ -4977,13 +5304,14 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `quiz_backup_20261008_quiz_answer` | seed | seed (CREATE AS) | — | — |
 | `quiz_backup_20261008_quiz_answer_archetype_score` | seed | seed (CREATE AS) | — | — |
 | `quiz_backup_20261008_quiz_question` | seed | seed (CREATE AS) | — | — |
-| `quiz_funnel_event` | funnelEvents | funnelEvents (INSERT) | audit-quiz-emails, newsletter, quizIntegrity | campaign_funnel_v, v_quiz_funnel_weekly |
+| `quiz_funnel_event` | funnelEvents | funnelEvents (INSERT) | audit-quiz-emails, customerIntegrity, customerReads, newsletter, quizIntegrity | campaign_funnel_v, v_quiz_funnel_weekly |
+| `quiz_funnel_event_type` | seed | seed (INSERT) | customerIntegrity, funnelEvents | — |
 | `quiz_question` | seed | seed (INSERT, UPDATE) | customerIntegrity, homeContentReads, quiz, quizIntegrity, quizScorer, quizSession | v_quiz_scoring_matrix |
-| `quiz_session` | quizSession | quizSession (INSERT) | auth, backfillClaimedSessionLinks, behavioralConfidence, correct-subscriber-archetypes, customerIntegrity, customerReads, exportCalibration, householdReads, householdService, quizIntegrity, quizInterpretationBackfill, quizSession, staleGuestCleanup, subscriptionShipment, users | v_customer_calibration, v_customer_quiz_current, v_customer_timeline, v_household, v_household_numbers, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
+| `quiz_session` | quizSession | quizSession (INSERT) | auth, backfillClaimedSessionLinks, behavioralConfidence, brewProfileCard, correct-subscriber-archetypes, customerIntegrity, customerReads, exportCalibration, householdReads, householdService, quizIntegrity, quizInterpretationBackfill, quizSession, staleGuestCleanup, subscriptionShipment, users | v_customer_calibration, v_customer_quiz_current, v_customer_timeline, v_household, v_household_numbers, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
 | `quiz_session_interpretation` | quizSession | quizSession (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, householdReads, householdService, quizInterpretationBackfill, quizSession, subscriptionShipment | v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
 | `quiz_type` | seed | seed (INSERT) | homeContentReads | v_quiz_scoring_matrix |
 | `quiz_vector` | none | — | — | — |
-| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axisStatsReads, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, commerceAdminReads, cuppingReads, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelierEval, sommelierGate, sommelierIntegrity, sommelierRag, sommelierReplyCheck, sommelier_eval_seed, sommelier_gate_rule_seed | v_coffee, v_roastery_remark |
+| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axisStatsReads, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, commerceAdminReads, cuppingReads, customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelierEval, sommelierGate, sommelierIntegrity, sommelierRag, sommelierReplyCheck, sommelier_eval_seed, sommelier_gate_rule_seed | v_coffee, v_roastery_remark |
 | `roastery_blend_vector` | none | — | — | — |
 | `roastery_coffee_descriptors` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT) | admin, catalogService, cuppingReads, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceReads, roasteryPortalReads | v_collaborative_flavor_wheel |
 | `roastery_portal_acceptance` | roasteryPortalService | roasteryPortalService (INSERT) | roasteryPortalReads | v_roastery_portal_progress |
@@ -5034,14 +5362,14 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `user_bloom_dial_current_position` | dialPositionService, seed | dialPositionService (INSERT), seed (UPDATE) | catalogIntegrity, catalogService, customerReads, dialPositionService, householdReads, householdService, sommelier, subscriptionShipment | v_customer_dial_current |
 | `user_brew_card` | brewCard, cron | brewCard (INSERT, UPDATE), cron (UPDATE) | brewCard, cron, customerReads, engagementMetrics | — |
 | `user_coffee_profile` | none | — | — | — |
-| `user_email` | auth, users | auth (INSERT), users (INSERT) | admin, checkoutService, commerceAdminReads, cron, roasteryPortalReads, staleGuestCleanup, users | — |
+| `user_email` | auth, users | auth (INSERT), users (INSERT) | admin, checkoutService, commerceAdminReads, cron, customerIntegrity, roasteryPortalReads, staleGuestCleanup, users | — |
 | `user_flavor_feedback` | none | — | admin, axisStatsReads, backfillCustomerFacts, users | — |
 | `user_lifecycle_event` | userLifecycle | userLifecycle (INSERT) | — | — |
 | `user_lifecycle_stage` | seed | seed (INSERT, UPDATE) | userLifecycle, users | — |
 | `user_lifecycle_state` | userLifecycle | userLifecycle (INSERT, UPDATE) | userLifecycle, users | — |
 | `user_payment_detail` | none | — | — | — |
 | `user_phone` | users | users (INSERT, UPDATE) | beatEngine, cron, liamSmsFeedback, users | — |
-| `user_profile` | admin, auth, companyGiftRedemption, householdService, quiz, seed, staleGuestCleanup, stripe, users | admin (UPDATE), auth (INSERT), companyGiftRedemption (UPDATE), householdService (INSERT), quiz (INSERT), seed (UPDATE), staleGuestCleanup (DELETE), stripe (UPDATE), users (INSERT, UPDATE) | admin, auth, backfillCustomerFacts, backfillLiamRecommendations, behavioralConfidence, catalogService, checkoutService, commerceAdminReads, companyGiftRedemption, companyGiftsAdmin, correct-subscriber-archetypes, cron, customerReads, dataCatalogIntegrity, dialPlacementService, dialPositionService, dialReads, engagementMetrics, evidenceReads, exportCalibration, householdEmails, householdReads, householdService, liamAccess, liamSmsFeedback, liamWriteBack, matchService, migrateSavedItems, newsletter, orders, outcomeTracker, qr, qrDoor, quizIntegrity, quizInterpretationBackfill, quizSession, roasteryPortalReads, roasteryPortalService, sommelier, sommelierEvaluator, staleGuestCleanup, stripe, subscriptionEmails, subscriptionRenewal, subscriptionService, subscriptionShipment, userSignals, users | v_customer_bag_attribution, v_customer_identity, v_customer_quiz_current, v_household, v_household_event, v_household_membership, v_household_numbers, v_subscription_item |
+| `user_profile` | admin, auth, companyGiftRedemption, householdService, quiz, seed, staleGuestCleanup, stripe, users | admin (UPDATE), auth (INSERT), companyGiftRedemption (UPDATE), householdService (INSERT), quiz (INSERT), seed (UPDATE), staleGuestCleanup (DELETE), stripe (UPDATE), users (INSERT, UPDATE) | admin, auth, backfillCustomerFacts, backfillLiamRecommendations, behavioralConfidence, brewProfileCard, catalogService, checkoutService, commerceAdminReads, companyGiftRedemption, companyGiftsAdmin, correct-subscriber-archetypes, cron, customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialPositionService, dialReads, engagementMetrics, evidenceReads, exportCalibration, householdEmails, householdReads, householdService, liamAccess, liamSmsFeedback, liamWriteBack, matchService, migrateSavedItems, newsletter, orders, outcomeTracker, qr, qrDoor, quizIntegrity, quizInterpretationBackfill, quizSession, roasteryPortalReads, roasteryPortalService, sommelier, sommelierEvaluator, staleGuestCleanup, stripe, subscriptionEmails, subscriptionRenewal, subscriptionService, subscriptionShipment, userSignals, users | v_customer_bag_attribution, v_customer_identity, v_customer_quiz_current, v_household, v_household_event, v_household_membership, v_household_numbers, v_subscription_item |
 | `user_roaster_link` | none | — | — | — |
 | `user_saved_item` | backfill:migrateSavedItems, dialPositionService, users | backfill:migrateSavedItems (INSERT), dialPositionService (INSERT), users (INSERT, UPDATE) | customerReads, migrateSavedItems, users | — |
 | `user_tokens` | auth, manual:grant_tokens, tokenService | auth (INSERT), tokenService (UPDATE) | admin, tokenService, tokens, users | — |
@@ -5060,9 +5388,9 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 **Dead candidates, static (25):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `sensory_lexicon_attribute`, `sensory_source`, `shipping_status`, `subscription_event_kind`, `subscription_event_source`, `subscription_kind`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
 
-**Touched since the reset (197):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `checkout_session`, `checkout_session_line`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_archetype_relationship_kind`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_lean_assignment`, `coffee_milk_recommendation`, `coffee_presentation`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `commerce_parameter`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_dispute`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_identity_unlink`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_match_candidate`, `customer_match_decision`, `customer_order_kind`, `dial_cupper_scale_weight`, `dial_customer_copy`, `dial_dark_roast_level`, `dial_delta_direction`, `dial_delta_phrase`, `dial_evidence_grade`, `dial_first_match`, `dial_first_match_status`, `dial_flag`, `dial_hop_phrase`, `dial_lane`, `dial_map_version`, `dial_map_version_status`, `dial_model`, `dial_move`, `dial_placement`, `dial_position_signal`, `dial_provisional_sample_pattern`, `dial_reading`, `dial_ring`, `dial_ring_cut`, `dial_seam`, `dial_size`, `dial_size_cut`, `dial_source_weight`, `dial_surface`, `dial_wedge`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_account_state`, `household_event`, `household_event_kind`, `household_event_source`, `household_invitation`, `household_invitation_status`, `household_member`, `household_member_role`, `household_member_status`, `household_parameter`, `household_quiz_state`, `household_role`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `marketing_home_quote`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_event`, `order_event_kind`, `order_fulfillment_status`, `order_line_item`, `order_payment_status`, `order_refund_reason`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `shipping_carrier`, `shipping_status`, `sommelier_answer`, `sommelier_eval_case`, `sommelier_eval_phrasing`, `sommelier_eval_result`, `sommelier_eval_run`, `sommelier_evaluation`, `sommelier_gate_rule`, `sommelier_gate_rule_example`, `sommelier_gate_rule_replay`, `sommelier_messages`, `sommelier_reply_check`, `sommelier_sessions`, `sommelier_sms_feedback`, `sommelier_turn`, `sommelier_turn_label`, `stripe_event`, `subscriber_source`, `subscription`, `subscription_event`, `subscription_event_kind`, `subscription_event_source`, `subscription_item`, `subscription_kind`, `subscription_status`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
+**Touched since the reset (212):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `brew_coffee_feeling`, `brew_cupboard_brand`, `brew_cupboard_brand_alias`, `brew_cupboard_brand_kind`, `brew_drink`, `brew_drink_base_method`, `brew_drink_dilution`, `brew_drink_milk`, `brew_parameter`, `brew_profile_field`, `brew_profile_field_value`, `brew_profile_op`, `brew_profile_picker`, `brew_profile_value_kind`, `campaign_landing_event`, `catalog_change`, `checkout_session`, `checkout_session_line`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_archetype_relationship_kind`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_lean_assignment`, `coffee_milk_recommendation`, `coffee_presentation`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `commerce_parameter`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_dispute`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_identity_unlink`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_match_candidate`, `customer_match_decision`, `customer_order_kind`, `dial_cupper_scale_weight`, `dial_customer_copy`, `dial_dark_roast_level`, `dial_delta_direction`, `dial_delta_phrase`, `dial_evidence_grade`, `dial_first_match`, `dial_first_match_status`, `dial_flag`, `dial_hop_phrase`, `dial_lane`, `dial_map_version`, `dial_map_version_status`, `dial_model`, `dial_move`, `dial_placement`, `dial_position_signal`, `dial_provisional_sample_pattern`, `dial_reading`, `dial_ring`, `dial_ring_cut`, `dial_seam`, `dial_size`, `dial_size_cut`, `dial_source_weight`, `dial_surface`, `dial_wedge`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_account_state`, `household_event`, `household_event_kind`, `household_event_source`, `household_invitation`, `household_invitation_status`, `household_member`, `household_member_role`, `household_member_status`, `household_parameter`, `household_quiz_state`, `household_role`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `marketing_home_quote`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_event`, `order_event_kind`, `order_fulfillment_status`, `order_line_item`, `order_payment_status`, `order_refund_reason`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_funnel_event_type`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `shipping_carrier`, `shipping_status`, `sommelier_answer`, `sommelier_eval_case`, `sommelier_eval_phrasing`, `sommelier_eval_result`, `sommelier_eval_run`, `sommelier_evaluation`, `sommelier_gate_rule`, `sommelier_gate_rule_example`, `sommelier_gate_rule_replay`, `sommelier_messages`, `sommelier_reply_check`, `sommelier_sessions`, `sommelier_sms_feedback`, `sommelier_turn`, `sommelier_turn_label`, `stripe_event`, `subscriber_source`, `subscription`, `subscription_event`, `subscription_event_kind`, `subscription_event_source`, `subscription_item`, `subscription_kind`, `subscription_status`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
 
 ---
 
-catalog-hash: a3b61d9a8012cb61f4e89c7e5fb125b0771ddd65c0d1b2086ff6475469b6c2d1
-lineage-hash: ba6d4af62b4563ff9c6935fbe1c14b1132842104d870efea2eadba82cef179ac
+catalog-hash: c147c40dd51b14a75e83a3d9524390d40ca7665a5573044aefca4618813b839a
+lineage-hash: 4a396988d8075c666525f40213663307bc41cc8f1b8d3316a15dd38a1d1b1428
