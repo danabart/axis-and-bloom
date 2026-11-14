@@ -11714,7 +11714,8 @@ CREATE TABLE IF NOT EXISTS brew_profile_picker (
 );
 INSERT INTO brew_profile_picker (code, label, sort_order) VALUES
   ('select', 'Select', 1), ('multi_select', 'Chips, several', 2), ('typeahead', 'Search with quick picks', 3),
-  ('toggle', 'Two buttons', 4), ('freeform_list', 'Comma-separated text', 5)
+  ('toggle', 'Two buttons', 4), ('freeform_list', 'Comma-separated text', 5),
+  ('chips', 'Chips, one', 6)
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS brew_profile_op (
@@ -11757,11 +11758,20 @@ FROM (VALUES
   ('aversions',        'Never wants to taste',     NULL,       'array_freeform', 'freeform_list', 10,      40,        NULL,             false, 5),
   ('usual_drink',      'How you make your coffee', 'How do you make your coffee at home? Pick all that apply.', 'array', 'multi_select', 4, 80, 'my_coffee', true, 6),
   ('cupboard_coffee',  'What''s in your kitchen',  'Which coffee is in your kitchen right now?',                'enum',  'typeahead',    NULL, 80, 'my_coffee', true, 7),
-  ('coffee_feeling',   'How you feel about it',    'How do you feel about the coffee you drink now?',           'enum',  'select',       NULL, NULL, 'my_coffee', true, 8)
+  ('coffee_feeling',   'How you feel about it',    'How do you feel about the coffee you drink now?',           'enum',  'chips',        NULL, NULL, 'my_coffee', true, 8)
 ) AS v(code, label, prompt, kind, picker, max_items, max_item_len, liam_topic, ask_when_empty, sort_order)
 JOIN brew_profile_value_kind k ON k.code = v.kind
 JOIN brew_profile_picker p ON p.code = v.picker
 ON CONFLICT (code) DO NOTHING;
+-- Usual Drink 1 follow-up (Dana 2026-11-14): coffee_feeling renders as
+-- single-choice chips like the other two card questions. One-time move from
+-- the first seed's picker, only while the row still has it (an owner edit
+-- after this is kept).
+UPDATE brew_profile_field
+   SET picker_id = (SELECT id FROM brew_profile_picker WHERE code = 'chips'),
+       updated_at = timezone('utc', now())
+ WHERE code = 'coffee_feeling'
+   AND picker_id = (SELECT id FROM brew_profile_picker WHERE code = 'select');
 
 -- ── A1c. brew_profile_field_value: every allowed value of every field (D11) ─
 CREATE TABLE IF NOT EXISTS brew_profile_field_value (

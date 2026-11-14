@@ -717,7 +717,7 @@ function udCheck(id: number, name: string, problems: string[], expected: string,
 // the dial seed codes.
 export const USUAL_DRINK_SEED_CODES: Record<string, string[]> = {
   brew_profile_value_kind: ['enum', 'array', 'bool', 'array_freeform'],
-  brew_profile_picker: ['select', 'multi_select', 'typeahead', 'toggle', 'freeform_list'],
+  brew_profile_picker: ['select', 'multi_select', 'typeahead', 'toggle', 'freeform_list', 'chips'],
   brew_profile_op: ['set', 'add', 'remove', 'clear', 'declined'],
   brew_profile_field: ['brew_methods', 'grinder', 'takes_it', 'decaf_constraint', 'aversions', 'usual_drink', 'cupboard_coffee', 'coffee_feeling'],
   brew_drink_base_method: ['espresso', 'filter', 'immersion', 'cold_brew', 'stovetop', 'pod', 'none'],

@@ -1,7 +1,7 @@
 // Usual Drink 1 (2026-11-12), B2 / B3 — one brew-profile field's control, by
 // the picker its row names (D18): select, multi_select (chips, capped at
-// max_items), typeahead, toggle (the field's two values), freeform_list
-// (comma-separated). A picked value that takes the customer's own words
+// max_items), chips (one value as chips; 2026-11-14), typeahead, toggle (the
+// field's two values), freeform_list (comma-separated). A picked value that takes the customer's own words
 // reveals a short text box capped at max_item_len. Shared by the post-result
 // card and the Profile mirror; no field code appears here.
 import type { BrewOptionField } from '../../lib/api';
@@ -74,9 +74,11 @@ export default function BrewFieldControl({ field, draft, words, onChange, onWord
   } else if (field.picker === 'typeahead') {
     control = <BrewTypeahead values={field.values} value={typeof draft === 'string' ? draft : null} onChange={onChange}
       placeholder={copy.search_placeholder} testId={tid} />;
-  } else if (field.picker === 'toggle') {
+  } else if (field.picker === 'toggle' || field.picker === 'chips') {
+    // one value; picking the picked chip again clears it
     control = (
-      <div className="flex gap-2" data-testid={tid}>
+      <div className={field.picker === 'chips' ? 'flex flex-wrap gap-2' : 'flex gap-2'} role="group"
+        aria-label={field.prompt ?? field.label} data-testid={tid}>
         {field.values.map(v => (
           <button key={v.code} type="button" aria-pressed={draft === v.code} onClick={() => onChange(draft === v.code ? null : v.code)}
             className={chip(draft === v.code)} data-testid={`${tid}-option-${v.code}`}>{v.label}</button>

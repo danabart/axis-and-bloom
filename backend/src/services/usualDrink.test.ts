@@ -72,6 +72,7 @@ describe('the field list (B1)', () => {
     expect(card.fields.map(f => f.code)).toEqual(CARD);
     expect(card.fields[0].picker).toBe('multi_select');
     expect(card.fields[1].picker).toBe('typeahead');
+    expect(card.fields[2].picker).toBe('chips');
     expect(card.fields[1].values.filter(v => v.pinned).map(v => v.code)).toEqual(['dont_know', 'nothing', 'pods_unknown', 'other']);
     expect(card.copy.post_result_save).toBeTruthy();
     expect(card.copy.post_result_skip).toBeTruthy();
