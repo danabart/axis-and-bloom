@@ -6821,6 +6821,8 @@ Brief: `backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_1_CAPTUR
 
 **Tests.** `usualDrink.test.ts` (17, rolled-back transactions on the test DB); `BrewTypeahead.test.ts` (7, frontend); the customer integrity, facts, Liam and roastery suites pass.
 
+**On production 2026-11-14** (648fb24 rev 00859; counts and checksums unchanged; Firestore `brewProfile.fields` deleted). **Follow-up the same day** (8acced2, rev 00861): `brew_profile_picker` `chips` (one value as chips); `coffee_feeling` moved to it by a guarded one-time update; `BrewFieldControl.test.tsx` (3).
+
 
 ---
 

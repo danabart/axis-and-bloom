@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-14 from database `axisandbloom` · 212 tables · 106 views · 1814 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `c147c40dd51b` (full value in the footer).
+Generated 2026-11-14 from database `axisandbloom` · 212 tables · 106 views · 1814 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `17c2ba55dbf1` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -250,7 +250,7 @@ Lookup of brew-profile fact ops: set, add, remove, clear, and declined (asked on
 
 #### `brew_profile_picker`
 
-Lookup of the control that renders a brew-profile field on the card and the Profile mirror: select, multi_select, typeahead, toggle, freeform_list (D18). Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+Lookup of the control that renders a brew-profile field on the card and the Profile mirror: select, multi_select, typeahead, toggle, freeform_list (D18), chips (one value as chips; 2026-11-14). Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
 
 - **Writer:** seed
 - **Readers:** v_brew_profile_field_current
@@ -5179,7 +5179,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `brew_drink_dilution` | seed | seed (INSERT) | customerIntegrity, customerReads | v_customer_usual_drink |
 | `brew_drink_milk` | seed | seed (INSERT) | customerIntegrity, customerReads | v_customer_usual_drink |
 | `brew_parameter` | brewParameters, seed | brewParameters (INSERT, UPDATE), seed (INSERT) | brewParameters | — |
-| `brew_profile_field` | seed | seed (INSERT) | brewProfile, customerIntegrity, customerReads | v_brew_profile_field_current, v_customer_coffee_feeling, v_customer_cupboard_coffee, v_customer_usual_drink |
+| `brew_profile_field` | seed | seed (INSERT, UPDATE) | brewProfile, customerIntegrity, customerReads | v_brew_profile_field_current, v_customer_coffee_feeling, v_customer_cupboard_coffee, v_customer_usual_drink |
 | `brew_profile_field_value` | seed | seed (INSERT) | brewProfile, customerIntegrity, customerReads | v_brew_profile_field_current, v_customer_coffee_feeling, v_customer_cupboard_coffee, v_customer_usual_drink |
 | `brew_profile_op` | seed | seed (INSERT) | customerIntegrity | — |
 | `brew_profile_picker` | seed | seed (INSERT) | brewProfile, customerIntegrity | v_brew_profile_field_current |
@@ -5392,5 +5392,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: c147c40dd51b14a75e83a3d9524390d40ca7665a5573044aefca4618813b839a
-lineage-hash: 4a396988d8075c666525f40213663307bc41cc8f1b8d3316a15dd38a1d1b1428
+catalog-hash: 17c2ba55dbf1a2b32aac72446e35be7008a9aa7970964fb49b107566e1093ba6
+lineage-hash: b6974f9e1f3c64848ec60a75645a43bfdd2ffce8510107c18c448fd8f8a16b4e
