@@ -1,6 +1,20 @@
-# Closing report 5: the decided map and the simplified admin page
+Brief: `CLAUDE_CODE_PROMPT_ELLA_MAP_5_DECIDED_MAP_AND_ADMIN.md`. **Status: DONE on production 2026-11-16.** Commit `9930d73` (the brief), deploy green, revision `axis-bloom-backend-00863-zkc`; seed applied on production (61 rows) and "L1 assumption map" published (version 2); `CATALOG.md` regenerated from production in the follow-up commit. The production record is the next section; everything after it is the report as written at the Part E STOP.
 
-Brief: `CLAUDE_CODE_PROMPT_ELLA_MAP_5_DECIDED_MAP_AND_ADMIN.md`. **Status 2026-11-16: Parts A to D built, Part E step 1 done on the test DB; STOPPED at the Part E production STOP.** Nothing has been written to production. Nothing is committed or pushed yet. A push deploys, and the deploy applies the new schema to production, so the commit, push and deploy wait for your yes together with the production seed.
+## Production (2026-11-16, after Dana's yes)
+
+Dana's answers at the STOP: the slots stay as they are (La Familia floral #1, The Village fruity #1; OT-137 stays open for the switch brief); one hidden direction keeps the line, as built (OT-139 done); the `evidenceViews` case pinned to La Familia being Floral follows the new family in the same commit (now fruity, basis = the seed's note); the other failures stay in OPEN_TASKS.
+
+1. **Commit and push:** `9930d73`, files by path only (the genova fonts and `commerce/README.md` left out). Deploy run 43924213208: backend and frontend green. **Startup log** of `axis-bloom-backend-00863-zkc`: no ERROR lines; `[db-comments] applied 2162 statements`; `[data-catalog]` 2 of 11 checks with findings: #4 `CATALOG.md` stale (expected until step 5) and #6 dead-table candidates (long-standing). The map checks 7 to 11 are clean. Other boot findings are long-standing: catalog integrity #6 (The Waverly, fixed by step 3), quiz #10, evidence #2 and #6, sommelier #3.
+2. **Second dry run:** 61 write / 16 unchanged / 29 skipped, **identical line for line** to the first (diff empty apart from the timestamp).
+3. **Apply:** `--apply --expect-db axisandbloom`: **61 rows written**, no error; the dial signal was refreshed for the four family changes. A third dry run: **0 write**, 77 unchanged.
+4. **Publish:** `dialPlacementService.publish` (the function `POST /api/admin/map/publish` calls) through `backend/tmp/em5_publish.mts`: **version 2 "L1 assumption map", 13 placements, version 1 (L0) retired.**
+5. **State read back (read-only):** L1 active, L0 retired. 13 placements in the Data 1 cells: chocolate_nutty Fabricator 1/side_a, Nightcap Decaf 1/side_b, The Daily 1/middle, Amsterdam 2/side_b, Tiger Stripe 2/side_a, Blossom 3/side_a, The Waverly 3/side_a (grade D, uncupped); balanced_sweet Benchmark 0/side_a; fruity La Familia 1/side_b, Geometric 1/side_a, Cafè Feminista 2/middle; earthy Big City 2/side_a; floral The Village 2/side_a. Every placement carries `ring_decided` and has a size (no dashed dot). `v_dial_step`: 22 current rows, all 22 on the map, **11 lines**. 15 first-match cells. Floor 1, roaster cuts 4 and 5. Every `dial_surface` row `lane`. 0 active coffees without a family.
+6. **`CATALOG.md`:** `npm run catalog:md -- --expect-db axisandbloom` (215 tables, 108 views, 1839 columns, hash `bf257b50…`, the live hash the boot check reported), committed and pushed in the follow-up commit.
+
+Not done in a browser on production: no admin password on prod and no test admin there (brief 2 rule), so the page was verified on the test DB and the data on production. Dana can open `/admin/map` signed in to see L1.
+
+---
+
 
 Dana's go (2026-11-16): option (a), enter what exists (13 coffees); size reads the roaster's rating only; the admin face dashes a dot with no size and customer pages keep today's behaviour; families with confidence `low`, source `manual`; the grade floor to 1 stays behind this STOP; and before the STOP, list what a customer would see differently for the four coffees whose family changes.
 
