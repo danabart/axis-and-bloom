@@ -211,6 +211,8 @@ export const DIAL_SEED_CODES: Record<string, string[]> = {
   // Ella map 3 (2026-11-12)
   dial_model: ['lane', 'map'],
   dial_surface: ['customer_face', 'quiz_result', 'profile_trail', 'reorder_email', 'liam_context', 'qr_door', 'axis_stats'],
+  // Ella map 5 (2026-11-16)
+  dial_step_basis: ['roaster_said', 'recipe_or_ratings', 'our_guess'],
 };
 // Ella map 3 (2026-11-12): the dial_customer_copy codes matchService and the pages read
 export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_available', 'choose_this', 'see_whole_map', 'trail_title', 'trail_start', 'moved_to', 'email_map_intro'];
@@ -222,6 +224,7 @@ export const DIAL_PARAMETER_KEYS = [
   'dial_lean_promotion_n', 'dial_suggest_w_words', 'dial_suggest_w_body', 'dial_suggest_body_cut_light',
   'dial_suggest_body_cut_base', 'dial_suggest_word_pos1', 'dial_suggest_word_later', 'dial_suggest_dark_roast_add',
   'dial_suggest_threshold', 'dial_delta_min_to_mention',
+  'dial_size_roaster_cut_1', 'dial_size_roaster_cut_2', // Ella map 5
 ];
 
 async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIntegrityCheck[]> {

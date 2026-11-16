@@ -336,6 +336,16 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **No slot and no `coffee_hop` in the map code** (`matchService`, `routes/map.ts`, the map pages); no price or add-to-cart on `/map` until prices move to `coffee_retail_price` (brief 4).
 - [ ] **Nothing typed in:** button labels and edge phrases from `dial_hop_phrase`, sentences from `dial_customer_copy`; the customer page names no ring, lane, cell, seam, grade or version.
 
+## Ella's Bloom Map 5: the decided map and the simplified admin page (2026-11-16)
+
+- [ ] **A ring decision wins over the calculated ring:** a current `coffee_ring_assignment` row that fits the family (0 exactly for the center) sets `v_dial_placement_preview.ring`; `calculated_ring` stays beside it and the flag `ring_decided` shows; with no decision the calculated ring is used as before. Ring 0 outside the center (or 1 to 3 in it) is refused by the service and the insert trigger.
+- [ ] **A decided coffee is placeable without cupping:** a family, a lean and a fitting ring decision make a coffee placeable (grade D, flag `no_cupping_rows`); a cupped coffee with no decisions places exactly as before.
+- [ ] **Dot size is the roaster's Sweetness rating:** latest submitted portal response against `dial_size_roaster_cut_1/2`; no rating, NULL size, flag `no_roaster_sweetness`, a dashed outline on the admin face only.
+- [ ] **A step exists only as a `dial_step` row:** nothing calculates one; a change supersedes and inserts, one current row per ordered pair; `is_shown` is switched the same way and a hidden step stays in the admin table.
+- [ ] **Publish is the only way a decision reaches the active map:** placements are cut from the preview, and `v_dial_step` gives the active map the step rows in force at the version's `cut_at` (wall clock); saving a decision changes the "not yet published" line, not the face.
+- [ ] **Nothing here changes a customer surface:** every `dial_surface` row stays `lane`; `EllaMapFace` keeps its default dot style (`dotStyle='sellable'`) and draws no steps unless given them; the customer pages pass neither.
+- [ ] **The old workbench is kept:** `/admin/map/advanced` renders brief 2 and 3's page unchanged, linked from the decided map.
+
 ## Usual Drink 1: capture the daily cups, the kitchen and the feeling (2026-11-12)
 
 - [ ] **Facts are insert-only:** every brew-profile write (card, Profile, Liam) goes through `customerFacts.record.brewProfileChange`; a changed answer is a new row and the fold's latest wins.

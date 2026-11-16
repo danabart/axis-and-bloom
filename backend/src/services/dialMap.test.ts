@@ -420,6 +420,9 @@ describe('Ella map 2: words, history, first-match floor', () => {
 
       const r = (await c.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Zzz Map Roastery 2', true) RETURNING id`)).rows[0].id;
       const weak = await coffee(c, r, { tag: 'weak', archetype: 'balanced_sweet', values: { acidity: 1, bitterness: 1, sweetness: 5 } }); // 1 session, 1 cupper: C
+      // Ella map 5 (CTO call 4) lowers the floor to grade D on the real databases; the floor itself is
+      // still a parameter the writer enforces, so this case sets it to B inside its own transaction
+      await setParameterInTx(c, { key: 'dial_min_grade_rank_first_match', value: 3, note: 'vitest', adminId: 'vitest' });
       await expect(tx.savepoint(() => setFirstMatchInTx(c, { archetypeCode: 'fruity', laneCode: 'side_b', coffeeId: weak, adminUid: 'vitest' })))
         .rejects.toMatchObject({ status: 409, code: 'BELOW_GRADE_FLOOR' });
       const ok = await setFirstMatchInTx(c, { archetypeCode: 'fruity', laneCode: 'side_b', coffeeId: ids.fr1, adminUid: 'vitest' }); // 2 cuppers: B

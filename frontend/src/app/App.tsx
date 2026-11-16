@@ -20,6 +20,7 @@ import AdminRoasters from './components/admin/AdminRoasters';
 import AdminCupping from './components/admin/AdminCupping';
 import AdminDial from './components/admin/AdminDial';
 import AdminEllaMap from './components/admin/AdminEllaMap'; // Ella map 2 (2026-11-10)
+import AdminEllaMapAdvanced from './components/admin/AdminEllaMapAdvanced'; // Ella map 5 (2026-11-16): the old workbench, moved
 import MapPage from './components/bloom/map/MapPage'; // Ella map 3 (2026-11-12)
 import AdminInventory from './components/admin/AdminInventory';
 import AdminSommelierConfig from './components/admin/AdminSommelierConfig';
@@ -151,6 +152,7 @@ export default function App() {
               <Route path="cupping" element={<AdminCupping />} />
               <Route path="dial" element={<AdminDial />} />
               <Route path="map" element={<AdminEllaMap />} />
+              <Route path="map/advanced" element={<AdminEllaMapAdvanced />} />
               <Route path="qr-door" element={<AdminQrDoor />} />
               <Route path="sommelier/config"  element={<AdminSommelierConfig />} />
               <Route path="sommelier/intents" element={<AdminIntentEditor />} />

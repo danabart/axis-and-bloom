@@ -71,6 +71,8 @@ export interface Vocabulary {
   firstMatchStatuses: Array<{ code: string; label: string }>;
   sizes: Array<{ code: number; label: string; customer_label: string | null }>;
   rings: Array<{ code: number; label: string }>;
+  /** Ella map 5: dial_step_basis */
+  stepBases: Array<{ code: string; label: string; sort_order: number; line_style: string }>;
   flags: Array<{ code: string; label: string; description: string }>;
   readings: Array<{ code: string; label: string; dimension_id: number }>;
   deltaPhrases: Array<{ reading: string; direction: string; sign: number; phrase: string }>;
@@ -119,3 +121,46 @@ export const getDecisions = (f: ApiFetch, userId?: string) =>
 export const getCustomerCopy = (f: ApiFetch) => call<CustomerCopyRow[]>(f, `${B}/customer-copy`);
 export const setCustomerCopy = (f: ApiFetch, body: { code: string; text: string }) =>
   call<{ id: number; unchanged: boolean }>(f, `${B}/customer-copy`, json('PUT', body));
+
+// ── Ella's Bloom Map 5 (2026-11-16): the decided map ──
+export interface StepRow {
+  id: number; from_coffee_id: number; from_coffee_name: string; to_coffee_id: number; to_coffee_name: string;
+  button_word: string; customer_line: string | null; basis_code: string; basis_label: string; line_style: string;
+  basis_sort_order: number; is_shown: boolean; notes: string | null; decided_by: string | null; created_at: string;
+  is_current: boolean; is_in_active_version: boolean; on_active_map: boolean;
+}
+export interface DecidedPlacement {
+  coffee_id: number; coffee_name: string; roaster_name: string; archetype_code: string; is_center: boolean;
+  ring: number; lane_code: string; size: number | null; is_sellable: boolean; in_stock: boolean; flags: string[]; grade_code: string;
+}
+export interface DecisionNow {
+  coffee_id: number; coffee_name: string; roaster_id: string; roaster_name: string; archetype_code: string; is_center: boolean;
+  is_placeable: boolean; ring: number | null; decided_ring: number | null; calculated_ring: number | null; ring_assignment_id: number | null;
+  lane_code: string; decided_lane_code: string | null; size: number | null; roaster_sweetness: number | null; flags: string[];
+}
+export interface RoasterFacts {
+  coffeeId: number; submittedAt: string;
+  dimensions: Array<{ dimension_id: number; label: string; low_label: string; high_label: string; value: number }>;
+  notes: Array<{ rank: number; roaster_words: string; cupping_note_id: string | null }>;
+}
+export interface DecidedMap {
+  version: { id: number; label: string; reason: string | null; cut_at: string; activated_at: string } | null;
+  placements: DecidedPlacement[];
+  activeSteps: StepRow[];
+  steps: StepRow[];
+  decisions: DecisionNow[];
+  roaster: RoasterFacts[];
+  unpublished: { family: number; lean: number; ring: number; step: number; total: number; cut_at: string | null };
+}
+export interface RingHistoryRow {
+  id: number; ring: number; ring_label: string | null; suggested_ring: number | null; notes: string | null;
+  basis: Record<string, unknown> | null; decided_by: string | null; created_at: string; is_current: boolean;
+}
+export const getDecidedMap = (f: ApiFetch) => call<DecidedMap>(f, `${B}/decided`);
+export const getRingHistory = (f: ApiFetch, coffeeId: number) => call<RingHistoryRow[]>(f, `${B}/ring/${coffeeId}/history`);
+export const setStep = (f: ApiFetch, body: { from: number; to: number; word: string; line: string | null; basis: string; shown: boolean }) =>
+  call<{ id: number; unchanged: boolean }>(f, `${B}/steps`, json('PUT', body));
+export const setRing = (f: ApiFetch, coffeeId: number, body: { ring: number; basis: string }) =>
+  call<{ result: { coffeeId: number; unchanged: boolean } }>(f, `${B}/ring/${coffeeId}`, json('PATCH', body));
+export const publishMap = (f: ApiFetch, body: { label: string; reason: string }) =>
+  call<{ versionId: number; label: string; placements: number; retiredVersionId: number | null }>(f, `${B}/publish`, json('POST', body));

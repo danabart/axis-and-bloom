@@ -921,6 +921,60 @@ export async function setLean(coffeeId: number, laneCode: string, opts: SetLeanO
   });
 }
 
+// Ella's Bloom Map 5 (2026-11-16), B1: the ring decision, sister of the lean
+// decision (same supersede shape). The calculated ring is read from
+// v_dial_placement_preview at this moment and stored beside the decision as
+// the suggestion. The one writer of coffee_ring_assignment; the insert
+// trigger refuses a ring that is not a dial_ring code or does not fit the
+// coffee's family (0 is the center only).
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_5_DECIDED_MAP_AND_ADMIN.md
+export interface SetRingOptions { basis?: Record<string, unknown> | null; notes?: string | null; decidedBy?: string | null }
+
+export async function setRingInTx(tx: Tx, coffeeId: number, ring: number, opts: SetRingOptions = {}): Promise<{
+  coffeeId: number; unchanged: boolean; before: Record<string, unknown> | null; after: Record<string, unknown>;
+}> {
+  assertBasis(opts.basis);
+  await fetchCoffeeRow(tx, coffeeId);
+  if (!Number.isInteger(ring)) throw new CatalogError(400, 'INVALID_INPUT', 'ring must be an integer');
+  const known = await tx.query(`SELECT 1 FROM dial_ring WHERE code = $1`, [ring]);
+  if (!known.rows[0]) throw new CatalogError(400, 'INVALID_INPUT', `Unknown ring ${ring}`);
+  const fam = await tx.query<{ is_center: boolean }>(
+    `SELECT w.is_center FROM coffee_archetype_assignment a JOIN dial_wedge w ON w.archetype_code::text = a.archetype::text
+      WHERE a.coffee_id = $1 AND a.superseded_at IS NULL`, [coffeeId]);
+  if (!fam.rows[0]) throw new CatalogError(400, 'INVALID_INPUT', `Coffee ${coffeeId} has no map family; set its family first`);
+  if ((ring === 0) !== fam.rows[0].is_center) {
+    throw new CatalogError(400, 'INVALID_INPUT', fam.rows[0].is_center
+      ? 'A coffee in the center family sits on ring 0' : 'Ring 0 is the center family only; choose ring 1 to 3');
+  }
+  const sugg = await tx.query<{ calculated_ring: number | null }>(
+    `SELECT calculated_ring FROM v_dial_placement_preview WHERE coffee_id = $1`, [coffeeId]);
+  const current = (await tx.query(
+    `SELECT * FROM coffee_ring_assignment WHERE coffee_id = $1 AND superseded_at IS NULL FOR UPDATE`, [coffeeId])).rows[0] ?? null;
+  const sameBasis = opts.basis === undefined || canonicalJson(opts.basis) === canonicalJson(current?.basis ?? null);
+  const sameNotes = opts.notes === undefined || (opts.notes ?? null) === (current?.notes ?? null);
+  if (current && Number(current.ring) === ring && sameBasis && sameNotes) {
+    return { coffeeId, unchanged: true, before: current, after: current };
+  }
+  if (current) await tx.query(`UPDATE coffee_ring_assignment SET superseded_at = now() WHERE id = $1`, [current.id]);
+  const after = (await tx.query(
+    `INSERT INTO coffee_ring_assignment (coffee_id, ring, suggested_ring, basis, notes, decided_by)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [coffeeId, ring, sugg.rows[0]?.calculated_ring ?? null,
+     opts.basis == null ? null : JSON.stringify(opts.basis), opts.notes ?? null, opts.decidedBy ?? null])).rows[0];
+  return { coffeeId, unchanged: false, before: current, after };
+}
+
+export async function setRing(coffeeId: number, ring: number, opts: SetRingOptions, ctx: Ctx): Promise<CatalogWriteResult<{ coffeeId: number; unchanged: boolean; ringAssignmentId: number }>> {
+  return withTransaction(async (tx) => {
+    const r = await setRingInTx(tx, coffeeId, ring, { ...opts, decidedBy: opts.decidedBy ?? ctx.actor });
+    if (!r.unchanged) {
+      await logCatalogChange(tx, { entity: 'coffee', entityId: coffeeId, action: 'setRing', before: r.before, after: r.after, changedBy: ctx.actor });
+    }
+    console.info('[catalog] setRing', { actor: ctx.actor, coffeeId, ring, unchanged: r.unchanged });
+    return { result: { coffeeId, unchanged: r.unchanged, ringAssignmentId: Number(r.after.id) }, warnings: [], integrity: [] };
+  });
+}
+
 // Cupping evidence brief 2, Part 0.2 (2026-10-18): catalogImport sets a match
 // archetype through setMatchArchetypeInTx inside its batch transaction; after
 // that transaction commits it calls this for every coffee it created, so the

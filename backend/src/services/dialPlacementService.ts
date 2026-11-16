@@ -41,10 +41,15 @@ export async function cutVersionInTx(tx: Tx, input: CutVersionInput): Promise<Cu
   const [rc1, rc2, sc1, sc2] = [p('dial_ring_cut_1'), p('dial_ring_cut_2'), p('dial_size_cut_1'), p('dial_size_cut_2')];
   if (!(rc1 < rc2)) throw invalid(`dial_ring_cut_1 (${rc1}) must be below dial_ring_cut_2 (${rc2})`);
   if (!(sc1 < sc2)) throw invalid(`dial_size_cut_1 (${sc1}) must be below dial_size_cut_2 (${sc2})`);
+  // Ella map 5: the size the placements carry reads the roaster cuts
+  const [src1, src2] = [p('dial_size_roaster_cut_1'), p('dial_size_roaster_cut_2')];
+  if (!(src1 < src2)) throw invalid(`dial_size_roaster_cut_1 (${src1}) must be below dial_size_roaster_cut_2 (${src2})`);
 
   const inserted = await tx.query<{ id: number }>(
-    `INSERT INTO dial_map_version (label, status_id, reason, parameters, cut_by)
-     SELECT $1, s.id, $2, $3::jsonb, $4 FROM dial_map_version_status s WHERE s.code = 'draft'
+    // Ella map 5: cut_at is wall-clock time, so v_dial_step can tell a step
+    // written before the cut from one written after it, even in one transaction
+    `INSERT INTO dial_map_version (label, status_id, reason, parameters, cut_by, cut_at)
+     SELECT $1, s.id, $2, $3::jsonb, $4, clock_timestamp() FROM dial_map_version_status s WHERE s.code = 'draft'
      ON CONFLICT (label) DO NOTHING
      RETURNING id`,
     [label, input.reason ?? null, JSON.stringify(params), input.adminUid ?? null]);
@@ -255,3 +260,68 @@ export async function setCustomerCopyInTx(tx: Tx, input: SetCustomerCopyInput) {
   return { id: ins.rows[0].id, unchanged: false, supersededId: c?.id ?? null };
 }
 export const setCustomerCopy = (input: SetCustomerCopyInput) => withTransaction(tx => setCustomerCopyInTx(tx, input));
+
+// ── Ella's Bloom Map 5 (2026-11-16) ──────────────────────────────────────────
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_5_DECIDED_MAP_AND_ADMIN.md
+
+export interface SetStepInput {
+  fromCoffeeId: number; toCoffeeId: number; buttonWord: string; customerLine?: string | null;
+  basisCode: string; isShown?: boolean; notes?: string | null; adminUid?: string | null;
+}
+
+/**
+ * B1: the one writer of dial_step. Supersede the current row of the ordered
+ * pair (from, to) and insert the new one; a no-op when nothing changes.
+ * Switching is_shown is the same call with the other value.
+ */
+export async function setStepInTx(tx: Tx, input: SetStepInput) {
+  const word = String(input.buttonWord ?? '').trim();
+  if (!word) throw invalid('buttonWord is required');
+  if (input.fromCoffeeId === input.toCoffeeId) throw invalid('a step joins two different coffees');
+  const line = input.customerLine == null || String(input.customerLine).trim() === '' ? null : String(input.customerLine).trim();
+  const basis = await tx.query<{ id: number }>(`SELECT id FROM dial_step_basis WHERE code = $1`, [input.basisCode]);
+  if (!basis.rows[0]) throw invalid(`unknown step basis ${input.basisCode}`);
+  const coffees = await tx.query<{ id: number }>(`SELECT id FROM coffees WHERE id = ANY($1::int[]) AND is_active`, [[input.fromCoffeeId, input.toCoffeeId]]);
+  for (const id of [input.fromCoffeeId, input.toCoffeeId]) {
+    if (!coffees.rows.some(r => r.id === id)) throw new DialMapError(404, 'COFFEE_NOT_FOUND', `No active coffee ${id}`);
+  }
+  const shown = input.isShown ?? true;
+  const notes = input.notes ?? null;
+  const cur = await tx.query<{ id: number; button_word: string; customer_line: string | null; basis_id: number; is_shown: boolean; notes: string | null }>(
+    `SELECT id, button_word, customer_line, basis_id, is_shown, notes FROM dial_step
+      WHERE from_coffee_id = $1 AND to_coffee_id = $2 AND superseded_at IS NULL FOR UPDATE`,
+    [input.fromCoffeeId, input.toCoffeeId]);
+  const c = cur.rows[0];
+  if (c && c.button_word === word && c.customer_line === line && c.basis_id === basis.rows[0].id && c.is_shown === shown
+      && (input.notes === undefined || c.notes === notes)) {
+    return { id: c.id, unchanged: true };
+  }
+  if (c) await tx.query(`UPDATE dial_step SET superseded_at = clock_timestamp() WHERE id = $1`, [c.id]);
+  const ins = await tx.query<{ id: number }>(
+    `INSERT INTO dial_step (from_coffee_id, to_coffee_id, button_word, customer_line, basis_id, is_shown, notes, decided_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    [input.fromCoffeeId, input.toCoffeeId, word, line, basis.rows[0].id, shown,
+     input.notes === undefined ? (c?.notes ?? null) : notes, input.adminUid ?? null]);
+  return { id: ins.rows[0].id, unchanged: false, supersededId: c?.id ?? null };
+}
+export const setStep = (input: SetStepInput) => withTransaction(tx => setStepInTx(tx, input));
+
+export interface PublishInput { label: string; reason?: string | null; adminUid?: string | null }
+
+/**
+ * B4: cut a version from the current decisions and activate it, in one
+ * transaction, through cutVersionInTx and activateVersionInTx (reuse; do not
+ * fork). A label that already exists is refused: publish always makes a new
+ * version.
+ */
+export async function publishInTx(tx: Tx, input: PublishInput) {
+  const cut = await cutVersionInTx(tx, { label: input.label, reason: input.reason ?? null, adminUid: input.adminUid ?? null });
+  if (!cut.created) throw new DialMapError(409, 'VERSION_LABEL_EXISTS', `A map version labelled "${cut.label}" exists; publish needs a new label`);
+  const act = await activateVersionInTx(tx, cut.versionId);
+  return { versionId: cut.versionId, label: cut.label, placements: cut.placements, retiredVersionId: act.retiredVersionId };
+}
+export async function publish(input: PublishInput) {
+  const result = await withTransaction(tx => publishInTx(tx, input));
+  console.info('[ella-map] publish', { ...result, actor: input.adminUid ?? null });
+  return result;
+}

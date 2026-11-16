@@ -2873,6 +2873,8 @@ ALTER TABLE dial_position_signal DROP COLUMN IF EXISTS suggested_vocabulary_id C
 -- before the grants at the end) read v_coffee, the pooled range, the cupping,
 -- portal and evidence views and the sellable candidates; dropped here, before
 -- any of those drop and recreate themselves, and recreated every boot.
+DROP VIEW IF EXISTS v_dial_step;              -- Ella map 5: reads v_dial_placement
+DROP VIEW IF EXISTS v_coffee_ring_assignment_history;
 DROP VIEW IF EXISTS v_customer_match_trail;   -- Ella map 3: read v_dial_placement
 DROP VIEW IF EXISTS v_customer_match_current;
 DROP VIEW IF EXISTS v_dial_surface;
@@ -10678,6 +10680,47 @@ CREATE TABLE IF NOT EXISTS coffee_lean_assignment (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS coffee_lean_assignment_one_current ON coffee_lean_assignment (coffee_id) WHERE superseded_at IS NULL;
 
+-- Ella's Bloom Map 5 (2026-11-16), A3: the ring decision, same shape and
+-- history pattern as the lean decision. Created here, before the preview view
+-- that reads it. A current ring decision wins over the calculated ring (CTO
+-- call 1); suggested_ring is the calculated ring at decision time.
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_5_DECIDED_MAP_AND_ADMIN.md
+CREATE TABLE IF NOT EXISTS coffee_ring_assignment (
+  id             SERIAL PRIMARY KEY,
+  coffee_id      INT NOT NULL REFERENCES coffees(id) ON DELETE RESTRICT,
+  ring           SMALLINT NOT NULL CHECK (ring BETWEEN 0 AND 3),
+  suggested_ring SMALLINT CHECK (suggested_ring BETWEEN 0 AND 3),
+  basis          JSONB,
+  notes          TEXT,
+  decided_by     TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at  TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS coffee_ring_assignment_one_current ON coffee_ring_assignment (coffee_id) WHERE superseded_at IS NULL;
+-- G2.6: the ring must be a dial_ring code, and 0 exactly when the coffee's
+-- current family is the center wedge (checked at insert; the preview ignores
+-- a decision a later family change made inconsistent, and flags it).
+CREATE OR REPLACE FUNCTION coffee_ring_assignment_check() RETURNS trigger AS $$
+DECLARE v_center BOOLEAN;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM dial_ring r WHERE r.code = NEW.ring) THEN
+    RAISE EXCEPTION 'ring % is not a dial_ring code (Ella map 5)', NEW.ring;
+  END IF;
+  SELECT w.is_center INTO v_center
+    FROM coffee_archetype_assignment a JOIN dial_wedge w ON w.archetype_code::text = a.archetype::text
+   WHERE a.coffee_id = NEW.coffee_id AND a.superseded_at IS NULL;
+  IF v_center IS NULL THEN
+    RAISE EXCEPTION 'coffee % has no current map family; a ring needs one (Ella map 5)', NEW.coffee_id;
+  END IF;
+  IF (NEW.ring = 0) <> v_center THEN
+    RAISE EXCEPTION 'ring % refused for coffee %: ring 0 is the center family only, and the center family is ring 0 (Ella map 5)', NEW.ring, NEW.coffee_id;
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS coffee_ring_assignment_check ON coffee_ring_assignment;
+CREATE TRIGGER coffee_ring_assignment_check BEFORE INSERT ON coffee_ring_assignment
+  FOR EACH ROW EXECUTE FUNCTION coffee_ring_assignment_check();
+
 -- 4. Versions, cuts and placements ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS dial_map_version (
   id           SERIAL PRIMARY KEY,
@@ -10873,6 +10916,15 @@ SELECT v.key, v.value, v.note FROM (VALUES
   ('dial_suggest_threshold',    0.25, 'Ella map lean suggestion: side A wins when its seam score beats side B''s by at least this, and the other way round; else middle. Range: numeric 0 <= value <= 1.')
 ) v(key, value, note)
 WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
+-- Ella map 5 (2026-11-16), A5: dot size reads the roaster's own 1 to 5
+-- Sweetness rating (CTO call 3; Dana 2026-11-16: the roaster's rating only,
+-- NULL otherwise).
+INSERT INTO evidence_parameter (key, value, note)
+SELECT v.key, v.value, v.note FROM (VALUES
+  ('dial_size_roaster_cut_1', 4, 'Ella map: dot size 1 ends here on the roaster''s own Sweetness rating (portal, 1 to 5); at or above it is size 2. No rating, no size (Ella map 5). Range: integer 1 <= value <= 5.'),
+  ('dial_size_roaster_cut_2', 5, 'Ella map: dot size 2 ends here on the roaster''s Sweetness rating; at or above it is size 3. Range: integer 1 <= value <= 5.')
+) v(key, value, note)
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
 
 -- 7. Views ───────────────────────────────────────────────────────────────────
 -- Sellable and in stock at coffee grain, one rule for the preview and the
@@ -10990,7 +11042,17 @@ website AS (
   WHERE ed.named_by_roaster_website
   GROUP BY ed.coffee_id
 ),
-ruler_dim AS (SELECT DISTINCT ruler_dimension_id FROM dial_wedge WHERE ruler_dimension_id IS NOT NULL)
+ruler_dim AS (SELECT DISTINCT ruler_dimension_id FROM dial_wedge WHERE ruler_dimension_id IS NOT NULL),
+-- Ella map 5: the roaster's own 1 to 5 Sweetness rating from the latest
+-- submitted portal response (the dot size, CTO call 3)
+roaster_sweet AS (
+  SELECT h.coffee_id, max((d.value->>'value')::int) AS sweetness
+  FROM v_roastery_portal_coffee_hint h
+  CROSS JOIN LATERAL jsonb_array_elements(h.dimensions) d(value)
+  JOIN dial_reading dr ON dr.code = 'sweetness' AND dr.dimension_id = (d.value->>'dimension_id')::int
+  WHERE h.coffee_id IS NOT NULL
+  GROUP BY h.coffee_id
+)
 SELECT c.coffee_id, c.coffee_name, c.roaster_id, c.roaster_name, c.archetype_code, c.wedge_id,
        COALESCE(c.is_center, false) AS is_center, c.ruler_dimension_id, c.side_a_archetype, c.side_b_archetype,
        c.own_family_note_id,
@@ -11016,8 +11078,10 @@ SELECT c.coffee_id, c.coffee_name, c.roaster_id, c.roaster_name, c.archetype_cod
        c.roast_level,
        EXISTS (SELECT 1 FROM dial_dark_roast_level d WHERE d.code = c.roast_level) AS is_dark,
        av.is_sellable, av.in_stock,
-       c.category_codes
+       c.category_codes,
+       rs.sweetness AS roaster_sweetness
 FROM coffee c
+LEFT JOIN roaster_sweet rs ON rs.coffee_id = c.coffee_id
 LEFT JOIN pooled p ON p.coffee_id = c.coffee_id
 LEFT JOIN merged m ON m.coffee_id = c.coffee_id
 LEFT JOIN cuppers cu ON cu.coffee_id = c.coffee_id
@@ -11038,7 +11102,8 @@ prm AS (
          param('dial_suggest_w_words') AS sww, param('dial_suggest_w_body') AS swb,
          param('dial_suggest_body_cut_light') AS sbl, param('dial_suggest_body_cut_base') AS sbb,
          param('dial_suggest_word_pos1') AS swp1, param('dial_suggest_word_later') AS swl,
-         param('dial_suggest_dark_roast_add') AS sda, param('dial_suggest_threshold') AS st
+         param('dial_suggest_dark_roast_add') AS sda, param('dial_suggest_threshold') AS st,
+         param('dial_size_roaster_cut_1') AS src1, param('dial_size_roaster_cut_2') AS src2
 ),
 choc AS (  -- the chocolate side: wedges ruled like the base (the wedge whose seam reads body)
   SELECT w.ruler_dimension_id, w.seam_family_note_id FROM dial_wedge w WHERE w.seam_uses_body LIMIT 1
@@ -11082,27 +11147,48 @@ sugg AS (
   LEFT JOIN seam_score a ON a.coffee_id = i.coffee_id AND a.side = 'side_a'
   LEFT JOIN seam_score b ON b.coffee_id = i.coffee_id AND b.side = 'side_b'
 ),
-base AS (
+-- Ella map 5 (CTO calls 1 and 2): a current ring decision wins over the
+-- calculated ring when it fits the family (0 exactly for the center); a coffee
+-- with a lean and a fitting ring decision is placeable with or without
+-- cupping. Without decisions the rule is today's.
+base0 AS (
   SELECT i.*, prm.*,
-         (i.wedge_id IS NOT NULL AND i.has_merged_row AND (i.is_center OR i.ruler_value IS NOT NULL)) AS is_placeable,
+         (i.wedge_id IS NOT NULL AND i.has_merged_row AND (i.is_center OR i.ruler_value IS NOT NULL)) AS is_calc_placeable,
          la.id AS lean_assignment_id, ll.code AS decided_lane_code,
+         ra.id AS ring_assignment_id, ra.ring AS decided_ring_raw,
          s.suggested_lane_code, s.suggested_scores
   FROM inp i
   CROSS JOIN prm
   LEFT JOIN coffee_lean_assignment la ON la.coffee_id = i.coffee_id AND la.superseded_at IS NULL
   LEFT JOIN dial_lane ll ON ll.id = la.lane_id
+  LEFT JOIN coffee_ring_assignment ra ON ra.coffee_id = i.coffee_id AND ra.superseded_at IS NULL
   LEFT JOIN sugg s ON s.coffee_id = i.coffee_id
+),
+base AS (
+  SELECT b.*,
+         CASE WHEN b.decided_ring_raw IS NOT NULL AND (b.decided_ring_raw = 0) = b.is_center THEN b.decided_ring_raw END AS decided_ring,
+         (b.decided_ring_raw IS NOT NULL AND (b.decided_ring_raw = 0) <> b.is_center) AS ring_decision_mismatch,
+         CASE WHEN NOT b.is_calc_placeable THEN NULL
+              WHEN b.is_center THEN 0
+              WHEN b.ruler_value < b.rc1 THEN 1
+              WHEN b.ruler_value < b.rc2 THEN 2
+              ELSE 3 END AS calculated_ring
+  FROM base0 b
+),
+based AS (
+  SELECT b.*,
+         (b.wedge_id IS NOT NULL AND (b.is_calc_placeable
+           OR (b.decided_lane_code IS NOT NULL AND b.decided_ring IS NOT NULL))) AS is_placeable
+  FROM base b
 ),
 ruled AS (
   SELECT b.*,
          CASE WHEN NOT b.is_placeable THEN NULL
-              WHEN b.is_center THEN 0
-              WHEN b.ruler_value < b.rc1 THEN 1
-              WHEN b.ruler_value < b.rc2 THEN 2
-              ELSE 3 END AS ring,
-         CASE WHEN b.sweetness IS NULL THEN NULL
-              WHEN b.sweetness < b.sc1 THEN 1
-              WHEN b.sweetness < b.sc2 THEN 2
+              ELSE COALESCE(b.decided_ring, b.calculated_ring) END AS ring,
+         -- Dana 2026-11-16: size reads the roaster's rating only, NULL otherwise
+         CASE WHEN b.roaster_sweetness IS NULL THEN NULL
+              WHEN b.roaster_sweetness < b.src1 THEN 1
+              WHEN b.roaster_sweetness < b.src2 THEN 2
               ELSE 3 END AS size,
          CASE WHEN NOT b.has_clean_merged_row THEN 'D'
               WHEN b.n_sessions >= b.gsa AND b.n_cuppers >= b.gca THEN 'A'
@@ -11115,7 +11201,7 @@ ruled AS (
          (NOT b.is_center AND b.ruler_dimension_id = (SELECT ruler_dimension_id FROM choc)
           AND NOT (b.portal_family_pos ? (SELECT seam_family_note_id FROM choc)::text)
           AND NOT ((SELECT seam_family_note_id FROM choc) = ANY (b.website_family_ids))) AS choc_side_no_choc_word
-  FROM base b
+  FROM based b
 )
 SELECT r.coffee_id, r.coffee_name, r.roaster_id, r.roaster_name, r.archetype_code, r.wedge_id, r.is_center,
        r.is_placeable, r.ring, r.size,
@@ -11139,7 +11225,10 @@ SELECT r.coffee_id, r.coffee_name, r.roaster_id, r.roaster_name, r.archetype_cod
          CASE WHEN r.decided_lane_code IS NOT NULL AND r.suggested_lane_code IS NOT NULL
                AND r.decided_lane_code <> r.suggested_lane_code THEN 'suggestion_differs' END,
          CASE WHEN r.decided_lane_code IS NULL THEN 'no_lean_decision' END,
-         CASE WHEN r.is_provisional THEN 'provisional' END
+         CASE WHEN r.is_provisional THEN 'provisional' END,
+         CASE WHEN r.decided_ring IS NOT NULL THEN 'ring_decided' END,
+         CASE WHEN r.ring_decision_mismatch THEN 'ring_decision_mismatch' END,
+         CASE WHEN r.roaster_sweetness IS NULL THEN 'no_roaster_sweetness' END
        ], NULL) AS flags,
        jsonb_build_object(
          'pooled', jsonb_build_object('acidity', r.acidity, 'bitterness', r.bitterness, 'body', r.body, 'sweetness', r.sweetness,
@@ -11152,8 +11241,13 @@ SELECT r.coffee_id, r.coffee_name, r.roaster_id, r.roaster_name, r.archetype_cod
          'grade', jsonb_build_object('sessions', r.n_sessions, 'cuppers', r.n_cuppers, 'cupper_weights', r.cupper_weights,
                                      'provisional_notes', to_jsonb(r.provisional_notes)),
          'sellable', 'v_coffee_sellable_candidate at the anchor size (slot candidate view until the commerce move); in_stock = active anchor-size SKU',
-         'lean', CASE WHEN r.decided_lane_code IS NULL THEN 'no decision: middle used' ELSE 'decision' END
-       ) AS inputs_used
+         'lean', CASE WHEN r.decided_lane_code IS NULL THEN 'no decision: middle used' ELSE 'decision' END,
+         'ring', jsonb_build_object('source', CASE WHEN r.decided_ring IS NOT NULL THEN 'decision' ELSE 'calculated' END,
+                                    'decided', r.decided_ring, 'calculated', r.calculated_ring, 'ring_assignment_id', r.ring_assignment_id),
+         'size', jsonb_build_object('source', 'roaster Sweetness rating (portal, 1 to 5)', 'rating', r.roaster_sweetness,
+                                    'cuts', jsonb_build_array(r.src1, r.src2))
+       ) AS inputs_used,
+       r.ring_assignment_id, r.decided_ring, r.calculated_ring, r.roaster_sweetness
 FROM ruled r
 LEFT JOIN dial_lane ln ON ln.code = r.lane_code
 LEFT JOIN dial_lane sl ON sl.code = r.suggested_lane_code
@@ -11419,6 +11513,12 @@ INSERT INTO dial_flag (code, label, description) VALUES
   ('no_lean_decision',                 'No lean decision',       'No lean decision recorded: the map uses the middle lane.'),
   ('provisional',                      'Provisional sample',     'A sample matches a provisional pattern; it is left out of the grade counts.')
 ON CONFLICT (code) DO NOTHING;
+-- Ella map 5 (2026-11-16): the decided ring and the roaster-rated size
+INSERT INTO dial_flag (code, label, description) VALUES
+  ('ring_decided',           'Ring decided',          'A current ring decision sets the ring; the calculated ring is kept beside it as the suggestion.'),
+  ('ring_decision_mismatch', 'Ring decision unfit',   'The ring decision no longer fits the family (0 is the center only); the calculated ring is used until a new decision.'),
+  ('no_roaster_sweetness',   'No roaster sweetness',  'No Sweetness rating in a submitted portal response: the dot has no size and is drawn dashed on the admin face.')
+ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS dial_delta_direction (
   id    SERIAL PRIMARY KEY,
@@ -11471,6 +11571,15 @@ FROM coffee_lean_assignment a
 JOIN coffees c ON c.id = a.coffee_id
 JOIN dial_lane l ON l.id = a.lane_id
 LEFT JOIN dial_lane sl ON sl.id = a.suggested_lane_id;
+
+-- Ella map 5 (2026-11-16), A3: the ring decision's one read path, beside the lean history
+CREATE VIEW v_coffee_ring_assignment_history AS
+SELECT a.id, a.coffee_id, c.name AS coffee_name, a.ring, r.label AS ring_label, a.suggested_ring,
+       a.basis, a.notes, a.decided_by, a.created_at, a.superseded_at,
+       (a.superseded_at IS NULL) AS is_current
+FROM coffee_ring_assignment a
+JOIN coffees c ON c.id = a.coffee_id
+LEFT JOIN dial_ring r ON r.code = a.ring;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Ella's Bloom Map 3 (2026-11-12): the switch, the customer's words, and the
@@ -11650,6 +11759,75 @@ LEFT JOIN LATERAL (
   ORDER BY v.cut_at DESC, dp.id DESC
   LIMIT 1
 ) h ON a.coffee_id IS NULL;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Ella's Bloom Map 5 (2026-11-16): decided steps between coffees. Additive;
+-- nothing from briefs 1 to 3 is altered or dropped. (The ring decision,
+-- coffee_ring_assignment, sits beside coffee_lean_assignment above, because
+-- the preview view reads it.)
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_5_DECIDED_MAP_AND_ADMIN.md
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- A1: why a step exists, and the admin face's line for it
+CREATE TABLE IF NOT EXISTS dial_step_basis (
+  id         SERIAL PRIMARY KEY,
+  code       TEXT NOT NULL UNIQUE,
+  label      TEXT NOT NULL,
+  sort_order SMALLINT NOT NULL,
+  line_style TEXT NOT NULL
+);
+INSERT INTO dial_step_basis (code, label, sort_order, line_style) VALUES
+  ('roaster_said',      'Roaster said',      1, 'solid'),
+  ('recipe_or_ratings', 'Recipe or ratings', 2, 'dashed'),
+  ('our_guess',         'Our guess',         3, 'dotted')
+ON CONFLICT (code) DO NOTHING;
+
+-- A2: one decided step in one direction; supersede and insert (is_shown too)
+CREATE TABLE IF NOT EXISTS dial_step (
+  id             SERIAL PRIMARY KEY,
+  from_coffee_id INT NOT NULL REFERENCES coffees(id) ON DELETE RESTRICT,
+  to_coffee_id   INT NOT NULL REFERENCES coffees(id) ON DELETE RESTRICT,
+  button_word    TEXT NOT NULL CHECK (btrim(button_word) <> ''),
+  customer_line  TEXT,
+  basis_id       INT NOT NULL REFERENCES dial_step_basis(id),
+  is_shown       BOOLEAN NOT NULL DEFAULT true,
+  notes          TEXT,
+  decided_by     TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  superseded_at  TIMESTAMPTZ,
+  CONSTRAINT dial_step_two_coffees CHECK (from_coffee_id <> to_coffee_id)
+);
+-- wall-clock time, not the transaction's: a step written after a cut in the
+-- same transaction still reads as after it (v_dial_step compares with cut_at)
+ALTER TABLE dial_step ALTER COLUMN created_at SET DEFAULT clock_timestamp();
+CREATE UNIQUE INDEX IF NOT EXISTS dial_step_one_current ON dial_step (from_coffee_id, to_coffee_id) WHERE superseded_at IS NULL;
+
+-- A6: the one read for steps (G2.5). Every current row, plus every row that
+-- was in force when the active version was cut (publish is the only way a
+-- step reaches the active map: a row counts for the active version when it
+-- was written at or before the cut and not superseded by then). on_active_map
+-- = in the active version, shown, and both coffees placed in it.
+CREATE VIEW v_dial_step AS
+WITH av AS (SELECT id, cut_at FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL),
+s AS (
+  SELECT st.*,
+         (st.superseded_at IS NULL) AS is_current,
+         EXISTS (SELECT 1 FROM av WHERE st.created_at <= av.cut_at
+                   AND (st.superseded_at IS NULL OR st.superseded_at > av.cut_at)) AS is_in_active_version
+  FROM dial_step st
+)
+SELECT s.id, s.from_coffee_id, cf.name AS from_coffee_name, s.to_coffee_id, ct.name AS to_coffee_name,
+       s.button_word, s.customer_line, b.code AS basis_code, b.label AS basis_label, b.line_style,
+       b.sort_order AS basis_sort_order, s.is_shown, s.notes, s.decided_by, s.created_at, s.superseded_at,
+       s.is_current, s.is_in_active_version,
+       (s.is_in_active_version AND s.is_shown
+        AND EXISTS (SELECT 1 FROM v_dial_placement p WHERE p.coffee_id = s.from_coffee_id)
+        AND EXISTS (SELECT 1 FROM v_dial_placement p WHERE p.coffee_id = s.to_coffee_id)) AS on_active_map
+FROM s
+JOIN dial_step_basis b ON b.id = s.basis_id
+JOIN coffees cf ON cf.id = s.from_coffee_id
+JOIN coffees ct ON ct.id = s.to_coffee_id
+WHERE s.is_current OR s.is_in_active_version;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END ELLA'S BLOOM MAP 1 block
@@ -12283,6 +12461,9 @@ GRANT UPDATE (superseded_at) ON coffee_lean_assignment, dial_first_match, dial_h
 -- Ella map 3 (2026-11-12): customer copy is supersede-only too
 REVOKE UPDATE, DELETE, TRUNCATE ON dial_customer_copy FROM ab_app;
 GRANT UPDATE (superseded_at) ON dial_customer_copy TO ab_app;
+-- Ella map 5 (2026-11-16): the ring decision and the steps are supersede-only
+REVOKE UPDATE, DELETE, TRUNCATE ON coffee_ring_assignment, dial_step FROM ab_app;
+GRANT UPDATE (superseded_at) ON coffee_ring_assignment, dial_step TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
 -- Liam brand answers (2026-10-24): supersede only. The one UPDATE the writer
 -- makes sets superseded_at; nothing is ever deleted (lint:customer rule 8 is

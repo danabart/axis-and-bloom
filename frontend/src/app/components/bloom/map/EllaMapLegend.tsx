@@ -7,11 +7,31 @@ import { dotRadius } from './mapGeometry';
 export interface LegendSize { code: number; label: string; customer_label?: string | null }
 export interface LegendFamily { archetype_code: string; archetype_name?: string }
 
-export default function EllaMapLegend({ sizes, families, customer = false }: {
+/** Ella map 5: a step basis's line on the admin face (dial_step_basis). */
+export interface LegendLine { code: string; label: string; line_style: string }
+
+export default function EllaMapLegend({ sizes, families, customer = false, lines, noSizeLabel }: {
   sizes: LegendSize[]; families: LegendFamily[]; customer?: boolean;
+  /** Ella map 5 (admin): the step lines, one per basis */
+  lines?: LegendLine[];
+  /** Ella map 5 (admin): the words beside the dashed dot (no size) */
+  noSizeLabel?: string;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-stone-700">
+      {lines && lines.length > 0 && (
+        <span className="flex flex-wrap items-center gap-3">
+          {lines.map(l => (
+            <span key={l.code} className="inline-flex items-center gap-1.5">
+              <svg width={34} height={8} aria-hidden="true">
+                <line x1={2} y1={4} x2={32} y2={4} stroke="#3f3a36" strokeWidth={2.5} strokeLinecap="round"
+                  strokeDasharray={l.line_style === 'dashed' ? '7 4' : l.line_style === 'dotted' ? '1 4' : undefined} />
+              </svg>
+              {l.label}
+            </span>
+          ))}
+        </span>
+      )}
       <span className="flex items-center gap-3">
         {sizes.map(s => {
           const r = dotRadius(s.code) / 2;
@@ -22,6 +42,12 @@ export default function EllaMapLegend({ sizes, families, customer = false }: {
             </span>
           );
         })}
+        {noSizeLabel && (
+          <span className="inline-flex items-center gap-1.5">
+            <svg width={14} height={14} aria-hidden="true"><circle cx={7} cy={7} r={5.5} fill="none" stroke="#78716c" strokeWidth={1.5} strokeDasharray="2 2" /></svg>
+            {noSizeLabel}
+          </span>
+        )}
       </span>
       <span className="flex flex-wrap items-center gap-3">
         {families.map(f => (

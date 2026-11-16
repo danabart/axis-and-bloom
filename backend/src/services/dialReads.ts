@@ -8,7 +8,7 @@
 // brief 1; brief 3's customer API strips the grade.
 import { db, type Tx } from '../db/client.js';
 import { getParameters } from './evidenceReads.js';
-import { listCousinHints } from './roasteryPortalReads.js';
+import { listCousinHints, roasterFactsForCoffees } from './roasteryPortalReads.js';
 
 type Runner = Tx | typeof db;
 export type MapMode = 'preview' | 'active';
@@ -126,6 +126,8 @@ export async function vocabulary(runner: Runner = db) {
     firstMatchStatuses: await q(`SELECT code, label FROM dial_first_match_status ORDER BY id`),
     sizes: await q(`SELECT code, label, customer_label FROM dial_size ORDER BY code`),
     rings: await q(`SELECT code, label FROM dial_ring ORDER BY code`),
+    // Ella map 5: why a step exists and its line on the admin face
+    stepBases: await q(`SELECT code, label, sort_order, line_style FROM dial_step_basis ORDER BY sort_order`),
     flags: await q(`SELECT code, label, description FROM dial_flag ORDER BY id`),
     readings: await q(`SELECT code, label, dimension_id FROM dial_reading ORDER BY id`),
     deltaPhrases: await q(
@@ -375,4 +377,77 @@ export async function hopCounts(runner: Runner = db): Promise<Map<number, number
   const r = await runner.query<{ from_coffee_id: number; n: number }>(
     `SELECT from_coffee_id, count(*)::int AS n FROM v_dial_hop WHERE in_hop_set GROUP BY from_coffee_id`);
   return new Map(r.rows.map(x => [x.from_coffee_id, x.n]));
+}
+
+// ── Ella's Bloom Map 5 (2026-11-16), B2 ───────────────────────────────────────
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_5_DECIDED_MAP_AND_ADMIN.md
+
+export type StepMode = 'current' | 'active';
+export const STEP_MODES: readonly StepMode[] = ['current', 'active'];
+
+/**
+ * Steps from v_dial_step, the one read for steps. 'current': every current
+ * row, shown or not (the admin table). 'active': the steps on the active map
+ * (in force at its cut, shown, both coffees placed): the lines on the face.
+ * Sorted by basis order, then from, then to.
+ */
+export async function steps(mode: StepMode = 'current', runner: Runner = db) {
+  const where = mode === 'active' ? 'on_active_map' : 'is_current';
+  const r = await runner.query(
+    `SELECT id, from_coffee_id, from_coffee_name, to_coffee_id, to_coffee_name, button_word, customer_line,
+            basis_code, basis_label, line_style, basis_sort_order, is_shown, notes, decided_by, created_at,
+            is_current, is_in_active_version, on_active_map
+       FROM v_dial_step WHERE ${where}
+      ORDER BY basis_sort_order, from_coffee_name, to_coffee_name, id`);
+  return r.rows;
+}
+
+/** A coffee's ring decisions, newest first (v_coffee_ring_assignment_history, the table's one read path). */
+export async function ringHistory(coffeeId: number, runner: Runner = db) {
+  const r = await runner.query(
+    `SELECT * FROM v_coffee_ring_assignment_history WHERE coffee_id = $1 ORDER BY created_at DESC, id DESC`, [coffeeId]);
+  return r.rows;
+}
+
+/** Decisions written after the active version was cut: what Publish would carry. */
+export async function unpublished(runner: Runner = db) {
+  const r = await runner.query<{ family: number; lean: number; ring: number; step: number; cut_at: string | null }>(
+    `WITH av AS (SELECT cut_at FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL),
+          t AS (SELECT COALESCE((SELECT cut_at FROM av), '-infinity'::timestamptz) AS cut_at)
+     SELECT (SELECT count(*)::int FROM coffee_archetype_assignment a, t WHERE a.created_at > t.cut_at) AS family,
+            (SELECT count(*)::int FROM v_coffee_lean_assignment_history h, t WHERE h.created_at > t.cut_at) AS lean,
+            (SELECT count(*)::int FROM v_coffee_ring_assignment_history h, t WHERE h.created_at > t.cut_at) AS ring,
+            (SELECT count(*)::int FROM v_dial_step s, t WHERE s.is_current AND s.created_at > t.cut_at) AS step,
+            (SELECT cut_at FROM av) AS cut_at`);
+  const x = r.rows[0];
+  return { ...x, total: x.family + x.lean + x.ring + x.step };
+}
+
+/**
+ * Everything the decided-map page reads in one call: the active version, its
+ * placements, the steps on it, every current step, the current decisions per
+ * coffee (the preview), each coffee's roaster notes and 1 to 5 ratings (the
+ * latest submitted portal response, read only), and the unpublished count.
+ */
+export async function decidedMap(runner: Runner = db) {
+  const version = (await runner.query(
+    `SELECT id, label, reason, cut_at, activated_at FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL`)).rows[0] ?? null;
+  const placements = (await runner.query(
+    `SELECT p.coffee_id, p.coffee_name, p.roaster_name, p.archetype_code, p.is_center, p.ring, p.lane_code, p.size,
+            p.is_sellable, p.in_stock, p.flags, p.grade_code
+       FROM v_dial_placement p ORDER BY p.archetype_code, p.ring, p.coffee_name`)).rows;
+  const decisions = (await runner.query(
+    `SELECT coffee_id, coffee_name, roaster_id, roaster_name, archetype_code, is_center, is_placeable, ring, decided_ring, calculated_ring,
+            ring_assignment_id, lane_code, decided_lane_code, size, roaster_sweetness, flags
+       FROM v_dial_placement_preview ORDER BY archetype_code, coffee_name`)).rows;
+  const roaster = await roasterFactsForCoffees(decisions.map(d => d.coffee_id), runner);
+  return {
+    version,
+    placements,
+    activeSteps: await steps('active', runner),
+    steps: await steps('current', runner),
+    decisions,
+    roaster,
+    unpublished: await unpublished(runner),
+  };
 }

@@ -17,6 +17,8 @@ export interface FacePlacement extends PlacementGeo {
 export interface FaceSeam { archetype_a: string; archetype_b: string; label: string | null; is_labelled: boolean }
 export interface FaceWedge extends WedgeGeo { archetype_name?: string }
 export interface FaceHop { to_coffee_id: number; relation: string }
+/** Ella map 5: one decided step between two coffees, drawn with its basis's line style (dial_step_basis.line_style). */
+export interface FaceStep { from_coffee_id: number; to_coffee_id: number; line_style: string }
 
 export interface EllaMapFaceProps {
   placements: FacePlacement[];
@@ -38,6 +40,18 @@ export interface EllaMapFaceProps {
    */
   labelMode?: 'name' | 'none';
   onTapCoffee?: (coffeeId: number) => void;
+  /**
+   * Ella map 5: decided steps, one line per pair of coffees (a step and its
+   * way back share one line), drawn under the dots. Pairs not on the face are skipped.
+   */
+  steps?: FaceStep[];
+  /**
+   * Ella map 5: what a dashed dot means. 'sellable' (default, every customer
+   * use): a coffee that is not sellable is dimmed and dashed. 'size' (the
+   * admin decided map): a coffee with no size is a dashed outline; sellability
+   * is not drawn.
+   */
+  dotStyle?: 'sellable' | 'size';
 }
 
 const PAPER = 'rgb(242, 241, 234)'; // BloomDial's beige (fillEngine BEIGE)
@@ -45,8 +59,10 @@ const INK = '#3f3a36';
 const colorOf = (code: string) => ARCHETYPE_VISUALS[code]?.color ?? INK;
 const tintOf = (code: string) => ARCHETYPE_VISUALS[code]?.tint ?? '#e7e5e4';
 const HOP_DASH: Record<string, string | undefined> = { bolder: undefined, gentler: '10 8', different: '3 7', sibling: '1 5' };
+// Ella map 5: dial_step_basis.line_style -> SVG dash (chrome: the style words come from the API)
+export const STEP_DASH: Record<string, string | undefined> = { solid: undefined, dashed: '14 9', dotted: '2 8' };
 
-export default function EllaMapFace({ placements, wedges, seams = [], highlightCoffeeId = null, hops = [], path = [], size, labelMode, onTapCoffee }: EllaMapFaceProps) {
+export default function EllaMapFace({ placements, wedges, seams = [], highlightCoffeeId = null, hops = [], path = [], size, labelMode, onTapCoffee, steps = [], dotStyle = 'sellable' }: EllaMapFaceProps) {
   const g = faceGeometry(VIEW);
   const full = size === 'full';
   const labels = (labelMode ?? (full ? 'name' : 'none')) === 'name';
@@ -97,6 +113,21 @@ export default function EllaMapFace({ placements, wedges, seams = [], highlightC
           fontSize={19} fontStyle="italic" fill={INK} fillOpacity={0.7}>{s.label}</text>;
       })}
 
+      {/* Ella map 5: decided steps, one line per pair, under the dots */}
+      {(() => {
+        const seen = new Set<string>();
+        return steps.map(st => {
+          const key = [st.from_coffee_id, st.to_coffee_id].sort((x, y) => x - y).join('-');
+          if (seen.has(key)) return null;
+          seen.add(key);
+          const a = dotById.get(st.from_coffee_id), b = dotById.get(st.to_coffee_id);
+          if (!a || !b) return null;
+          const lit = highlightCoffeeId !== null && (st.from_coffee_id === highlightCoffeeId || st.to_coffee_id === highlightCoffeeId);
+          return <line key={`st-${key}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} data-step={key}
+            stroke={INK} strokeOpacity={lit ? 0.85 : 0.5} strokeWidth={lit ? 4 : 3} strokeLinecap="round" strokeDasharray={STEP_DASH[st.line_style]} />;
+        });
+      })()}
+
       {/* the highlighted coffee's hops */}
       {from && hops.map(h => {
         const to = dotById.get(h.to_coffee_id);
@@ -125,8 +156,13 @@ export default function EllaMapFace({ placements, wedges, seams = [], highlightC
             onKeyDown={tap ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tap(); } } : undefined}>
             <title>{p.coffee_name}</title>
             {highlighted && <circle cx={d.x} cy={d.y} r={d.r + 9} fill="none" stroke={INK} strokeWidth={4} />}
-            <circle cx={d.x} cy={d.y} r={d.r} fill={color} fillOpacity={p.is_sellable ? 1 : 0.3}
-              stroke={p.is_sellable ? '#fff' : color} strokeWidth={3} strokeDasharray={p.is_sellable ? undefined : '4 4'} />
+            {(() => {
+              const solid = dotStyle === 'size' ? p.size !== null && p.size !== undefined : p.is_sellable;
+              return dotStyle === 'size' && !solid
+                ? <circle cx={d.x} cy={d.y} r={d.r} fill={PAPER} stroke={color} strokeWidth={3} strokeDasharray="4 4" />
+                : <circle cx={d.x} cy={d.y} r={d.r} fill={color} fillOpacity={solid ? 1 : 0.3}
+                    stroke={solid ? '#fff' : color} strokeWidth={3} strokeDasharray={solid ? undefined : '4 4'} />;
+            })()}
             {labels && (() => {
               const a = labelAnchor(d, highlighted ? 16 : 6);
               return <text x={a.x} y={a.y} textAnchor={a.anchor} dominantBaseline="middle" fontSize={17} fontWeight={700}

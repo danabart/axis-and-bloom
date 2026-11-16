@@ -9,9 +9,9 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth.js';
 import * as dialReads from '../services/dialReads.js';
-import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, DialMapError } from '../services/dialPlacementService.js';
+import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, setStep, publish, DialMapError } from '../services/dialPlacementService.js';
 import { getMatchDecisions } from '../services/customerReads.js';
-import { setLean, CatalogError } from '../services/catalogService.js';
+import { setLean, setRing, CatalogError } from '../services/catalogService.js';
 
 const router = Router();
 
@@ -148,6 +148,51 @@ router.put('/customer-copy', async (req: AuthRequest, res) => {
     const b = CopyBody.parse(req.body ?? {});
     res.json(await setCustomerCopy({ code: b.code, text: b.text, adminUid: req.uid ?? null }));
   } catch (err) { fail(res, 'set customer copy', err); }
+});
+
+// ── Ella's Bloom Map 5 (2026-11-16), B3/B4: the decided map ──
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_5_DECIDED_MAP_AND_ADMIN.md
+router.get('/decided', read('decided map', () => dialReads.decidedMap()));
+router.get('/steps', read('steps', req => dialReads.steps(z.enum(['current', 'active']).parse(req.query.mode ?? 'current'))));
+
+const StepBody = z.object({
+  from: z.number().int().positive(),
+  to: z.number().int().positive(),
+  word: z.string().trim().min(1).max(60),
+  line: z.string().trim().max(300).nullable().optional(),
+  basis: z.string().trim().min(1).max(60),
+  shown: z.boolean().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+});
+router.put('/steps', async (req: AuthRequest, res) => {
+  try {
+    const b = StepBody.parse(req.body ?? {});
+    res.json(await setStep({ fromCoffeeId: b.from, toCoffeeId: b.to, buttonWord: b.word, customerLine: b.line ?? null,
+      basisCode: b.basis, isShown: b.shown, notes: b.notes, adminUid: req.uid ?? null }));
+  } catch (err) { fail(res, 'set step', err); }
+});
+
+const RingBody = z.object({
+  ring: z.number().int().min(0).max(3),
+  basis: z.string().trim().min(1).max(2000),
+  notes: z.string().trim().max(2000).nullable().optional(),
+});
+router.patch('/ring/:coffeeId', async (req: AuthRequest, res) => {
+  try {
+    const coffeeId = z.coerce.number().int().positive().parse(req.params.coffeeId);
+    const b = RingBody.parse(req.body ?? {});
+    res.json(await setRing(coffeeId, b.ring, { basis: { text: b.basis }, notes: b.notes ?? undefined }, { actor: req.uid ?? 'unknown' }));
+  } catch (err) { fail(res, 'set ring', err); }
+});
+router.get('/ring/:coffeeId/history', read('ring history', req =>
+  dialReads.ringHistory(z.coerce.number().int().positive().parse(req.params.coffeeId))));
+
+const PublishBody = z.object({ label: z.string().trim().min(1).max(60), reason: z.string().trim().min(1).max(2000) });
+router.post('/publish', async (req: AuthRequest, res) => {
+  try {
+    const b = PublishBody.parse(req.body ?? {});
+    res.status(201).json(await publish({ label: b.label, reason: b.reason, adminUid: req.uid ?? null }));
+  } catch (err) { fail(res, 'publish', err); }
 });
 
 export default router;

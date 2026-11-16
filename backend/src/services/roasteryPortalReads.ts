@@ -949,3 +949,18 @@ export async function getPreviewContact(roasterId: string, runner: Runner = db):
   );
   return { name: r.rows[0]?.contact_name ?? null, email: r.rows[0]?.contact_email ?? null };
 }
+
+// Ella's Bloom Map 5 (2026-11-16): the roaster's notes and 1 to 5 ratings per
+// catalog coffee (latest submitted response), read only, for the decided-map
+// admin card. Words and ratings exactly as received (G2.20).
+export interface CoffeeRoasterFacts {
+  coffeeId: number; submittedAt: string;
+  dimensions: Array<{ dimension_id: number; label: string; low_label: string; high_label: string; value: number }>;
+  notes: Array<{ rank: number; roaster_words: string; cupping_note_id: string | null }>;
+}
+export async function roasterFactsForCoffees(coffeeIds: number[], runner: Runner = db): Promise<CoffeeRoasterFacts[]> {
+  if (!coffeeIds.length) return [];
+  const r = await runner.query(
+    `SELECT coffee_id, submitted_at, dimensions, notes FROM v_roastery_portal_coffee_hint WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
+  return r.rows.map((x: any) => ({ coffeeId: x.coffee_id, submittedAt: x.submitted_at, dimensions: x.dimensions, notes: x.notes }));
+}

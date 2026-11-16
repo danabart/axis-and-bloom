@@ -33,6 +33,7 @@ const ORDERED_PAIRS: Array<[string, string]> = [
   ['dimension_delta_slight', 'dimension_delta_significant'],
   ['dimension_delta_slight', 'comfort_zone_edge_delta'],
   ['comfort_zone_edge_delta', 'dimension_delta_significant'],
+  ['dial_size_roaster_cut_1', 'dial_size_roaster_cut_2'], // Ella map 5
 ];
 
 /** The range a parameter's note declares, or null when it declares none. */

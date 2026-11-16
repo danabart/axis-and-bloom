@@ -199,11 +199,12 @@ describe('v_evidence_archetype (A3)', () => {
     expect(a).toEqual({ n_cuppers_called: 0, merged_call: null, catalog_archetype: 'balanced_sweet', catalog_confidence: 'low' });
   });
 
-  it('La Familia: Dana balanced_sweet, catalog floral, basis present', async () => {
+  // Ella's Bloom Map 5 (Dana 2026-11-16): the assumption map moved La Familia from floral to fruity
+  it('La Familia: Dana balanced_sweet, catalog fruity, basis present', async () => {
     const [a] = await rows(`SELECT cupper_calls, catalog_archetype, basis FROM v_evidence_archetype WHERE roaster_id = $1 AND coffee_name = 'Colombia La Familia Guarnizo'`, [JOE_COFFEE]);
     expect(a.cupper_calls).toEqual({ Dana: 'balanced_sweet' });
-    expect(a.catalog_archetype).toBe('floral');
-    expect(a.basis).toMatch(/^basis: /);
+    expect(a.catalog_archetype).toBe('fruity');
+    expect(a.basis).toMatch(/^Assumption map, CTO session 2026-11-15\/16/);
   });
 
   it('every brief 2 coffee has a basis', async () => {
