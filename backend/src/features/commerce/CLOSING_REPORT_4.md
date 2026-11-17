@@ -132,3 +132,29 @@ Receipts off, Smart Retries 8×/2 weeks and Radar Lite are not readable through 
 - `CLOSING_REPORT_4.md`: this file.
 
 Tests: the commerce files (`stripe`, `subscriptionSelfService`, `stripeWebhook`, `checkoutService`, `commerceAdmin`): 61/61. Backend `tsc --noEmit` clean.
+
+## Part C — key swap (2026-11-17)
+
+- Push `37f26ff` (with Dana's go) → deploy run `44138137101` green → rev `00869-6z8`, boot `[stripe] mode=live` at 17:34:20 UTC, no ERROR. The built bundle on `axis-and-bloom-prod.web.app` carries `pk_live_51UVxa425hny…`, no `pk_test_`.
+- **The backend was already live from 15:13 UTC.** The Ella's Bloom Map 6 and 7 deploys (revs `00865`–`00868`) booted with the `:latest` (live) secrets while the bundle still had `pk_test_`. The prod ledger shows 0 checkout sessions and 0 live events in that window: nothing was charged or attempted.
+- `CATALOG.md` was regenerated from prod after the deploy (`952c58d`, hash `a788146b…`).
+- Step 4 (Dashboard test event) was skipped: live endpoints offer no "Send test event" (Dana). The $1 purchase is the first live delivery.
+
+## Part D — the $1 gate
+
+Built (Dana, decision 4): `cartResolver.applyLiveGateOverride(cart, buyerEmail)`, called by `checkoutService.createCheckoutSession` for one-time checkouts only; a subscription's first box is never gated. Three `commerce_parameter` rows, seeded **off** (`schema.sql`, Commerce 4 block):
+
+| Key | Seed | For the gate | After the gate |
+|---|---|---|---|
+| `live_gate_override_cents` | 0 | 100 | 0 |
+| `live_gate_free_shipping` | 0 | 1 | 0 |
+| `live_gate_override_email` | `''` | `danabar.mail@gmail.com` | `''` |
+
+- **Rule:** the signed-in email (Firebase token, case-insensitive) must equal `live_gate_override_email`, and the cents must be > 0. Each bag is then charged min(cents, price), with the rest as the line's `discount_cents`, and shipping is 0 when the flag is 1. Anyone else gets the normal cart.
+- **The quote is not gated:** `POST /api/checkout/quote` has no email, so the cart summary keeps the normal price. The Stripe page shows the gated one.
+- **New format** `email or empty` (`commerceParameters.FORMAT_CHECKS`), so the email can be cleared through the same writer.
+- **Notes** are on the rows (G2.17); the `commerce_parameter.note` column comment lists the new format.
+- **Tests:**
+  - `cartResolver.test.ts` +5: off, on (any case), anyone else or no email, email empty, shipping off.
+  - `commerceParameters.test.ts` +1: seeds off, format and range.
+- **Checks:** the commerce files are green, 84/84. Backend `tsc` clean, six lints green.

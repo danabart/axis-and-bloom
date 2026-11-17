@@ -25,7 +25,7 @@
 import { createHash } from 'node:crypto';
 import type Stripe from 'stripe';
 import { db, withTransaction, type Tx } from '../db/client.js';
-import { resolveCart, CartError, type CartItemInput, type ResolvedCart } from './cartResolver.js';
+import { resolveCart, applyLiveGateOverride, CartError, type CartItemInput, type ResolvedCart } from './cartResolver.js';
 import { commerceParam, commerceParamText } from './commerceParameters.js';
 import { stripe, STRIPE_ENABLED, getOrCreateStripeCustomer } from './stripe.js';
 import { applySubscriptionPricing } from './subscriptionShipment.js';
@@ -209,7 +209,8 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
   // percentage to the tier on this, the first box; recorded on the session and
   // redeemed when it completes. Renewals are at the normal tier.
   const offer = intent ? await openHandoverOffer(profile.id) : null;
-  const cart = intent ? await priceForSubscription(resolved, offer?.pct ?? 0) : resolved;
+  // Commerce 4 Part D: the live-cutover gate, one-time checkouts only (a no-op unless its parameters are set).
+  const cart = intent ? await priceForSubscription(resolved, offer?.pct ?? 0) : await applyLiveGateOverride(resolved, input.email);
   const print = fingerprint(cart, shipTo, recipients, intent);
 
   // The same open cart twice within the expiry window reuses its session.

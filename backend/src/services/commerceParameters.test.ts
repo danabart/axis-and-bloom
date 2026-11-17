@@ -91,6 +91,22 @@ describe('setParameterInTx', () => {
       expect((await setParameterInTx(client, { key: 'subscription_frequency_weeks', value: '2, 4' })).unchanged).toBe(false);
     });
   });
+
+  it('Commerce 4 gate rows: seeded off; the email takes an address or empty, the cents its range', async () => {
+    expect(parseFormat('... Format: email or empty.')).toBe('email or empty');
+    await withRollback(async ({ client, savepoint }) => {
+      const cur = (await client.query(`SELECT key, value_numeric, value_text FROM commerce_parameter WHERE superseded_at IS NULL AND key LIKE 'live_gate_%' ORDER BY key`)).rows;
+      expect(cur).toEqual([
+        { key: 'live_gate_free_shipping', value_numeric: '0', value_text: null },
+        { key: 'live_gate_override_cents', value_numeric: '0', value_text: null },
+        { key: 'live_gate_override_email', value_numeric: null, value_text: '' },
+      ]);
+      await expectInvalid(savepoint(() => setParameterInTx(client, { key: 'live_gate_override_email', value: 'nope' })));
+      await expectInvalid(savepoint(() => setParameterInTx(client, { key: 'live_gate_override_cents', value: 2001 })));
+      expect((await setParameterInTx(client, { key: 'live_gate_override_email', value: 'danabar.mail@gmail.com' })).unchanged).toBe(false);
+      expect((await setParameterInTx(client, { key: 'live_gate_override_email', value: '' })).value).toBe('');
+    });
+  });
 });
 
 describe('the read cache', () => {

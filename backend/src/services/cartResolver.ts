@@ -22,7 +22,7 @@
 import { db } from '../db/client.js';
 import { resolveBlendForSlot, resolveCoffeeBlend, computeCollectionOffer } from './blendResolver.js';
 import { archetypeLabel, getCoffeeRetailPrices, getCoffees, getHomeSlot } from './catalogReads.js';
-import { commerceParam } from './commerceParameters.js';
+import { commerceParam, commerceParamText } from './commerceParameters.js';
 
 export class CartError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -188,4 +188,33 @@ export async function resolveCart(items: CartItemInput[]): Promise<ResolvedCart>
   // One bag per unit of every line, whatever its weight; a collection counts each member.
   const bagCount = lines.reduce((s, l) => s + l.quantity, 0);
   return { lines, subtotalCents, bagCount, shippingCents: await shippingFor(bagCount) };
+}
+
+/**
+ * Commerce 4, Part D (2026-11-16): the live-cutover gate. While
+ * live_gate_override_cents > 0, a one-time checkout by the account whose
+ * signed-in email is live_gate_override_email (case-insensitive) charges each
+ * bag override cents (the rest of the server price becomes the line's
+ * discount); live_gate_free_shipping = 1 makes its shipping 0. Anyone else, an
+ * empty email, or 0 cents: the cart is unchanged. Every number is a
+ * commerce_parameter row; after the gate all three are superseded to 0 / empty,
+ * and the path stays for the next cutover. Callers apply it to one-time
+ * checkouts only (never a subscription's first box).
+ */
+export async function applyLiveGateOverride(cart: ResolvedCart, buyerEmail: string | null): Promise<ResolvedCart> {
+  const cents = await commerceParam('live_gate_override_cents');
+  if (cents <= 0 || !buyerEmail) return cart;
+  const gateEmail = (await commerceParamText('live_gate_override_email')).trim().toLowerCase();
+  if (!gateEmail || buyerEmail.trim().toLowerCase() !== gateEmail) return cart;
+  const lines = cart.lines.map(l => {
+    const full = l.unitPriceCents + l.discountCents;
+    const charged = Math.min(cents, full);
+    return { ...l, unitPriceCents: charged, discountCents: full - charged };
+  });
+  const freeShipping = (await commerceParam('live_gate_free_shipping')) === 1;
+  return {
+    ...cart, lines,
+    subtotalCents: lines.reduce((s, l) => s + l.unitPriceCents * l.quantity, 0),
+    shippingCents: freeShipping ? 0 : cart.shippingCents,
+  };
 }

@@ -10036,6 +10036,17 @@ SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
 ) AS v(key, value_numeric, value_text, note)
 WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = v.key);
 
+-- Commerce 4, Part D (2026-11-16): the live-cutover gate (cartResolver.applyLiveGateOverride).
+-- Seeded OFF; switched on for the $1 purchase through the commerceParameters
+-- writer and superseded back to 0 / empty after it. The path stays for the next cutover.
+INSERT INTO commerce_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('live_gate_override_cents', 0::numeric, NULL::text, 'Live-cutover gate: cents charged per bag on a one-time checkout by live_gate_override_email; 0 = off (the normal price). Set to 100 for the $1 purchase and back to 0 after it. Range: integer 0 <= value <= 2000.'),
+  ('live_gate_free_shipping',  0, NULL, 'Live-cutover gate: 1 = shipping 0 on the gated checkout, 0 = normal shipping. Applies only while live_gate_override_cents > 0 and to live_gate_override_email. Range: integer 0 <= value <= 1.'),
+  ('live_gate_override_email', NULL, '', 'Live-cutover gate: the signed-in email (case-insensitive) whose one-time checkout the gate prices; empty = nobody. Format: email or empty.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = v.key);
+
 -- 6. Views. New columns are appended (CREATE OR REPLACE keeps the old ones in
 -- place). v_order_status gains the latest shipment by order_id and its
 -- tracking link; v_subscription_status gains when it was canceled and

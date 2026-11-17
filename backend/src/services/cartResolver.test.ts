@@ -7,7 +7,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const params: Record<string, number> = { shipping_fee_cents: 595, free_shipping_min_bags: 2 };
-vi.mock('./commerceParameters.js', () => ({ commerceParam: async (k: string) => params[k] }));
+const textParams: Record<string, string> = { live_gate_override_email: '' };
+vi.mock('./commerceParameters.js', () => ({ commerceParam: async (k: string) => params[k], commerceParamText: async (k: string) => textParams[k] }));
 
 const slotResolution = vi.fn();
 const coffeeBlend = vi.fn();
@@ -29,7 +30,7 @@ vi.mock('./catalogReads.js', () => ({
 const dbQuery = vi.fn();
 vi.mock('../db/client.js', () => ({ db: { query: (...a: unknown[]) => dbQuery(...a) } }));
 
-const { resolveCart, shippingFor, CartError } = await import('./cartResolver.js');
+const { resolveCart, shippingFor, applyLiveGateOverride, CartError } = await import('./cartResolver.js');
 
 const dialResolved = {
   blend_id: 'sku-dial', coffee_id: 11, coffee_name: 'Roaster name', roaster: 'Roaster', priority: 1, weight_oz: 12,
@@ -128,5 +129,47 @@ describe('bag count and shipping from commerce_parameter', () => {
     params.shipping_fee_cents = 700; params.free_shipping_min_bags = 3;
     expect(await shippingFor(2)).toBe(700);
     expect(await shippingFor(3)).toBe(0);
+  });
+});
+
+// Commerce 4, Part D (2026-11-16): the live-cutover gate.
+describe('applyLiveGateOverride', () => {
+  const cart = () => ({
+    lines: [{ coffeeSkuId: 'sku', coffeeId: 77, displayName: 'Quiet Ember', archetypeLabel: 'Earthy', weightOz: 12, quantity: 1,
+      unitPriceCents: 2100, discountCents: 0, source: 'direct' as const, archetype: null, dialSortOrder: null }],
+    subtotalCents: 2100, bagCount: 1, shippingCents: 595,
+  });
+  const gate = (cents: number, ship: number, email: string) => {
+    params.live_gate_override_cents = cents; params.live_gate_free_shipping = ship; textParams.live_gate_override_email = email;
+  };
+
+  it('off (0 cents, empty email, the seed): the cart is unchanged for everyone', async () => {
+    gate(0, 0, '');
+    expect(await applyLiveGateOverride(cart(), 'danabar.mail@gmail.com')).toEqual(cart());
+  });
+
+  it('on: the gate email (any case) pays 100 per bag, shipping 0, the rest is the line discount', async () => {
+    gate(100, 1, 'danabar.mail@gmail.com');
+    const g = await applyLiveGateOverride(cart(), 'DanaBar.Mail@gmail.com');
+    expect(g).toMatchObject({ subtotalCents: 100, shippingCents: 0, bagCount: 1 });
+    expect(g.lines[0]).toMatchObject({ unitPriceCents: 100, discountCents: 2000 });
+  });
+
+  it('on: anyone else, or no email, pays the normal price and shipping', async () => {
+    gate(100, 1, 'danabar.mail@gmail.com');
+    expect(await applyLiveGateOverride(cart(), 'someone@example.com')).toEqual(cart());
+    expect(await applyLiveGateOverride(cart(), null)).toEqual(cart());
+  });
+
+  it('cents set but email empty: nobody is gated; shipping flag alone does nothing', async () => {
+    gate(100, 1, '');
+    expect(await applyLiveGateOverride(cart(), 'danabar.mail@gmail.com')).toEqual(cart());
+    gate(0, 1, 'danabar.mail@gmail.com');
+    expect(await applyLiveGateOverride(cart(), 'danabar.mail@gmail.com')).toEqual(cart());
+  });
+
+  it('free shipping off: the gated price with normal shipping', async () => {
+    gate(100, 0, 'danabar.mail@gmail.com');
+    expect(await applyLiveGateOverride(cart(), 'danabar.mail@gmail.com')).toMatchObject({ subtotalCents: 100, shippingCents: 595 });
   });
 });

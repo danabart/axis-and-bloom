@@ -18,9 +18,11 @@ export class CommerceParameterError extends Error {
 }
 const invalid = (message: string) => new CommerceParameterError(400, 'COMMERCE_PARAMETER_INVALID', message);
 
-const FORMAT = /Format:\s*(email|integer list|stripe tax code|dial slot)\b/i;
+const FORMAT = /Format:\s*(email or empty|email|integer list|stripe tax code|dial slot)\b/i;
 const FORMAT_CHECKS: Record<string, (v: string) => boolean> = {
   'email': v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+  // Commerce 4 Part D: live_gate_override_email, empty = the gate is off.
+  'email or empty': v => v === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
   'integer list': v => /^\d+(\s*,\s*\d+)*$/.test(v),
   'stripe tax code': v => /^txcd_\d{8}$/.test(v),
   // Website 2 (2026-11-04): home_featured_slot, archetype_code:sort_order
