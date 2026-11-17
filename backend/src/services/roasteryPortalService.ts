@@ -802,6 +802,15 @@ async function rememberMapping(tx: Tx, words: string, cuppingNoteId: string, adm
 }
 
 export async function acceptResponse(input: { responseId: string; items: unknown; actorUid: string }): Promise<AcceptResult> {
+  return withTransaction(tx => acceptResponseInTx(tx, input));
+}
+
+/**
+ * The accept itself, inside a caller's transaction (Ella's Bloom Map 6, 2026-11-16:
+ * the five-coffee script accepts its coffees in one transaction, and its test runs
+ * inside a rolled-back one). acceptResponse is this in its own transaction.
+ */
+export async function acceptResponseInTx(tx: Tx, input: { responseId: string; items: unknown; actorUid: string }): Promise<AcceptResult> {
   if (!isUuid(input.responseId)) throw notFound('response');
   const items = (input.items ?? {}) as AcceptItems;
   if (typeof items !== 'object' || Array.isArray(items)) throw invalid('items must be an object');
@@ -809,7 +818,7 @@ export async function acceptResponse(input: { responseId: string; items: unknown
   if (!Array.isArray(noteItems)) throw invalid('notes must be a list');
   const vocab = await getVocabulary({ fresh: true });
 
-  return withTransaction(async tx => {
+  {
     const rr = await tx.query(
       `SELECT r.*, pc.roaster_id, pc.name AS coffee_name, pc.coffee_id, pc.is_active AS lineup_active
        FROM roastery_portal_response r JOIN roastery_portal_coffee pc ON pc.id = r.portal_coffee_id
@@ -957,7 +966,7 @@ export async function acceptResponse(input: { responseId: string; items: unknown
     );
     const integrity = await scopedIntegrity(tx, { coffeeId });
     return { acceptanceId: log.rows[0].id, coffeeId, createdCoffee: created, applied, warnings: [], integrity };
-  });
+  }
 }
 
 // ── Remembered mappings, managed from the admin "Mappings" list ───────────────

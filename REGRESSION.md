@@ -336,6 +336,11 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **No slot and no `coffee_hop` in the map code** (`matchService`, `routes/map.ts`, the map pages); no price or add-to-cart on `/map` until prices move to `coffee_retail_price` (brief 4).
 - [ ] **Nothing typed in:** button labels and edge phrases from `dial_hop_phrase`, sentences from `dial_customer_copy`; the customer page names no ring, lane, cell, seam, grade or version.
 
+## Ella's Bloom Map 6: the five coffees (2026-11-16)
+
+- [ ] **A catalog coffee from a portal lineup is created only by `acceptResponse`** (`roasteryPortalService.acceptResponse` / `acceptResponseInTx`, the same body): it links the lineup coffee, writes the ticked basics, notes and descriptors through `catalogService`, logs one `roastery_portal_acceptance` row, and never writes a family, slot, SKU or price. The roaster's response rows stay as submitted.
+- [ ] **The five-coffee script accepts each lineup coffee at most once:** a lineup coffee already linked to a catalog coffee is skipped and reported; a roaster pick that is not the approved term stops the plan.
+
 ## Ella's Bloom Map 5: the decided map and the simplified admin page (2026-11-16)
 
 - [ ] **A ring decision wins over the calculated ring:** a current `coffee_ring_assignment` row that fits the family (0 exactly for the center) sets `v_dial_placement_preview.ring`; `calculated_ring` stays beside it and the flag `ring_decided` shows; with no decision the calculated ring is used as before. Ring 0 outside the center (or 1 to 3 in it) is refused by the service and the insert trigger.

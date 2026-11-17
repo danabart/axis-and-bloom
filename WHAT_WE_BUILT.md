@@ -6837,6 +6837,16 @@ Brief: `backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_1_CAPTUR
 - **On production 2026-11-16** (`9930d73`, rev `axis-bloom-backend-00863-zkc`): seed applied (61 rows; rerun 0), "L1 assumption map" published (version 2, 13 placements, 11 lines, 15 first-match cells, L0 retired); every `dial_surface` row still `lane`; La Familia and The Village keep their slots (Dana; OT-137). `CATALOG.md` regenerated from production.
 
 
+
+### 273. Ella's Bloom Map, brief 6: the five coffees that were not in the catalog (2026-11-16)
+
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_6_FIVE_COFFEES.md` · `CLOSING_REPORT_6.md`. Half Moon, Great Heights, Brazil, Indonesia and D.R. Congo existed only as roastery portal lineup coffees (OT-136).
+
+- **Backend:** `roasteryPortalService.acceptResponseInTx` (the accept body inside a caller's transaction; `acceptResponse` is it in its own transaction, unchanged for the admin route). No schema change.
+- **Script:** `backend/src/scripts/ellaMapFiveCoffees_2026_11_16.ts` (`--dry-run` default, `--apply`, `--expect-db`): one acceptance per coffee from the latest submitted response, every basic as stated, the one note with the term Dana approved (roaster picks for four, Chocolate for Great Heights, remember false), recorded under the Dana-Admin profile; skips a lineup coffee already linked; stops when a roaster pick is not the approved term. Reads portal data only through `roasteryPortalReads`. Then the brief 5 seed, unchanged.
+- **Tests:** `dialMap6.test.ts` (fixture lineup: created, linked, no family, slot, SKU, price or remembered mapping, second run creates nothing, responses byte for byte; the real five plus the seed: 5 families, 5 leans, 5 rings, 14 step rows).
+- **Test DB (2026-11-16):** 5 accepted (coffees 4299 to 4303), seed 30 rows (the 29 plus Blossom's ring back from brief 5's acceptance), "L2 assumption map, 18 coffees" published: 18 placements, 18 lines, 36 step rows, no dashed dot. **Production: waiting at the Part E STOP.**
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)
