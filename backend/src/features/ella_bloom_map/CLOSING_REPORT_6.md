@@ -1,8 +1,26 @@
 # Closing report 6: the five coffees that are not in the catalog yet
 
-Brief: `CLAUDE_CODE_PROMPT_ELLA_MAP_6_FIVE_COFFEES.md`. **Status 2026-11-16: Parts B to D built, Part E step 1 done on the test DB; STOPPED at the Part E production STOP.** Nothing written to production; nothing committed or pushed (a push deploys).
+Brief: `CLAUDE_CODE_PROMPT_ELLA_MAP_6_FIVE_COFFEES.md`. **Status 2026-11-17: DONE on production.** Code b42233b (deploy rev `axis-bloom-backend-00865-6sq`); the five accepted, the seed rerun, "L2 assumption map, 18 coffees" active. See "Production" below.
 
 Dana's answers (2026-11-16): the note table as it stands; the four roaster picks as-is; Great Heights: Chocolate; `remember: false` for all five; the acceptances recorded under her admin profile (Dana-Admin). No note was left out.
+
+Dana's go (2026-11-17): "Yes. Go to production in the order you listed. Stop and tell me if the acceptance dry run shows anything other than the 5 accepts, or if the seed dry run after acceptance shows anything other than 29 writes." Neither stop was hit.
+
+---
+
+## Production (2026-11-17 UTC)
+
+1. **Commit and deploy:** b42233b pushed (brief 6 files by path only); Deploy run 44111428225 green (backend and frontend). Startup log of `axis-bloom-backend-00865-6sq`: "DB schema verified"; the four integrity warnings are the same as on 00864 (sommelier #3, evidence #2 and #6, quiz #10), none new.
+2. **Acceptance:** the dry run again showed **5 accept, 0 skipped**, the table identical line for line to the one below. `--apply` 15:16:06: Half Moon coffee **2937**, Great Heights **2938**, Brazil **2939**, Indonesia **2940**, D.R. Congo **2941**, each `created_coffee` true.
+3. **Seed:** dry run after the acceptance **29 write, 77 unchanged, 0 skipped**; the 29 subjects are exactly the 29 skipped before. `--apply` 15:16:49 wrote 29; rerun 0 write, 106 unchanged, 0 skipped.
+4. **Published "L2 assumption map, 18 coffees"** as version 3, 18 placements, version 2 (L1) retired. Actor `script:em5_publish (Dana go 2026-11-17, brief 6)`.
+5. **Read back:**
+   - Active version L2: **18 placements, 36 current step rows, all 36 on the map, 18 lines**; 4 step rows have no customer line (17 and 18, both directions); **0 dashed dots**.
+   - The five, grade D, as on the test DB: Half Moon balanced_sweet ring 0 side_a size 2; Brazil chocolate_nutty 1 middle 3; Great Heights chocolate_nutty 3 side_b 1; Indonesia earthy 2 middle 1; D.R. Congo fruity 1 middle 3.
+   - Catalog: active, basics as stated, Half Moon `half_caf`; descriptors Vanilla, Chocolate, Chocolate, Dark Chocolate, Orange; one acceptance each, accepted by Dana-Admin; **0 slots, 0 SKUs, 0 prices**.
+   - **Responses unchanged:** md5 Brazil `ab11e149a25e8b434b2479858f5d9d34`, D.R. Congo `f11056ce23bfcc8f0fe1131bbcff9ca7`, Great Heights `6f55250b944b6cd45d916b39f546cd52`, Half Moon `38612dd03a78f937388b7af1d6966f34`, Indonesia `457eabc3b95403c668794f3bb09e09b1`, the same as before the acceptance.
+   - Every `dial_surface` row `lane` (customer_face, quiz_result, profile_trail, reorder_email, liam_context, qr_door, axis_stats).
+6. **Docs:** OT-136 closed; WHAT_WE_BUILT #273 and the README carry the production line. `CATALOG.md` not regenerated (no comment changed).
 
 ---
 
