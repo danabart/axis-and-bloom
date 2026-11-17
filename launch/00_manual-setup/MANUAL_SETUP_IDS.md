@@ -88,6 +88,46 @@ Stripe Invoicing fee, confirmed on this account (Dana, 2026-10-31): Starter, 0.4
 
 Note (Task 0, 2026-10-31): `sponsored-subscription-check` and `expire-company-gift-codes` still have no scheduler jobs (OT-13). `gcloud scheduler jobs list` shows only `purge-stale-anonymous-guests`, `liam-gate-offline` and `coffee-content-backfill`.
 
+### Commerce 4 — Live (added 2026-11-16)
+
+Brief: `backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_4_LIVE_CUTOVER.md`. Live account `acct_1UVxa425hnyYIAkS`. Settings re-read through the live API by Claude Code on 2026-11-16 (read-only, `backend/tmp/commerce4_stripe_live_ro.ts`).
+
+**Part A: live account activation (Dana)**
+
+| # | Step | Owner | Status |
+|---|---|---|---|
+| A1 | Business: Creative Box LLC, EIN, Union City NJ address, website, product description | Dana | ✅ 2026-11-16 |
+| A2 | Representative details | Dana | ✅ 2026-11-16 |
+| A3 | Payout bank account (LLC checking), Stripe default payout schedule | Dana | ✅ 2026-11-16 (API: `payouts_enabled` true) |
+| A4 | Public details: statement descriptor, support email, support URL | Dana | ✅ 2026-11-16 (API: descriptor `AXIS AND BLOOM COFFEE`; the brief proposed `AXIS & BLOOM COFFEE`) |
+| A5 | "Payments enabled" | Stripe | ✅ 2026-11-16 (API: `charges_enabled` true) |
+| A6 | Radar: Radar Lite (the default rules) | Dana | ✅ 2026-11-16 |
+
+**Part B: live Dashboard settings (CTO session, in Dana's browser)**
+
+| # | Setting | Owner | Status |
+|---|---|---|---|
+| B1 | Tax: preset category "Coffee Beans or Ground Coffee" (`txcd_41050006`), copied from the sandbox; head office Union City NJ | CTO session | ✅ 2026-11-16 (API: tax settings active, default `txcd_41050006`, head office Union City) |
+| B2 | Tax registration: NJ, state sales tax | CTO session | ✅ 2026-11-16 (API: US/NJ `state_sales_tax`, active) |
+| B3 | Payment methods: Cards, Apple Pay, Google Pay, Link only | CTO session | ✅ 2026-11-16 (API: default config `pmc_1UVxad25hnyYIAkSjEaHhGqo` = apple_pay, card, google_pay, link) |
+| B4 | Payment method domains: `www.axisandbloomcoffee.com` for Apple Pay / Google Pay | CTO session | ⏳ none listed in live on 2026-11-16 (API returns no domains) |
+| B5 | Branding: brand `#3a3c3e`, accent `#ca526d`, copied from the sandbox | CTO session | ✅ 2026-11-16 (API: primary `#3a3c3e`, secondary `#ca526d`) |
+| B6 | Emails: successful-payment and refund receipts off | CTO session | ✅ 2026-11-16 |
+| B7 | Billing → Manage failed payments: Smart Retries, up to 8 times within 2 weeks, invoice left past-due | CTO session | ✅ 2026-11-16 |
+| B8 | Webhook `axis-bloom-backend-live`: **`we_1UcTtB25hnyYIAkSqQmkzKQR`**, URL `https://axis-bloom-backend-oiub7eumya-uc.a.run.app/api/webhooks/stripe`, API `2026-09-30.endive`, the same 10 events as the sandbox (`checkout.session.completed` / `expired` / `async_payment_succeeded` / `async_payment_failed`, `charge.refunded`, `payment_intent.payment_failed`, `invoice.paid` / `payment_failed` / `marked_uncollectible` / `voided`) | CTO session | ✅ 2026-11-16 (API: enabled, 10 events) |
+
+**Secrets (Secret Manager, `axis-and-bloom-prod`)**
+
+| Secret | Live version | Test version |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | v2, created 2026-11-16 18:30 UTC, a **restricted key** (`rk_live_`, full access except sensitive operations) | v1 (2026-10-31), **disabled** |
+| `STRIPE_WEBHOOK_SECRET` | v2, created 2026-11-16 18:35 UTC (the live endpoint's signing secret) | v1 (2026-10-31), **disabled** |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | `pk_live_…` in `deploy.yml` (frontend build env; publishable) | `pk_test_51UVkXO…` |
+
+`deploy.yml` maps both secrets as `:latest`. Rollback: re-enable v1 of both secrets, disable v2, set the `pk_test_` value back in `deploy.yml`, push (redeploy). No DB change.
+
+The `subscription-daily` scheduler job is unchanged by the cutover (same URL, same secret).
+
 ## Open before ads warm-up (~Aug 3)
 
 1. ~~Meta domain verification~~ ✅ done 2026-07-17.

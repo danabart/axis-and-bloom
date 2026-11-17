@@ -243,10 +243,10 @@ jobs:
           VITE_RECAPTCHA_APPCHECK_SITE_KEY: '6LcoeHwtAAAAANcHTyuClbWwFi6Q3jmEv7szavxv'
           # Commerce 1 (2026-10-31) — Stripe publishable key for Embedded
           # Checkout. Public by design (pk_..., ships in the bundle), like the
-          # site key above; TEST mode until Commerce brief 4 swaps in pk_live_
-          # with Dana. The secret key and webhook secret never appear here:
+          # site key above; LIVE since Commerce brief 4 (2026-11-17; was pk_test_
+          # 51UVkXO..., the rollback value). The secret key and webhook secret never appear here:
           # they are Secret Manager secrets on the backend (--set-secrets).
-          VITE_STRIPE_PUBLISHABLE_KEY: 'pk_test_51UVkXO0QYxZQN6jDZzCgLtB6eEscBgz3TKyncTFIzrSJQAN1vO9NVL391QakNoAOqOBIVYZ9VMgyhEQVVlx6XdLI00IPt5ymKh'
+          VITE_STRIPE_PUBLISHABLE_KEY: 'pk_live_51UVxa425hnyYIAkSISVUKBKss7Zm297NzZPWb2c0nqWLtKw6Y0XcDPbIaKpBNgtzCe52CAc4umMs8ZDQVWN3Lmy8008Owr6rG2'
           VITE_PRELAUNCH_MODE: 'true'
           # Same host as FRONTEND_URL on the backend step; change the two together.
           VITE_CANONICAL_HOST: www.axisandbloomcoffee.com

@@ -30,7 +30,11 @@ export function stripe(): Stripe {
   return client;
 }
 
-/** For the one boot log line: [stripe] mode=test|live|disabled. */
+/**
+ * For the one boot log line: [stripe] mode=test|live|disabled. A standard
+ * (sk_) or restricted (rk_) live key is live; the prod live key is rk_live_
+ * (Commerce 4, 2026-11-16). Pinned by stripe.test.ts.
+ */
 export function stripeMode(): 'test' | 'live' | 'disabled' {
   if (!STRIPE_ENABLED) return 'disabled';
   return STRIPE_SECRET_KEY.startsWith('sk_live_') || STRIPE_SECRET_KEY.startsWith('rk_live_') ? 'live' : 'test';
@@ -41,24 +45,56 @@ export function stripeMode(): 'test' | 'live' | 'disabled' {
  * new customer (email, name, metadata.user_id) stored on the profile. The
  * idempotency key and the "only while NULL" update keep two concurrent first
  * checkouts from leaving two customers on one profile.
+ *
+ * Commerce 4 (2026-11-16): a saved id is checked with Stripe once per process.
+ * Customer ids carry no test/live prefix, so a sandbox id saved before the
+ * live cutover answers "No such customer" (resource_missing) in live, and a
+ * customer deleted in the Dashboard comes back `deleted`. Either way a new
+ * customer is created and replaces the saved id (only while the row still
+ * holds the old one). The old id is never silently lost: it goes on the new
+ * customer as metadata.replaced_customer_id and in a [stripe] log line.
  */
+const verifiedCustomers = new Set<string>();
+
+function isNoSuchCustomer(err: unknown): boolean {
+  return err instanceof Stripe.errors.StripeError && err.code === 'resource_missing';
+}
+
 export async function getOrCreateStripeCustomer(userId: string, email: string | null): Promise<string> {
   const r = await db.query<{ stripe_customer_id: string | null; first_name: string | null; last_name: string | null }>(
     `SELECT stripe_customer_id, first_name, last_name FROM user_profile WHERE id = $1`, [userId]
   );
   const row = r.rows[0];
   if (!row) throw new Error(`user_profile ${userId} not found`);
-  if (row.stripe_customer_id) return row.stripe_customer_id;
+
+  const saved = row.stripe_customer_id;
+  if (saved) {
+    if (verifiedCustomers.has(saved)) return saved;
+    const usable = await stripe().customers.retrieve(saved)
+      .then(c => !('deleted' in c && c.deleted))
+      .catch(err => { if (isNoSuchCustomer(err)) return false; throw err; });
+    if (usable) { verifiedCustomers.add(saved); return saved; }
+  }
 
   const name = [row.first_name, row.last_name].filter(Boolean).join(' ') || undefined;
   const customer = await stripe().customers.create(
-    { email: email ?? undefined, name, metadata: { user_id: userId } },
-    { idempotencyKey: `customer:${userId}` },
+    { email: email ?? undefined, name, metadata: saved ? { user_id: userId, replaced_customer_id: saved } : { user_id: userId } },
+    { idempotencyKey: saved ? `customer:${userId}:replaces:${saved}` : `customer:${userId}` },
   );
-  await db.query(
-    `UPDATE user_profile SET stripe_customer_id = $1, updated_at = now() WHERE id = $2 AND stripe_customer_id IS NULL`,
-    [customer.id, userId]
-  );
+  if (saved) {
+    await db.query(
+      `UPDATE user_profile SET stripe_customer_id = $1, updated_at = now() WHERE id = $2 AND stripe_customer_id = $3`,
+      [customer.id, userId, saved]
+    );
+  } else {
+    await db.query(
+      `UPDATE user_profile SET stripe_customer_id = $1, updated_at = now() WHERE id = $2 AND stripe_customer_id IS NULL`,
+      [customer.id, userId]
+    );
+  }
   const after = await db.query<{ stripe_customer_id: string }>(`SELECT stripe_customer_id FROM user_profile WHERE id = $1`, [userId]);
-  return after.rows[0].stripe_customer_id;
+  const current = after.rows[0].stripe_customer_id;
+  if (saved) console.warn(`[stripe] customer replaced user=${userId} old=${saved} new=${current} (old id not found in mode=${stripeMode()})`);
+  verifiedCustomers.add(current);
+  return current;
 }

@@ -588,7 +588,7 @@ export async function resumeDuePauses(today: string = todayEastern()): Promise<s
  * Status canceled, cancel_at today, the event, the lifecycle refresh (Liam
  * access ends with counts_as_subscriber). A paid bag already ordered still ships.
  */
-export async function cancel(subscriptionId: string, source: SubscriptionEventSource = 'customer', today: string = todayEastern()): Promise<SelfServiceResult> {
+export async function cancel(subscriptionId: string, source: SubscriptionEventSource = 'customer', today: string = todayEastern(), reason?: string): Promise<SelfServiceResult> {
   const pre = (await db.query<{ status: SubscriptionStatus; kind: string }>(`SELECT status, kind FROM subscription WHERE id = $1`,
     [/^[0-9a-f-]{36}$/i.test(subscriptionId) ? subscriptionId : '00000000-0000-0000-0000-000000000000'])).rows[0];
   if (pre && pre.kind === 'paid' && !ENDED.includes(pre.status)) await voidOpenRenewalInvoices(subscriptionId);
@@ -598,7 +598,7 @@ export async function cancel(subscriptionId: string, source: SubscriptionEventSo
       `UPDATE subscription SET status = 'canceled', cancel_at = $2::date, paused_until = NULL, skip_next_until = NULL, updated_at = now() WHERE id = $1`,
       [subscriptionId, today]
     );
-    const eventId = await recordSubscriptionEvent({ subscriptionId, kind: 'canceled', note: `was ${row.status}`, source }, tx);
+    const eventId = await recordSubscriptionEvent({ subscriptionId, kind: 'canceled', note: reason ? `was ${row.status}; ${reason}` : `was ${row.status}`, source }, tx);
     return { changed: true, eventId, emailKind: 'canceled', refreshLifecycle: true };
   });
 }

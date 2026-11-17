@@ -169,6 +169,12 @@ describe('cancel', () => {
     expect(mailsTo(s.uid).filter(m => m.subject === 'Your subscription is canceled')).toHaveLength(1);
     await expect(svc.pause(s.id, '2026-11-30', 'customer', '2026-11-16')).rejects.toMatchObject({ status: 409, code: 'subscription_ended' });
   });
+
+  it('an admin cancel can carry its reason in the event note (Commerce 4)', async () => {
+    const s = await paidSub({ status: 'active' });
+    expect((await svc.cancel(s.id, 'admin', '2026-11-16', 'sandbox card, live cutover')).changed).toBe(true);
+    expect((await events(s.id)).slice(-1)).toEqual([{ event_kind: 'canceled', note: 'was active; sandbox card, live cutover', source: 'admin' }]);
+  });
 });
 
 describe('attachPaymentMethod', () => {
