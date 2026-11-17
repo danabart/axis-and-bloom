@@ -1,10 +1,32 @@
 # Closing report 7: the match rule and the customer page
 
-Brief: `CLAUDE_CODE_PROMPT_ELLA_MAP_7_MATCH_RULE_AND_CUSTOMER_PAGE.md`. **Status 2026-11-17: Parts A to D built, Part E step 1 done on the test DB; STOPPED at the Part E production STOP.** Nothing written to production; nothing committed or pushed (a push deploys).
+Brief: `CLAUDE_CODE_PROMPT_ELLA_MAP_7_MATCH_RULE_AND_CUSTOMER_PAGE.md`. **Status 2026-11-17: DONE on production.** Code 2699b6b (deploy rev `axis-bloom-backend-00867-m9v`); the start rule entered and the two dead-end picks retired; `CATALOG.md` regenerated. See "Production" below.
 
 `DEVELOPMENT_GUARDRAILS.md` read first. It is unchanged since 2026-11-08 (7939920).
 
 Dana's answers (2026-11-17): first bags ignore sellability and show no price until brief 8, with the in-stock and grade checks kept; nine rows (the "dark, smoky" Chocolate & Nutty row and its condition code dropped; nothing else used it); a tie in an old Earthy result goes to the family the quiz branched from, otherwise Balanced; only the two dead-end first-match picks are retired, the other 13 stay on the advanced page; the move code `step`; build from the mockup and the brief.
+
+Dana's go (2026-11-17): "Yes. Go to production in the order you listed. Stop and tell me if the second seed dry run shows anything other than 9 writes and 2 retirements." The stop was not hit.
+
+---
+
+## Production (2026-11-17 UTC)
+
+1. **Commit and deploy:** 2699b6b pushed. Brief 7 files were added by path; `comments.sql` was staged without the Commerce 4 `stripe_customer_id` hunk, which stays in the tree. Deploy run 44132887288 was green (backend and frontend).
+   - Startup log of `axis-bloom-backend-00867-m9v`: "DB schema verified".
+   - The integrity warnings are the same four as before (sommelier #3, evidence #2 and #6, quiz #10), plus "CATALOG.md stale", which step 4 fixes.
+2. **Seed:**
+   - The second dry run, now reading the deployed views, showed **9 write, 2 retire, 0 unchanged, 0 missing**, the same rows as the first.
+   - `--apply` at 17:07:52 wrote 11 rows. A rerun plans 0 write, 11 unchanged.
+3. **Read back:**
+   - **Rules:** 9 current rules, decided by `script:ellaMapStartRules_2026_11_17`.
+   - **First-match picks:** Earthy side_b (Amsterdam) and Floral side_b (The Village) are retired and kept in the history; 13 current rows remain. The Earthy x Floral seam is closed (`is_open` false).
+   - **The real view:** `v_dial_start` gives the same first bag as the Task 0 simulation for all 99 current sessions.
+   - **Real customers (78):** Benchmark 26, The Daily 16, Fabricator 13, La Familia 12, Geometric 7, Cafè Feminista 3, The Village 1.
+   - **The nine people:** 92, 95, 42 Benchmark; 85 La Familia; 88, 96, 33 The Daily; 86, 87 Fabricator.
+   - **Surfaces:** every `dial_surface` row is `lane`.
+   - **The gap:** no quiz was completed between the deploy and the seed, so no first-bag decision was skipped.
+4. **CATALOG.md:** regenerated from production (217 tables, 112 views, 1,858 columns). Its hash, `4f18b512…`, is the live hash the startup log reported. Docs updated, committed and pushed with it.
 
 ---
 
