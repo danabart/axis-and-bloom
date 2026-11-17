@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-17 from database `axisandbloom` · 217 tables · 112 views · 1858 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `4f18b512e37e` (full value in the footer).
+Generated 2026-11-17 from database `axisandbloom` · 217 tables · 112 views · 1858 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `a788146bf211` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -3888,7 +3888,7 @@ Core customer record keyed to a Firebase uid (real or anonymous guest), holding 
 | `household_id` | uuid | yes | Class: deprecated \| Retired 2026-11-07 (household 1). Never written. Membership lives in household_member; read v_household_member. |
 | `is_household_admin` | boolean | yes | Class: deprecated \| Retired 2026-11-07 (household 1). Never written. Roles live in household_member_role; read v_household_member. |
 | `user_type_id` | uuid | yes | References user_type.id (admin, customer or household_managed); NULL is treated as a regular customer \| Writer: admin.POST /grant-admin, admin.DELETE /revoke-admin, SQL fns grant_admin and revoke_admin, householdService.addMember (household_managed) |
-| `stripe_customer_id` | text | yes | Stripe customer id (cus_...) for the user, unique when set (partial index user_profile_stripe_customer_id_key); created on the first checkout and reused after (Commerce 1, 2026-10-31) \| Writer: stripe.getOrCreateStripeCustomer |
+| `stripe_customer_id` | text | yes | Stripe customer id (cus_...) for the user, unique when set (partial index user_profile_stripe_customer_id_key); created on the first checkout and reused after (Commerce 1, 2026-10-31); replaced by a new customer when Stripe answers "No such customer" for it, e.g. a sandbox id after the live cutover, with the old id kept on the new customer as metadata.replaced_customer_id (Commerce 4, 2026-11-16) \| Writer: stripe.getOrCreateStripeCustomer |
 | `accepts_marketing` | boolean | yes | Class: deprecated \| DEPRECATED 2026-10-16: never read or written; marketing consent lives on newsletter_subscriber (subscribed, unsubscribed_at). |
 | `date_of_birth` | date | yes | Customer date of birth (date, no time zone); used to derive generation for Liam \| Writer: users.PATCH /profile |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the profile was created; stale guest cleanup keys on it. |
@@ -5550,5 +5550,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: 4f18b512e37ed6b188fcb3936ed3c4f51efbfd16e4e8be0f10b02b205de13f17
+catalog-hash: a788146bf2111682eee0b1e0fea604d8a81e39ec31ea4776bb7df75b02bc0a62
 lineage-hash: e7083d30baad5f9c0cf7743507426d57bfbc3e14fa7fc3bfd082696535dfd30b
