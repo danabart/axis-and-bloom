@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-17 from database `axisandbloom` · 217 tables · 112 views · 1858 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `a788146bf211` (full value in the footer).
+Generated 2026-11-17 from database `axisandbloom` · 217 tables · 112 views · 1858 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `506541b55fca` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -2704,7 +2704,7 @@ Every business number of checkout and subscriptions (shipping fee and free-shipp
 | `value_text` | text | yes | The value when the parameter is text (a Stripe tax code, an email address, a comma-separated list); NULL for a numeric parameter. |
 | `since` | timestamp with time zone | no | UTC timestamp the value took effect. |
 | `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer value replaced this one; NULL marks the current value. The only column the writer ever updates. |
-| `note` | text | yes | What the parameter decides, ending with its sane range (Range: ...) for a number or its format (Format: email, integer list, stripe tax code) for text, both enforced by commerceParameters.setParameterInTx; a row written from the admin card appends the change date, the admin uid and the change note. |
+| `note` | text | yes | What the parameter decides, ending with its sane range (Range: ...) for a number or its format (Format: email, email or empty, integer list, stripe tax code) for text, both enforced by commerceParameters.setParameterInTx; a row written from the admin card appends the change date, the admin uid and the change note. |
 
 #### `company`
 
@@ -5550,5 +5550,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: a788146bf2111682eee0b1e0fea604d8a81e39ec31ea4776bb7df75b02bc0a62
-lineage-hash: e7083d30baad5f9c0cf7743507426d57bfbc3e14fa7fc3bfd082696535dfd30b
+catalog-hash: 506541b55fcac6c3b1cab726b9366eebea3354b066eed1acfe2223e3e10df2c8
+lineage-hash: 9a0e147ffcc3fdf5a0c7b9821df61bc377eb1298696ee2d0f160ab6b8250b987
