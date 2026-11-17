@@ -3,6 +3,7 @@
 // thumb face with the person's dot. Renders only when the quiz_result surface
 // says map (dial_surface); with the row on lane it renders nothing and the
 // result screen is unchanged. The quiz door has already written the decision.
+// Ella map 7 (C3): also the first bag's one reason (the same rule row /map reads).
 import { useEffect, useState } from 'react';
 import EllaMapFace from './EllaMapFace';
 import { getMapSurfaces, getMapMe, getMapFace, useMapFetch, type MapMe, type MapFaceData } from '../../../lib/mapCustomer';
@@ -31,7 +32,10 @@ export default function MapQuizStart({ refreshKey }: { refreshKey?: unknown }) {
   return (
     <div className="flex items-center gap-4 mt-4" data-testid="map-quiz-start">
       <EllaMapFace placements={face.placements} wedges={face.wedges} size="thumb" highlightCoffeeId={me.position.coffeeId} />
-      {me.position.sentence && <p className="qz-mhead-line" data-testid="map-quiz-sentence">{me.position.sentence}</p>}
+      <div>
+        {me.position.sentence && <p className="qz-mhead-line" data-testid="map-quiz-sentence">{me.position.sentence}</p>}
+        {me.firstBag && <p className="qz-mhead-line" data-testid="map-quiz-reason">{me.firstBag.reason}</p>}
+      </div>
     </div>
   );
 }

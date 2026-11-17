@@ -128,6 +128,9 @@ export async function vocabulary(runner: Runner = db) {
     rings: await q(`SELECT code, label FROM dial_ring ORDER BY code`),
     // Ella map 5: why a step exists and its line on the admin face
     stepBases: await q(`SELECT code, label, sort_order, line_style FROM dial_step_basis ORDER BY sort_order`),
+    // Ella map 7: which leans each family may take (a closed side is never offered), and the start conditions
+    wedgeLanes: await q(`SELECT archetype_code, lane_code, toward_archetype, is_open FROM v_dial_wedge_lane ORDER BY archetype_code, sort_order`),
+    startConditions: await q(`SELECT code, label, sort_order FROM dial_start_condition ORDER BY sort_order`),
     flags: await q(`SELECT code, label, description FROM dial_flag ORDER BY id`),
     readings: await q(`SELECT code, label, dimension_id FROM dial_reading ORDER BY id`),
     deltaPhrases: await q(
@@ -180,7 +183,7 @@ export async function wedges(runner: Runner = db) {
        LEFT JOIN coffee_dimensions d ON d.id = w.ruler_dimension_id
        LEFT JOIN cupping_note f ON f.id = w.seam_family_note_id
       ORDER BY w.angle_order`);
-  const s = await runner.query(`SELECT id, archetype_a, archetype_b, label, is_labelled FROM dial_seam ORDER BY id`);
+  const s = await runner.query(`SELECT id, archetype_a, archetype_b, label, is_labelled, is_open FROM dial_seam ORDER BY id`);
   return { wedges: w.rows, seams: s.rows };
 }
 
@@ -321,11 +324,16 @@ export async function hopsFromCoffee(coffeeId: number, runner: Runner = db) {
   }));
 }
 
-/** The customer face of the active map: every placed coffee that is sellable and in stock, without grade, roaster or category tags (B2: tags ride on the card payload only). */
+/**
+ * The customer face of the active map: every placed coffee, without grade,
+ * roaster or category tags (B2: tags ride on the card payload only). Ella map 7
+ * (decision 7, Dana 2026-11-17: the same map for everyone): every placed coffee
+ * is a dot, sellable or not; the page names only the customer's own.
+ */
 export async function customerFace(runner: Runner = db) {
   const r = await runner.query(
     `SELECT version_id, coffee_id, coffee_name, archetype_code, is_center, ring, lane_code, size, is_sellable
-       FROM v_dial_face WHERE is_sellable AND in_stock ORDER BY archetype_code, ring, coffee_name`);
+       FROM v_dial_face ORDER BY archetype_code, ring, coffee_name`);
   return r.rows;
 }
 
@@ -450,4 +458,67 @@ export async function decidedMap(runner: Runner = db) {
     roaster,
     unpublished: await unpublished(runner),
   };
+}
+
+// ── Ella's Bloom Map 7 (2026-11-17), B ────────────────────────────────────────
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_7_MATCH_RULE_AND_CUSTOMER_PAGE.md
+
+export interface StartRuleRow {
+  id: number; family_code: string; family_name: string; family_order: number | null; priority: number;
+  condition_code: string; condition_label: string; also_condition_code: string | null; also_condition_label: string | null;
+  coffee_id: number; coffee_name: string; admin_label: string; customer_reason: string; notes: string | null;
+  decided_by: string | null; created_at: string; superseded_at: string | null; is_current: boolean;
+}
+const START_RULE_COLS = `id, family_code, family_name, family_order, priority, condition_code, condition_label,
+  also_condition_code, also_condition_label, coffee_id, coffee_name, admin_label, customer_reason, notes,
+  decided_by, created_at, superseded_at, is_current`;
+
+/** The start rule (v_dial_start_rule): current rows in family then priority order; with history, every row, newest first within a (family, priority). */
+export async function startRules(opts: { history?: boolean } = {}, runner: Runner = db): Promise<StartRuleRow[]> {
+  const r = await runner.query<StartRuleRow>(
+    `SELECT ${START_RULE_COLS} FROM v_dial_start_rule ${opts.history ? '' : 'WHERE is_current'}
+      ORDER BY family_order NULLS LAST, family_code, priority, created_at DESC, id DESC`);
+  return r.rows;
+}
+
+/** A quiz session's first bag (v_dial_start): the winning rule row, or rule_id null when none wins; null when the session has no row. */
+export async function startForSession(quizSessionId: string, runner: Runner = db) {
+  const r = await runner.query(
+    `SELECT quiz_session_id, family_read, scores, conditions, rule_id, priority, condition_code, also_condition_code,
+            coffee_id, coffee_name, admin_label, customer_reason
+       FROM v_dial_start WHERE quiz_session_id = $1`, [quizSessionId]);
+  return r.rows[0] ?? null;
+}
+
+/** The fallback when no rule row wins: the center family's current row with the given condition code (the brief: Balanced's always row). */
+export async function startFallback(conditionCode: string, runner: Runner = db): Promise<StartRuleRow | null> {
+  const r = await runner.query<StartRuleRow>(
+    `SELECT ${START_RULE_COLS} FROM v_dial_start_rule r
+      WHERE r.is_current AND r.condition_code = $1 AND r.also_condition_code IS NULL
+        AND r.family_code = (SELECT archetype_code::text FROM dial_wedge WHERE is_center)
+      ORDER BY r.priority LIMIT 1`, [conditionCode]);
+  return r.rows[0] ?? null;
+}
+
+/** The steps on the active map leaving one coffee (v_dial_step, on_active_map), in basis order then word. */
+export async function stepsFrom(coffeeId: number, runner: Runner = db) {
+  const r = await runner.query(
+    `SELECT id, from_coffee_id, to_coffee_id, to_coffee_name, button_word, customer_line, basis_sort_order
+       FROM v_dial_step WHERE on_active_map AND from_coffee_id = $1
+      ORDER BY basis_sort_order, button_word, to_coffee_name, id`, [coffeeId]);
+  return r.rows as Array<{ id: number; from_coffee_id: number; to_coffee_id: number; to_coffee_name: string; button_word: string; customer_line: string | null; basis_sort_order: number }>;
+}
+
+/** Every step on the active map as (from, to) -> word: the trail's words. */
+export async function activeStepWords(runner: Runner = db): Promise<Map<string, string>> {
+  const r = await runner.query<{ from_coffee_id: number; to_coffee_id: number; button_word: string }>(
+    `SELECT from_coffee_id, to_coffee_id, button_word FROM v_dial_step WHERE on_active_map`);
+  return new Map(r.rows.map(x => [`${x.from_coffee_id}>${x.to_coffee_id}`, x.button_word]));
+}
+
+/** May a coffee of this family lean this way (v_dial_wedge_lane)? Null when the family or lane is unknown. */
+export async function laneIsOpen(archetypeCode: string, laneCode: string, runner: Runner = db): Promise<boolean | null> {
+  const r = await runner.query<{ is_open: boolean }>(
+    `SELECT is_open FROM v_dial_wedge_lane WHERE archetype_code::text = $1 AND lane_code = $2`, [archetypeCode, laneCode]);
+  return r.rows[0]?.is_open ?? null;
 }

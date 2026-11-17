@@ -62,7 +62,8 @@ export type CatalogErrorCode =
   | 'COFFEE_NOT_FOUND' | 'SLOT_NOT_FOUND' | 'ROASTER_NOT_FOUND' | 'COFFEE_INACTIVE' | 'SLOT_INACTIVE'
   | 'HOME_EXISTS' | 'PRIORITY_TAKEN' | 'NOTE_REQUIRED' | 'ALREADY_ASSIGNED' | 'SKU_EXISTS'
   | 'ROASTER_STATE' | 'INVALID_INPUT' | 'SPEC_VIOLATION' | 'UNKNOWN_SIZE'
-  | 'CATEGORY_NOT_FOUND' | 'CATEGORY_EXISTS' | 'CATEGORY_IN_USE';
+  | 'CATEGORY_NOT_FOUND' | 'CATEGORY_EXISTS' | 'CATEGORY_IN_USE'
+  | 'CLOSED_SIDE'; // Ella map 7: a lean on a side the map closes
 
 // Catalog Sizes + Visibility brief (2026-09-28) — a weight not in an active
 // coffee_size row is refused with a 400, ahead of the FK that would otherwise
@@ -891,8 +892,18 @@ export async function setLeanInTx(tx: Tx, coffeeId: number, laneCode: string, op
   await fetchCoffeeRow(tx, coffeeId);
   const lane = await tx.query<{ id: number }>(`SELECT id FROM dial_lane WHERE code = $1`, [laneCode]);
   if (!lane.rows[0]) throw new CatalogError(400, 'INVALID_INPUT', `Unknown lane '${laneCode}'`);
-  const sugg = await tx.query<{ suggested_lane_id: number | null; suggested_scores: unknown }>(
-    `SELECT suggested_lane_id, suggested_scores FROM v_dial_placement_preview WHERE coffee_id = $1`, [coffeeId]);
+  const sugg = await tx.query<{ suggested_lane_id: number | null; suggested_scores: unknown; archetype_code: string | null }>(
+    `SELECT suggested_lane_id, suggested_scores, archetype_code::text AS archetype_code FROM v_dial_placement_preview WHERE coffee_id = $1`, [coffeeId]);
+  // Ella map 7 (Dana 2026-11-17, decision 6): a side the map closes (Earthy and
+  // Floral toward each other) is never a lean; v_dial_wedge_lane is the one read.
+  if (sugg.rows[0]?.archetype_code) {
+    const open = await tx.query<{ is_open: boolean; toward: string | null }>(
+      `SELECT wl.is_open, ca.name AS toward FROM v_dial_wedge_lane wl LEFT JOIN coffee_archetype ca ON ca.code = wl.toward_archetype
+        WHERE wl.archetype_code::text = $1 AND wl.lane_code = $2`, [sugg.rows[0].archetype_code, laneCode]);
+    if (open.rows[0] && !open.rows[0].is_open) {
+      throw new CatalogError(409, 'CLOSED_SIDE', `This family's side toward ${open.rows[0].toward ?? 'that family'} is closed on the map; choose another lean.`);
+    }
+  }
   const current = (await tx.query(
     `SELECT * FROM coffee_lean_assignment WHERE coffee_id = $1 AND superseded_at IS NULL FOR UPDATE`, [coffeeId])).rows[0] ?? null;
   const sameBasis = opts.basis === undefined || canonicalJson(opts.basis) === canonicalJson(current?.basis ?? null);

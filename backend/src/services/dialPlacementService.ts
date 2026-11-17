@@ -148,12 +148,25 @@ export async function setWedge(archetypeCode: string, input: SetWedgeInput, admi
   }
 }
 
-export interface SetFirstMatchInput { archetypeCode: string; laneCode: string; coffeeId: number; statusCode?: string; notes?: string | null; adminUid?: string | null }
+export interface SetFirstMatchInput {
+  archetypeCode: string; laneCode: string; coffeeId: number; statusCode?: string; notes?: string | null; adminUid?: string | null;
+  /** Ella map 7 (A2): supersede the current row and insert none (a cell that no longer exists, a closed side); coffeeId is ignored */
+  retire?: boolean;
+}
 
-/** Supersede the current first match of (family, lane) and insert the new one; a no-op when nothing changes. */
+/** Supersede the current first match of (family, lane) and insert the new one; a no-op when nothing changes. With retire, supersede only. */
 export async function setFirstMatchInTx(tx: Tx, input: SetFirstMatchInput) {
   const lane = await tx.query<{ id: number }>(`SELECT id FROM dial_lane WHERE code = $1`, [input.laneCode]);
   if (!lane.rows[0]) throw invalid(`unknown lane ${input.laneCode}`);
+  if (input.retire) {
+    const cur = await tx.query<{ id: number }>(
+      `SELECT id FROM dial_first_match WHERE archetype_code::text = $1 AND lane_id = $2 AND superseded_at IS NULL FOR UPDATE`,
+      [input.archetypeCode, lane.rows[0].id]);
+    if (!cur.rows[0]) return { id: null, unchanged: true, retired: false };
+    await tx.query(`UPDATE dial_first_match SET superseded_at = now() WHERE id = $1`, [cur.rows[0].id]);
+    console.info('[ella-map] retireFirstMatch', { archetypeCode: input.archetypeCode, laneCode: input.laneCode, id: cur.rows[0].id, actor: input.adminUid ?? null });
+    return { id: cur.rows[0].id, unchanged: false, retired: true };
+  }
   const status = await tx.query<{ id: number }>(`SELECT id FROM dial_first_match_status WHERE code = $1`, [input.statusCode ?? 'founder_pick']);
   if (!status.rows[0]) throw invalid(`unknown first-match status ${input.statusCode}`);
   const coffee = await tx.query(`SELECT id FROM coffees WHERE id = $1 AND is_active`, [input.coffeeId]);
@@ -190,6 +203,57 @@ export async function setFirstMatchInTx(tx: Tx, input: SetFirstMatchInput) {
   return { id: ins.rows[0].id, unchanged: false, supersededId: c?.id ?? null };
 }
 export const setFirstMatch = (input: SetFirstMatchInput) => withTransaction(tx => setFirstMatchInTx(tx, input));
+
+// ── Ella's Bloom Map 7 (2026-11-17), B1: the start rule ───────────────────────
+
+export interface SetStartRuleInput {
+  familyCode: string; priority: number; conditionCode: string; alsoConditionCode?: string | null;
+  coffeeId: number; adminLabel: string; customerReason: string; notes?: string | null; adminUid?: string | null;
+}
+
+/**
+ * Supersede the current start rule row of (family, priority) and insert the
+ * new one; a no-op when nothing changes. Refuses a coffee that is not placed in
+ * the active version, a family that is not a map family, and an unknown
+ * condition. Not versioned: the row is the rule from the moment it is written.
+ */
+export async function setStartRuleInTx(tx: Tx, input: SetStartRuleInput) {
+  const adminLabel = input.adminLabel?.trim() ?? '';
+  const customerReason = input.customerReason?.trim() ?? '';
+  if (!adminLabel) throw invalid('the admin label is required');
+  if (!customerReason) throw invalid('the customer reason is required');
+  if (!Number.isInteger(input.priority) || input.priority < 1) throw invalid('priority is a positive whole number');
+  const fam = await tx.query(`SELECT 1 FROM dial_wedge WHERE archetype_code::text = $1`, [input.familyCode]);
+  if (!fam.rows[0]) throw invalid(`${input.familyCode} is not a map family`);
+  const codes = [input.conditionCode, ...(input.alsoConditionCode ? [input.alsoConditionCode] : [])];
+  const cond = await tx.query<{ id: number; code: string }>(`SELECT id, code FROM dial_start_condition WHERE code = ANY($1::text[])`, [codes]);
+  const condId = (code: string) => cond.rows.find(r => r.code === code)?.id;
+  if (!condId(input.conditionCode)) throw invalid(`unknown start condition ${input.conditionCode}`);
+  if (input.alsoConditionCode && !condId(input.alsoConditionCode)) throw invalid(`unknown start condition ${input.alsoConditionCode}`);
+  if (input.alsoConditionCode && input.alsoConditionCode === input.conditionCode) throw invalid('the second condition repeats the first');
+  const placed = await tx.query<{ coffee_name: string }>(`SELECT coffee_name FROM v_dial_placement WHERE coffee_id = $1`, [input.coffeeId]);
+  if (!placed.rows[0]) {
+    const name = (await tx.query<{ name: string }>(`SELECT name FROM coffees WHERE id = $1`, [input.coffeeId])).rows[0]?.name;
+    throw new DialMapError(409, 'NOT_PLACED', `${name ?? `Coffee ${input.coffeeId}`} is not placed on the published map, so it cannot be a first bag.`);
+  }
+  const conditionId = condId(input.conditionCode)!;
+  const alsoId = input.alsoConditionCode ? condId(input.alsoConditionCode)! : null;
+  const cur = (await tx.query<{ id: number; condition_id: number; also_condition_id: number | null; coffee_id: number; admin_label: string; customer_reason: string; notes: string | null }>(
+    `SELECT id, condition_id, also_condition_id, coffee_id, admin_label, customer_reason, notes FROM dial_start_rule
+      WHERE family_code::text = $1 AND priority = $2 AND superseded_at IS NULL FOR UPDATE`, [input.familyCode, input.priority])).rows[0];
+  if (cur && cur.condition_id === conditionId && (cur.also_condition_id ?? null) === alsoId && cur.coffee_id === input.coffeeId
+      && cur.admin_label === adminLabel && cur.customer_reason === customerReason && (cur.notes ?? null) === (input.notes ?? null)) {
+    return { id: cur.id, unchanged: true, supersededId: null as number | null };
+  }
+  if (cur) await tx.query(`UPDATE dial_start_rule SET superseded_at = clock_timestamp() WHERE id = $1`, [cur.id]);
+  const ins = await tx.query<{ id: number }>(
+    `INSERT INTO dial_start_rule (family_code, condition_id, also_condition_id, priority, coffee_id, admin_label, customer_reason, notes, decided_by)
+     VALUES ($1::text::archetype_enum, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [input.familyCode, conditionId, alsoId, input.priority, input.coffeeId, adminLabel, customerReason, input.notes ?? null, input.adminUid ?? null]);
+  console.info('[ella-map] setStartRule', { familyCode: input.familyCode, priority: input.priority, coffeeId: input.coffeeId, id: ins.rows[0].id, actor: input.adminUid ?? null });
+  return { id: ins.rows[0].id, unchanged: false, supersededId: cur?.id ?? null };
+}
+export const setStartRule = (input: SetStartRuleInput) => withTransaction(tx => setStartRuleInTx(tx, input));
 
 export interface SetHopPhraseInput {
   archetypeCode: string | null; moveCode: string; buttonLabel: string;

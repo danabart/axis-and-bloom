@@ -26,10 +26,24 @@ export interface MapPosition {
 export interface MapMoves { position: MapPosition | null; moves: MapMoveOption[]; copy: Record<string, string>; versionLabel: string | null }
 export interface MapTrailStep {
   step: number; occurredAt: string; move: string; moveWord: string | null; coffeeId: number; name: string; byOther: boolean;
+  /** Ella map 7: the customer's own words about this coffee, when they left some */
+  line: string | null;
   onActiveMap: boolean;
+}
+/** Ella map 7: the first-bag reason, before any bag */
+export interface MapFirstBag { coffeeId: number; reason: string }
+export interface MapPrice { cents: number; sizeLabel: string }
+/** Ella map 7: one published step leaving the customer's coffee */
+export interface MapStepCard { stepId: number; word: string; coffeeId: number; name: string; line: string | null; notes: string[]; price: MapPrice | null }
+export interface MapSteps {
+  position: null | { coffeeId: number; name: string; notes: string[]; price: MapPrice | null; hasBag: boolean };
+  firstBag: MapFirstBag | null;
+  steps: MapStepCard[];
+  copy: Record<string, string>;
 }
 export interface MapMe {
   position: null | { coffeeId: number; name: string; archetypeCode: string | null; isCenter: boolean; isInActiveVersion: boolean; available: boolean; sentence: string | null; move: string; byOther: boolean };
+  firstBag: MapFirstBag | null;
   trail: MapTrailStep[]; versionLabel: string | null; copy: Record<string, string>;
 }
 
@@ -38,7 +52,8 @@ export const getMapSurfaces = (f: ApiFetch) => call<Record<string, string>>(f, `
 export const getMapFace = (f: ApiFetch) => call<MapFaceData>(f, `${B}/face`);
 export const getMapMe = (f: ApiFetch) => call<MapMe>(f, `${B}/me`);
 export const getMapMoves = (f: ApiFetch) => call<MapMoves>(f, `${B}/moves`);
-export const decideMove = (f: ApiFetch, body: { move: MapMoveOption['move']; coffeeId?: number; requestId: string }) =>
+export const getMapSteps = (f: ApiFetch) => call<MapSteps>(f, `${B}/steps`);
+export const decideMove = (f: ApiFetch, body: { move: MapMoveOption['move'] | 'step'; coffeeId?: number; requestId: string }) =>
   call<{ decisionId: string; created: boolean; pickedCoffeeId: number }>(f, `${B}/decide`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });

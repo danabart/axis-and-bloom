@@ -699,9 +699,24 @@ export async function getMatchTrail(profileId: string, runner: Runner = db) {
   if (!canonical) return [];
   const r = await runner.query(
     `SELECT decision_id, step, occurred_at, move_code, actor_user_id, user_id, from_coffee_id, picked_coffee_id, picked_coffee_name,
-            version_id, version_label, source, active_archetype_code, active_is_center, active_ring, active_lane_code, active_size
+            version_id, version_label, source, inputs, active_archetype_code, active_is_center, active_ring, active_lane_code, active_size
        FROM v_customer_match_trail WHERE canonical_user_id = $1 ORDER BY step`, [canonical]);
   return r.rows;
+}
+
+/**
+ * Ella map 7 (B4): per coffee, the customer's own latest words about it
+ * (v_customer_feedback_current.raw_text, the newest non-empty revision), for
+ * the trail. Only the profile's canonical customer's own feedback.
+ */
+export async function getMatchTrailLines(profileId: string, runner: Runner = db): Promise<Map<number, string>> {
+  const canonical = await canonicalOfProfile(profileId, runner);
+  if (!canonical) return new Map();
+  const r = await runner.query<{ coffee_id: number; raw_text: string }>(
+    `SELECT DISTINCT ON (coffee_id) coffee_id, raw_text FROM v_customer_feedback_current
+      WHERE canonical_user_id = $1 AND raw_text IS NOT NULL AND btrim(raw_text) <> ''
+      ORDER BY coffee_id, occurred_at DESC`, [canonical]);
+  return new Map(r.rows.map(x => [x.coffee_id, x.raw_text]));
 }
 
 /** The decision a (source, source_id) wrote, for the idempotent re-select. */

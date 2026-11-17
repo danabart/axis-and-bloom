@@ -2873,6 +2873,9 @@ ALTER TABLE dial_position_signal DROP COLUMN IF EXISTS suggested_vocabulary_id C
 -- before the grants at the end) read v_coffee, the pooled range, the cupping,
 -- portal and evidence views and the sellable candidates; dropped here, before
 -- any of those drop and recreate themselves, and recreated every boot.
+DROP VIEW IF EXISTS v_dial_start;             -- Ella map 7: reads v_dial_start_input, v_dial_wedge, coffees
+DROP VIEW IF EXISTS v_dial_start_input;       -- Ella map 7: reads v_customer_quiz_current, v_customer_usual_drink
+DROP VIEW IF EXISTS v_dial_start_rule;        -- Ella map 7
 DROP VIEW IF EXISTS v_dial_step;              -- Ella map 5: reads v_dial_placement
 DROP VIEW IF EXISTS v_coffee_ring_assignment_history;
 DROP VIEW IF EXISTS v_customer_match_trail;   -- Ella map 3: read v_dial_placement
@@ -2890,6 +2893,7 @@ DROP VIEW IF EXISTS v_dial_point;
 DROP VIEW IF EXISTS v_dial_placement;
 DROP VIEW IF EXISTS v_dial_placement_preview;
 DROP VIEW IF EXISTS v_dial_placement_input;
+DROP VIEW IF EXISTS v_dial_wedge_lane;        -- Ella map 7: read by the preview
 DROP VIEW IF EXISTS v_dial_coffee_availability;
 DROP VIEW IF EXISTS v_coffee_lean_assignment_history;
 DROP FUNCTION IF EXISTS dial_hop_rows(TEXT);
@@ -10527,7 +10531,10 @@ INSERT INTO dial_move (code, label, is_customer_move, sort_order) VALUES
   ('gentler',     'Gentler',                 true,  4),
   ('different',   'Something different',     true,  5),
   ('liam',        'Liam''s pick, accepted',  false, 6),
-  ('sibling',     'Sibling (substitute)',    false, 7)
+  ('sibling',     'Sibling (substitute)',    false, 7),
+  -- Ella map 7 (2026-11-17): a decided step taken on /map (v_dial_step); the
+  -- step's own word is the trail's word. Not one of the calculated hop moves.
+  ('step',        'Step on the map',         false, 8)
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS dial_evidence_grade (
@@ -10626,6 +10633,17 @@ INSERT INTO dial_seam (archetype_a, archetype_b, label, is_labelled) VALUES
   ('fruity',          'floral',  'delicate',           true),
   ('earthy',          'floral',  NULL,                 false)
 ON CONFLICT (archetype_a, archetype_b) DO NOTHING;
+-- Ella map 7 (Dana 2026-11-17, decision 6): Earthy and Floral do not touch;
+-- the side of each toward the other is closed. Set once, when the column is
+-- added; after that the row is Dana's to change.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dial_seam' AND column_name = 'is_open') THEN
+    ALTER TABLE dial_seam ADD COLUMN is_open BOOLEAN NOT NULL DEFAULT true;
+    UPDATE dial_seam SET is_open = false
+     WHERE (archetype_a, archetype_b) IN (('earthy'::archetype_enum, 'floral'::archetype_enum), ('floral'::archetype_enum, 'earthy'::archetype_enum));
+  END IF;
+END $$;
 
 -- One row per map family. seam_family_note_id / seam_uses_body /
 -- seam_uses_dark_roast: the evidence that pulls a neighbouring coffee toward
@@ -10940,6 +10958,20 @@ SELECT c.id AS coffee_id,
                 WHERE k.coffee_id = c.id AND k.is_active) AS in_stock
 FROM coffees c;
 
+-- Ella map 7 (2026-11-17), A1: every lane of every wedge, the family the side
+-- leans toward, and whether that side is open (dial_seam.is_open; a side with
+-- no seam row, and the middle, are open). The one read for "may a coffee lean
+-- this way": the lean buttons, setLeanInTx and the preview's closed_side flag.
+CREATE VIEW v_dial_wedge_lane AS
+SELECT w.archetype_code, w.is_center, l.id AS lane_id, l.code AS lane_code, l.sort_order,
+       t.toward_archetype,
+       COALESCE((SELECT s.is_open FROM dial_seam s
+                  WHERE (s.archetype_a = w.archetype_code AND s.archetype_b = t.toward_archetype)
+                     OR (s.archetype_b = w.archetype_code AND s.archetype_a = t.toward_archetype)), true) AS is_open
+FROM dial_wedge w
+CROSS JOIN dial_lane l
+CROSS JOIN LATERAL (SELECT CASE l.code WHEN 'side_a' THEN w.side_a_archetype WHEN 'side_b' THEN w.side_b_archetype END AS toward_archetype) t;
+
 -- One row per active coffee whose family is a map family (is_archetype):
 -- the evidence the rules read, nothing decided.
 CREATE VIEW v_dial_placement_input AS
@@ -11156,13 +11188,17 @@ base0 AS (
          (i.wedge_id IS NOT NULL AND i.has_merged_row AND (i.is_center OR i.ruler_value IS NOT NULL)) AS is_calc_placeable,
          la.id AS lean_assignment_id, ll.code AS decided_lane_code,
          ra.id AS ring_assignment_id, ra.ring AS decided_ring_raw,
-         s.suggested_lane_code, s.suggested_scores
+         s.suggested_lane_code, s.suggested_scores,
+         -- Ella map 7, A1: a decided or suggested lean on a closed side
+         (COALESCE(NOT dwd.is_open, false) OR COALESCE(NOT dws.is_open, false)) AS on_closed_side
   FROM inp i
   CROSS JOIN prm
   LEFT JOIN coffee_lean_assignment la ON la.coffee_id = i.coffee_id AND la.superseded_at IS NULL
   LEFT JOIN dial_lane ll ON ll.id = la.lane_id
   LEFT JOIN coffee_ring_assignment ra ON ra.coffee_id = i.coffee_id AND ra.superseded_at IS NULL
   LEFT JOIN sugg s ON s.coffee_id = i.coffee_id
+  LEFT JOIN v_dial_wedge_lane dwd ON dwd.archetype_code::text = i.archetype_code::text AND dwd.lane_code = ll.code
+  LEFT JOIN v_dial_wedge_lane dws ON dws.archetype_code::text = i.archetype_code::text AND dws.lane_code = s.suggested_lane_code
 ),
 base AS (
   SELECT b.*,
@@ -11228,7 +11264,8 @@ SELECT r.coffee_id, r.coffee_name, r.roaster_id, r.roaster_name, r.archetype_cod
          CASE WHEN r.is_provisional THEN 'provisional' END,
          CASE WHEN r.decided_ring IS NOT NULL THEN 'ring_decided' END,
          CASE WHEN r.ring_decision_mismatch THEN 'ring_decision_mismatch' END,
-         CASE WHEN r.roaster_sweetness IS NULL THEN 'no_roaster_sweetness' END
+         CASE WHEN r.roaster_sweetness IS NULL THEN 'no_roaster_sweetness' END,
+         CASE WHEN r.on_closed_side THEN 'closed_side' END
        ], NULL) AS flags,
        jsonb_build_object(
          'pooled', jsonb_build_object('acidity', r.acidity, 'bitterness', r.bitterness, 'body', r.body, 'sweetness', r.sweetness,
@@ -11517,7 +11554,8 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO dial_flag (code, label, description) VALUES
   ('ring_decided',           'Ring decided',          'A current ring decision sets the ring; the calculated ring is kept beside it as the suggestion.'),
   ('ring_decision_mismatch', 'Ring decision unfit',   'The ring decision no longer fits the family (0 is the center only); the calculated ring is used until a new decision.'),
-  ('no_roaster_sweetness',   'No roaster sweetness',  'No Sweetness rating in a submitted portal response: the dot has no size and is drawn dashed on the admin face.')
+  ('no_roaster_sweetness',   'No roaster sweetness',  'No Sweetness rating in a submitted portal response: the dot has no size and is drawn dashed on the admin face.'),
+  ('closed_side',            'Closed side',           'The decided or suggested lean is a side the map closes (dial_seam.is_open false, Earthy and Floral): it is never offered as a lean (Ella map 7).')
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS dial_delta_direction (
@@ -11647,7 +11685,20 @@ FROM (VALUES
   ('trail_title',         'Your trail'),
   ('trail_start',         'Your start'),
   ('moved_to',            'Your next coffee: {coffee}'),
-  ('email_map_intro',     'Your next bag, one tap away:')
+  ('email_map_intro',     'Your next bag, one tap away:'),
+  -- Ella map 7 (2026-11-17): the /map page, the mockup's words
+  ('map_eyebrow',         'Your Bloom Dial'),
+  ('map_title_first',     'You start here'),
+  ('map_title_after',     'Your next step'),
+  ('map_intro',           'Same map for everyone. The dot and the steps are yours.'),
+  ('first_bag_title',     'Your first bag'),
+  ('here_title',          'You are here'),
+  ('why_this_one',        'Why this one.'),
+  ('steps_title',         'One step away'),
+  ('steps_hint',          'Tap a step to see it'),
+  ('see_it',              'See it'),
+  ('make_next_bag',       'Make it my next bag'),
+  ('closing_line',        'Nothing moves until you choose. Your dot moves when you pick a bag.')
 ) v(code, text)
 WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = v.code);
 
@@ -12372,6 +12423,179 @@ GRANT SELECT ON v_brew_profile_field_current, v_customer_usual_drink, v_customer
 -- END USUAL DRINK 1 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN ELLA'S BLOOM MAP 7 block (2026-11-17): the match rule as rows
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_7_MATCH_RULE_AND_CUSTOMER_PAGE.md
+-- After the usual-drink block: v_dial_start_input reads v_customer_usual_drink
+-- and v_customer_quiz_current's sources. Its views are dropped in the Ella
+-- drop list near the top of this file.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- A5: the day the Earthy branch answer was reworded (2026-10-09). A date kept
+-- as YYYYMMDD in the numeric parameter table; read in v_dial_start_input only.
+INSERT INTO evidence_parameter (key, value, note)
+SELECT v.key, v.value, v.note FROM (VALUES
+  ('dial_earthy_branch_reworded_on', 20261009, 'Ella map 7: the day (UTC, YYYYMMDD) the Earthy branch answer was reworded to "dark, strong, a bit smoky". A quiz result of a family marked dial_wedge.old_branch_reads_scores, completed before this day with no stored branch answer, is read as the family with the highest raw score. Range: integer 20250101 <= value <= 20991231.')
+) v(key, value, note)
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
+
+-- A5, decision 4: which family's old results are read from the raw scores.
+-- Set once for Earthy, when the column is added; after that it is data.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dial_wedge' AND column_name = 'old_branch_reads_scores') THEN
+    ALTER TABLE dial_wedge ADD COLUMN old_branch_reads_scores BOOLEAN NOT NULL DEFAULT false;
+    UPDATE dial_wedge SET old_branch_reads_scores = true WHERE archetype_code = 'earthy';
+  END IF;
+END $$;
+
+-- A3: the conditions a start rule can name. The meaning of each code is one
+-- expression in v_dial_start_input (and nowhere else).
+CREATE TABLE IF NOT EXISTS dial_start_condition (
+  id         SERIAL PRIMARY KEY,
+  code       TEXT NOT NULL UNIQUE,
+  label      TEXT NOT NULL,
+  sort_order SMALLINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+INSERT INTO dial_start_condition (code, label, sort_order) VALUES
+  ('always',             'Always',                                     1),
+  ('fruity_gt_cn',       'Fruity points higher than Chocolate & Nutty', 2),
+  ('fruity_gt_balanced', 'Fruity points higher than Balanced',          3),
+  ('cn_gt_zero',         'Any Chocolate & Nutty points',                4),
+  ('espresso_at_home',   'Makes espresso at home',                      5)
+ON CONFLICT (code) DO NOTHING;
+
+-- A4: the rule. Per family (as read in v_dial_start_input), the lowest
+-- priority whose conditions hold wins. Supersede and insert, one current row
+-- per (family, priority). Not versioned: a row takes effect when written.
+CREATE TABLE IF NOT EXISTS dial_start_rule (
+  id                SERIAL PRIMARY KEY,
+  family_code       archetype_enum NOT NULL REFERENCES coffee_archetype(code),
+  condition_id      INT NOT NULL REFERENCES dial_start_condition(id),
+  also_condition_id INT REFERENCES dial_start_condition(id),
+  priority          SMALLINT NOT NULL CHECK (priority > 0),
+  coffee_id         INT NOT NULL REFERENCES coffees(id) ON DELETE RESTRICT,
+  admin_label       TEXT NOT NULL CHECK (btrim(admin_label) <> ''),
+  customer_reason   TEXT NOT NULL CHECK (btrim(customer_reason) <> ''),
+  notes             TEXT,
+  decided_by        TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  superseded_at     TIMESTAMPTZ,
+  CONSTRAINT dial_start_rule_two_conditions CHECK (also_condition_id IS NULL OR also_condition_id <> condition_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dial_start_rule_one_current ON dial_start_rule (family_code, priority) WHERE superseded_at IS NULL;
+
+-- Every rule row, current and superseded, with its words (the admin table and its history).
+CREATE VIEW v_dial_start_rule AS
+SELECT r.id, r.family_code::text AS family_code, fa.name AS family_name, w.angle_order AS family_order,
+       r.priority, c1.code AS condition_code, c1.label AS condition_label,
+       c2.code AS also_condition_code, c2.label AS also_condition_label,
+       r.coffee_id, c.name AS coffee_name, r.admin_label, r.customer_reason, r.notes, r.decided_by,
+       r.created_at, r.superseded_at, (r.superseded_at IS NULL) AS is_current
+FROM dial_start_rule r
+JOIN coffee_archetype fa ON fa.code = r.family_code
+LEFT JOIN dial_wedge w ON w.archetype_code = r.family_code
+JOIN dial_start_condition c1 ON c1.id = r.condition_id
+LEFT JOIN dial_start_condition c2 ON c2.id = r.also_condition_id
+JOIN coffees c ON c.id = r.coffee_id;
+
+-- A5: one row per completed quiz session with a result: the facts the rule
+-- reads, nothing decided. The stored result is never changed (G2.19, G2.20).
+--  * scores: the raw points per family code (food excluded at scoring: the
+--    treat answer has weight 0); keys mapped from the stored display names.
+--  * family_read: the session's primary (its resulting archetype). A Floral
+--    match from the Balanced branch is stored with primary Balanced, so it
+--    reads as Balanced (decision 3). A result of a family marked
+--    old_branch_reads_scores, completed before dial_earthy_branch_reworded_on
+--    with no stored branch answer, reads as the family with the highest raw
+--    score; a tie goes to the family the quiz branched from when it is among
+--    the tied, otherwise to the center (Dana 2026-11-17).
+--  * one boolean per dial_start_condition code, and the same as jsonb.
+CREATE VIEW v_dial_start_input AS
+WITH prm AS (
+  SELECT (to_date(param('dial_earthy_branch_reworded_on')::bigint::text, 'YYYYMMDD')::timestamp AT TIME ZONE 'UTC') AS reworded_at
+),
+sess AS (
+  SELECT qs.id AS quiz_session_id, qs.user_id, vci.canonical_user_id, qs.completed_at,
+         ca.code::text AS primary_code, bf.code::text AS branched_from_code,
+         ba.answer_code AS branch_answer_code,
+         (COALESCE(w.old_branch_reads_scores, false) AND qs.completed_at < prm.reworded_at AND qs.branch_answer_id IS NULL) AS reads_scores,
+         qs.context_data -> 'scores' AS raw_scores
+  FROM quiz_session qs
+  CROSS JOIN prm
+  JOIN v_customer_identity vci ON vci.user_id = qs.user_id
+  JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
+  LEFT JOIN coffee_archetype bf ON bf.name = quiz_archetype_canonical(qs.context_data ->> 'branchedFrom')
+  LEFT JOIN quiz_answer ba ON ba.id = qs.branch_answer_id
+  LEFT JOIN dial_wedge w ON w.archetype_code = ca.code
+  WHERE qs.completed_at IS NOT NULL
+),
+pts AS (
+  SELECT s.quiz_session_id, a.code::text AS family_code, sum((e.value #>> '{}')::numeric) AS points
+  FROM sess s
+  CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(s.raw_scores) = 'object' THEN s.raw_scores ELSE '{}'::jsonb END) e
+  JOIN coffee_archetype a ON a.name = quiz_archetype_canonical(e.key) OR a.code::text = e.key OR a.code::text LIKE e.key || '\_%'
+  WHERE jsonb_typeof(e.value) = 'number'
+  GROUP BY s.quiz_session_id, a.code
+),
+agg AS (
+  SELECT quiz_session_id, jsonb_object_agg(family_code, points) AS scores,
+         array_agg(family_code ORDER BY family_code) FILTER (WHERE is_top) AS top_families
+  FROM (SELECT p.*, p.points = max(p.points) OVER (PARTITION BY p.quiz_session_id) AS is_top FROM pts p) t
+  GROUP BY quiz_session_id
+),
+rd AS (
+  SELECT s.*, COALESCE(g.scores, '{}'::jsonb) AS scores,
+         CASE WHEN NOT s.reads_scores OR g.top_families IS NULL THEN s.primary_code
+              WHEN cardinality(g.top_families) = 1 THEN g.top_families[1]
+              WHEN s.branched_from_code = ANY (g.top_families) THEN s.branched_from_code
+              ELSE (SELECT archetype_code::text FROM dial_wedge WHERE is_center) END AS family_read
+  FROM sess s LEFT JOIN agg g ON g.quiz_session_id = s.quiz_session_id
+),
+cond AS (
+  SELECT rd.*,
+         COALESCE((rd.scores ->> 'balanced_sweet')::numeric, 0) AS score_balanced,
+         COALESCE((rd.scores ->> 'chocolate_nutty')::numeric, 0) AS score_chocolate_nutty,
+         COALESCE((rd.scores ->> 'fruity')::numeric, 0) AS score_fruity,
+         -- one expression per dial_start_condition code
+         true AS c_always,
+         COALESCE((rd.scores ->> 'fruity')::numeric, 0) > COALESCE((rd.scores ->> 'chocolate_nutty')::numeric, 0) AS c_fruity_gt_cn,
+         COALESCE((rd.scores ->> 'fruity')::numeric, 0) > COALESCE((rd.scores ->> 'balanced_sweet')::numeric, 0) AS c_fruity_gt_balanced,
+         COALESCE((rd.scores ->> 'chocolate_nutty')::numeric, 0) > 0 AS c_cn_gt_zero,
+         EXISTS (SELECT 1 FROM v_customer_usual_drink u
+                  WHERE u.canonical_user_id = rd.canonical_user_id AND u.base_method = 'espresso') AS c_espresso_at_home
+  FROM rd
+)
+SELECT quiz_session_id, user_id, canonical_user_id, completed_at, primary_code, branched_from_code, branch_answer_code,
+       reads_scores, family_read, scores, score_balanced, score_chocolate_nutty, score_fruity,
+       c_always, c_fruity_gt_cn, c_fruity_gt_balanced, c_cn_gt_zero, c_espresso_at_home,
+       jsonb_build_object('always', c_always, 'fruity_gt_cn', c_fruity_gt_cn, 'fruity_gt_balanced', c_fruity_gt_balanced,
+                          'cn_gt_zero', c_cn_gt_zero, 'espresso_at_home', c_espresso_at_home) AS conditions
+FROM cond;
+
+-- A6: the one read for the first bag (G2.5): per quiz session, the winning
+-- current rule row (family matches family_read, its conditions hold, lowest
+-- priority). rule_id is NULL when no row wins (matchService falls back to the
+-- center's always row).
+CREATE VIEW v_dial_start AS
+SELECT i.quiz_session_id, i.user_id, i.canonical_user_id, i.family_read, i.scores, i.conditions,
+       r.id AS rule_id, r.priority, r.condition_code, r.also_condition_code,
+       r.coffee_id, r.coffee_name, r.admin_label, r.customer_reason
+FROM v_dial_start_input i
+LEFT JOIN LATERAL (
+  SELECT r.* FROM v_dial_start_rule r
+   WHERE r.is_current AND r.family_code = i.family_read
+     AND COALESCE((i.conditions ->> r.condition_code)::boolean, false)
+     AND (r.also_condition_code IS NULL OR COALESCE((i.conditions ->> r.also_condition_code)::boolean, false))
+   ORDER BY r.priority, r.id
+   LIMIT 1
+) r ON true;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END ELLA'S BLOOM MAP 7 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.
@@ -12464,6 +12688,9 @@ GRANT UPDATE (superseded_at) ON dial_customer_copy TO ab_app;
 -- Ella map 5 (2026-11-16): the ring decision and the steps are supersede-only
 REVOKE UPDATE, DELETE, TRUNCATE ON coffee_ring_assignment, dial_step FROM ab_app;
 GRANT UPDATE (superseded_at) ON coffee_ring_assignment, dial_step TO ab_app;
+-- Ella map 7 (2026-11-17): the start rule is supersede-only too
+REVOKE UPDATE, DELETE, TRUNCATE ON dial_start_rule FROM ab_app;
+GRANT UPDATE (superseded_at) ON dial_start_rule TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
 -- Liam brand answers (2026-10-24): supersede only. The one UPDATE the writer
 -- makes sets superseded_at; nothing is ever deleted (lint:customer rule 8 is

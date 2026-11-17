@@ -1,37 +1,66 @@
-// Ella's Bloom Map 3 (2026-11-12), C1 — /map, the customer side of the map.
-// Behind the pre-launch gate and AdminRoute in this brief; brief 4 moves it
-// under the customer_face surface row. One coffee big (the position), the
-// thumb face above it, the four moves under it; a move reveals its cards with
-// the move line leading each, and "Choose this" decides through the one door.
-// Every word comes from /api/map (dial_hop_phrase, dial_customer_copy, the
-// card readers); nothing here names a ring, lane, cell, seam, grade or version.
-// No price and no add to cart in this brief (Dana 2026-11-12, decision 7).
-// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_3_MATCH_AND_CUSTOMER.md
+// Ella's Bloom Map 7 (2026-11-17), C1 — /map, rebuilt as Dana's page
+// (map5_mockup_customer.png). Behind the pre-launch gate and AdminRoute; brief 4
+// moves it under the customer_face surface row. Top to bottom: a heading and
+// one line, the map with only the customer's part lit (their coffee named, an
+// arrow to each step, every other coffee a quiet unnamed dot), the first bag
+// with its one reason (or "You are here" after a bag), one card per published
+// step, and one closing line. "Make it my next bag" decides through the one
+// door (move step) and re-reads the page.
+// Every word comes from /api/map (dial_customer_copy, the step rows, the card
+// readers); nothing here names a ring, lane, grade, version, basis or roaster.
+// A price shows where one exists (brief 8 makes every coffee buyable).
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_7_MATCH_RULE_AND_CUSTOMER_PAGE.md
 import { useCallback, useEffect, useState } from 'react';
 import EllaMapFace from './EllaMapFace';
 import {
-  getMapFace, getMapMoves, decideMove, useMapFetch,
-  type MapFaceData, type MapMoves, type MapMoveOption, type MapCard,
+  getMapFace, getMapSteps, decideMove, useMapFetch,
+  type MapFaceData, type MapSteps, type MapStepCard, type MapPrice,
 } from '../../../lib/mapCustomer';
 
 const INK = 'text-[#3f3a36]';
-const ACCENT = '#a33726';
+const SOFT = 'text-[#6b5a56]';
+const TEAL = '#2f6f68';
+const EYEBROW = 'text-[11px] uppercase tracking-[0.18em] font-semibold';
 
-function Notes({ notes }: { notes: string[] }) {
-  return notes.length ? <p className="text-sm text-[#6b5a56]">{notes.join(' · ')}</p> : null;
+function Price({ price }: { price: MapPrice | null }) {
+  if (!price) return null;
+  return (
+    <span className="inline-block mt-2 px-3 py-1 rounded-full text-xs font-medium border" style={{ borderColor: TEAL, color: TEAL }} data-testid="price">
+      ${(price.cents / 100).toFixed(2)} · {price.sizeLabel}
+    </span>
+  );
 }
 
-function CoffeeCard({ card, choose, busy, onChoose }: { card: MapCard; choose: string; busy: boolean; onChoose: () => void }) {
+function StepCard({ step, copy, open, busy, onToggle, onChoose }: {
+  step: MapStepCard; copy: Record<string, string>; open: boolean; busy: boolean; onToggle: () => void; onChoose: () => void;
+}) {
   return (
-    <div className="rounded-xl bg-white border border-[#e8e4dc] p-4" data-testid="map-card">
-      {card.moveLine && <p className="text-sm italic text-[#6b5a56] mb-2" data-testid="move-line">{card.moveLine}</p>}
-      <h3 className={`text-lg font-semibold ${INK}`}>{card.name}</h3>
-      <Notes notes={card.notes} />
-      {card.compatibility && <p className="text-sm text-[#6b5a56] mt-1">{card.compatibility}</p>}
-      <button type="button" disabled={busy} onClick={onChoose} data-testid="choose"
-        className="mt-3 px-4 py-2 rounded-full text-sm font-medium text-white disabled:opacity-50" style={{ background: ACCENT }}>
-        {choose}
-      </button>
+    <div className="rounded-xl bg-white border border-[#e8e4dc] p-4" data-testid="step-card">
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
+          <p className={EYEBROW} style={{ color: TEAL }} data-testid="step-word">{step.word}</p>
+          <h3 className={`text-lg font-semibold ${INK}`} data-testid="step-coffee">{step.name}</h3>
+          {step.line && <p className={`text-sm ${SOFT}`} data-testid="step-line">{step.line}</p>}
+        </div>
+        <button type="button" onClick={onToggle} aria-expanded={open} data-testid="see-it"
+          className="shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold border" style={{ borderColor: TEAL, color: TEAL }}>
+          {copy.see_it}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-3 pt-3 border-t border-[#e8e4dc]" data-testid="step-open">
+          <p className={`text-base font-semibold ${INK}`}>{step.name}</p>
+          {step.notes.length > 0 && <p className={`text-sm ${SOFT}`}>{step.notes.join(', ')}</p>}
+          {step.line && <p className={`text-sm ${SOFT} mt-1`}>{step.line}</p>}
+          <Price price={step.price} />
+          <div>
+            <button type="button" disabled={busy} onClick={onChoose} data-testid="make-next-bag"
+              className="mt-3 px-4 py-2 rounded-full text-sm font-medium text-white disabled:opacity-50" style={{ background: TEAL }}>
+              {copy.make_next_bag}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -39,99 +68,76 @@ function CoffeeCard({ card, choose, busy, onChoose }: { card: MapCard; choose: s
 export default function MapPage() {
   const apiFetch = useMapFetch();
   const [face, setFace] = useState<MapFaceData | null>(null);
-  const [data, setData] = useState<MapMoves | null>(null);
-  const [open, setOpen] = useState<MapMoveOption['move'] | null>(null);
-  const [sheet, setSheet] = useState(false);
+  const [data, setData] = useState<MapSteps | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     if (!apiFetch) return;
     try {
-      const [f, m] = await Promise.all([getMapFace(apiFetch), getMapMoves(apiFetch)]);
-      setFace(f); setData(m); setError('');
+      const [f, s] = await Promise.all([getMapFace(apiFetch), getMapSteps(apiFetch)]);
+      setFace(f); setData(s); setError('');
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }, [apiFetch]);
   useEffect(() => { void load(); }, [load]);
 
-  const decide = async (move: MapMoveOption['move'], coffeeId?: number) => {
+  const choose = async (coffeeId: number) => {
     if (!apiFetch) return;
     setBusy(true);
     try {
-      await decideMove(apiFetch, { move, coffeeId, requestId: crypto.randomUUID() });
+      await decideMove(apiFetch, { move: 'step', coffeeId, requestId: crypto.randomUUID() });
       setOpen(null);
       await load();
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
   };
 
-  if (error && !data) return <main className="max-w-md mx-auto px-4 py-10"><p className="text-sm text-[#6b5a56]" data-testid="map-error">{error}</p></main>;
+  if (error && !data) return <main className="max-w-md mx-auto px-4 py-10"><p className={`text-sm ${SOFT}`} data-testid="map-error">{error}</p></main>;
   if (!data || !face) return <main className="max-w-md mx-auto px-4 py-10" />;
   const pos = data.position;
   const copy = data.copy;
   if (!pos) return <main className="max-w-md mx-auto px-4 py-10" data-testid="map-empty" />;
-
-  const stay = data.moves.find(m => m.move === 'stay');
-  const others = data.moves.filter(m => m.move !== 'stay');
-  const revealed = others.find(m => m.move === open);
+  const first = data.firstBag && !pos.hasBag ? data.firstBag : null;
 
   return (
     <main className="max-w-md mx-auto px-4 py-6" style={{ fontFamily: 'Lato, sans-serif' }} data-testid="map-page">
-      <div className="flex items-end justify-between gap-3 mb-4">
-        <EllaMapFace placements={face.placements} wedges={face.wedges} size="thumb" highlightCoffeeId={pos.coffeeId} />
-        <button type="button" className="text-sm underline" style={{ color: ACCENT }} onClick={() => setSheet(true)} data-testid="see-whole-map">
-          {copy.see_whole_map}
-        </button>
+      <p className={`${EYEBROW} ${SOFT}`}>{copy.map_eyebrow}</p>
+      <h1 className={`text-3xl font-semibold ${INK} mt-1`} data-testid="map-title">{first ? copy.map_title_first : copy.map_title_after}</h1>
+      <p className={`text-sm ${SOFT} mt-2 mb-4`}>{copy.map_intro}</p>
+
+      <div className="mb-5" data-testid="map-face">
+        <EllaMapFace placements={face.placements} wedges={face.wedges} size="full" labelMode="name"
+          highlightCoffeeId={pos.coffeeId} arrowsTo={data.steps.map(s => s.coffeeId)} quietOthers />
       </div>
 
-      <section className="rounded-2xl bg-[#f2f1ea] p-5 mb-5" data-testid="position-card">
-        {pos.sentence && <p className="text-sm text-[#6b5a56] mb-2" data-testid="position-sentence">{pos.sentence}</p>}
-        <h1 className={`text-2xl font-semibold ${INK}`}>{pos.name}</h1>
-        <Notes notes={pos.notes} />
-        {pos.compatibility && <p className="text-sm text-[#6b5a56] mt-1">{pos.compatibility}</p>}
+      <section className="rounded-xl bg-white border border-[#e8e4dc] p-5 mb-6" data-testid="position-card">
+        <p className={EYEBROW} style={{ color: TEAL }} data-testid="position-title">{first ? copy.first_bag_title : copy.here_title}</p>
+        <h2 className={`text-2xl font-semibold ${INK} mt-1`} data-testid="position-name">{pos.name}</h2>
+        {pos.notes.length > 0 && <p className={`text-base ${INK} mt-1`}>{pos.notes.join(', ')}</p>}
+        {first && (
+          <p className={`text-sm ${SOFT} mt-2`} data-testid="first-bag-reason"><strong className={INK}>{copy.why_this_one}</strong> {first.reason}</p>
+        )}
+        <Price price={pos.price} />
       </section>
 
-      {stay && (
-        <button type="button" disabled={busy} onClick={() => decide('stay')} data-testid="move-stay"
-          className="w-full py-3 rounded-full text-white font-medium mb-3 disabled:opacity-50" style={{ background: ACCENT }}>
-          {stay.label}
-        </button>
-      )}
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        {others.map(m => (
-          <button key={m.move} type="button" data-testid={`move-${m.move}`} aria-pressed={open === m.move}
-            disabled={m.edge}
-            onClick={() => setOpen(open === m.move ? null : m.move)}
-            className={`py-2.5 px-2 rounded-full text-sm border ${m.edge ? 'border-[#e8e4dc] text-[#b8aca8]' : open === m.move ? 'text-white' : ''}`}
-            style={m.edge ? undefined : open === m.move ? { background: ACCENT, borderColor: ACCENT } : { borderColor: ACCENT, color: ACCENT }}>
-            {m.label}
-          </button>
-        ))}
-      </div>
-      {others.filter(m => m.edge && m.edgePhrase).map(m => (
-        <p key={m.move} className="text-xs text-[#9b8f8b] mb-2" data-testid={`edge-${m.move}`}>{m.label}: {m.edgePhrase}</p>
-      ))}
-
-      {revealed && (
-        <div className="flex flex-col gap-3" data-testid="revealed">
-          {revealed.cards.map(card => (
-            <CoffeeCard key={card.coffeeId} card={card} choose={copy.choose_this} busy={busy} onChoose={() => decide(revealed.move, card.coffeeId)} />
-          ))}
-        </div>
+      {data.steps.length > 0 && (
+        <section data-testid="steps">
+          <div className="flex items-baseline justify-between mb-3">
+            <p className={`${EYEBROW} ${SOFT}`}>{copy.steps_title}</p>
+            <p className={`text-xs ${SOFT}`}>{copy.steps_hint}</p>
+          </div>
+          <div className="flex flex-col gap-3">
+            {data.steps.map(s => (
+              <StepCard key={s.stepId} step={s} copy={copy} open={open === s.stepId} busy={busy}
+                onToggle={() => setOpen(open === s.stepId ? null : s.stepId)} onChoose={() => choose(s.coffeeId)} />
+            ))}
+          </div>
+        </section>
       )}
       {error && <p className="text-sm text-[#a33726] mt-3">{error}</p>}
 
-      {sheet && (
-        <div className="fixed inset-0 z-[1000] bg-black/40 flex items-end sm:items-center justify-center" onClick={() => setSheet(false)} data-testid="map-sheet">
-          <div className="bg-[#f2f1ea] w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl p-4" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-end">
-              <button type="button" aria-label="close" data-testid="sheet-close" className="text-2xl leading-none px-2" style={{ color: ACCENT }} onClick={() => setSheet(false)}>×</button>
-            </div>
-            {/* no seams: the customer page names no seam, ring, lane or cell (C1) */}
-            <EllaMapFace placements={face.placements} wedges={face.wedges} size="full" labelMode="name" highlightCoffeeId={pos.coffeeId} />
-          </div>
-        </div>
-      )}
+      <p className={`text-sm ${SOFT} text-center mt-8`} data-testid="closing-line">{copy.closing_line}</p>
     </main>
   );
 }

@@ -336,6 +336,15 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **No slot and no `coffee_hop` in the map code** (`matchService`, `routes/map.ts`, the map pages); no price or add-to-cart on `/map` until prices move to `coffee_retail_price` (brief 4).
 - [ ] **Nothing typed in:** button labels and edge phrases from `dial_hop_phrase`, sentences from `dial_customer_copy`; the customer page names no ring, lane, cell, seam, grade or version.
 
+## Ella's Bloom Map 7: the match rule and the customer page (2026-11-17)
+
+- [ ] **The first bag comes only from `v_dial_start`:** `matchService.firstMatchFor` reads the session's winning `dial_start_rule` row, else the center family's always row; the decision's inputs carry `rule_id`, `family_read`, `scores` and `conditions`. A first bag needs no sellability; in stock, the grade floor and the decaf filter still apply.
+- [ ] **No family code or threshold lives in `matchService`:** the conditions are one expression each in `v_dial_start_input`; the family reading (Balanced-branch Floral as Balanced, old Earthy by its highest raw score with the tie rule) is in the same view, keyed by `dial_wedge.old_branch_reads_scores` and `dial_earthy_branch_reworded_on`.
+- [ ] **`/map` shows only published steps:** `GET /api/map/steps` reads `v_dial_step` (`on_active_map`) leaving the position; `decide` with move `step` refuses a coffee that is not one of them; no ring, lane, grade, version, basis or roaster name leaves the call.
+- [ ] **A closed side is never offered:** `v_dial_wedge_lane.is_open` false (Earthy toward Floral, Floral toward Earthy): the lean buttons leave it out, `setLeanInTx` refuses it (`CLOSED_SIDE`), the preview flags it (`closed_side`), and no first match sits on it.
+- [ ] **A start-rule change applies at once and keeps its history:** `setStartRule` supersedes and inserts (`v_dial_start_rule` keeps the old row); the customer's first-bag reason follows the current row of the (family, priority) that decided it.
+
+
 ## Ella's Bloom Map 6: the five coffees (2026-11-16)
 
 - [ ] **A catalog coffee from a portal lineup is created only by `acceptResponse`** (`roasteryPortalService.acceptResponse` / `acceptResponseInTx`, the same body): it links the lineup coffee, writes the ticked basics, notes and descriptors through `catalogService`, logs one `roastery_portal_acceptance` row, and never writes a family, slot, SKU or price. The roaster's response rows stay as submitted.

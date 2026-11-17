@@ -13,9 +13,10 @@ import { randomUUID } from 'node:crypto';
 import { db } from '../db/client.js';
 import { withRollback } from '../test/withRollback.js';
 import * as match from './matchService.js';
-import { MatchError, rankMoves, passesTagFilter, firstMatchCell } from './matchService.js';
+import { MatchError, rankMoves, passesTagFilter } from './matchService.js';
+import { applyStartRules } from '../scripts/ellaMapStartRules_2026_11_17.js';
 import { setSurfaceModelInTx, setCustomerCopyInTx } from './dialPlacementService.js';
-import { surfaces, surfaceIsMap, wedges as readWedges } from './dialReads.js';
+import { surfaces, surfaceIsMap } from './dialReads.js';
 import { assertMayTurnDialFor, HouseholdError } from './householdService.js';
 
 vi.setConfig({ testTimeout: 240_000 });
@@ -38,9 +39,18 @@ async function person(c: pg.PoolClient, q: QuizSpec, userId?: string): Promise<{
   return { userId: uid, sessionId };
 }
 
-const quizDecide = (c: pg.PoolClient, p: { userId: string; sessionId: string }) => match.decide({
-  userId: p.userId, trigger: 'quiz_result', move: 'quiz_result', source: 'quiz', sourceId: p.sessionId, quizSessionId: p.sessionId,
-}, c);
+/** Ella map 7: the first bag comes from dial_start_rule; enter Data 1 inside the rollback when this database has none yet. */
+async function ensureStartRules(c: pg.PoolClient) {
+  const n = Number((await c.query(`SELECT count(*) AS n FROM v_dial_start_rule WHERE is_current`)).rows[0].n);
+  if (n === 0) await applyStartRules(c as unknown as Parameters<typeof applyStartRules>[0]);
+}
+
+const quizDecide = async (c: pg.PoolClient, p: { userId: string; sessionId: string }) => {
+  await ensureStartRules(c);
+  return match.decide({
+    userId: p.userId, trigger: 'quiz_result', move: 'quiz_result', source: 'quiz', sourceId: p.sessionId, quizSessionId: p.sessionId,
+  }, c);
+};
 
 const placements = async (c: pg.PoolClient) => (await c.query(`SELECT * FROM v_dial_placement`)).rows;
 const param = async (c: pg.PoolClient, key: string) =>
@@ -50,70 +60,8 @@ async function expectMatchError(p: Promise<unknown>, code: string) {
   await expect(p).rejects.toSatisfy((e: unknown) => e instanceof MatchError && e.code === code);
 }
 
-describe('decide: quiz result (D1)', () => {
-  it('Balanced starts on the center founder pick; a repeat of the session writes one row', async () => {
-    await withRollback(async ({ client: c }) => {
-      const p = await person(c, { match: 'Balanced' });
-      const fm = (await c.query(
-        `SELECT fm.coffee_id FROM dial_first_match fm JOIN dial_lane l ON l.id = fm.lane_id JOIN dial_wedge w ON w.archetype_code = fm.archetype_code
-          WHERE w.is_center AND l.code = 'side_a' AND fm.superseded_at IS NULL`)).rows[0].coffee_id;
-      const a = await quizDecide(c, p);
-      expect(a.created).toBe(true);
-      expect(a.pickedCoffeeId).toBe(fm);
-      const b = await quizDecide(c, p);
-      expect(b.created).toBe(false);
-      expect(b.decisionId).toBe(a.decisionId);
-      const rows = (await c.query(`SELECT inputs FROM customer_match_decision WHERE source = 'quiz' AND source_id = $1`, [p.sessionId])).rows;
-      expect(rows.length).toBe(1);
-      expect(rows[0].inputs.rule).toBe('founder_pick');
-      expect(rows[0].inputs.trigger).toBe('quiz_result');
-    });
-  });
-
-  it('a delicate result (even Floral) asks for the Fruity wedge on its Floral side (Dana 2026-11-12, decision 2)', async () => {
-    await withRollback(async ({ client: c }) => {
-      const p = await person(c, { match: 'Floral', lean: 'delicate' });
-      const ws = (await readWedges(c)).wedges;
-      const fruity = ws.find((w: { archetype_code: string }) => w.archetype_code === 'fruity');
-      const floralLane = fruity.side_a_archetype === 'floral' ? 'side_a' : 'side_b';
-      expect(firstMatchCell({ matchArchetypeCode: 'floral', intensityLean: 'delicate' }, ws)).toEqual({ archetype: 'fruity', lane: floralLane });
-      const d = await quizDecide(c, p);
-      const inputs = (await c.query(`SELECT inputs FROM customer_match_decision WHERE id = $1`, [d.decisionId])).rows[0].inputs;
-      expect(inputs.asked_cell).toEqual({ archetype: 'fruity', lane: floralLane });
-      const picked = (await placements(c)).find(x => x.coffee_id === d.pickedCoffeeId);
-      // a fruity coffee when the family has one at the floor, else the center's
-      expect(['fruity', ws.find((w: { is_center: boolean }) => w.is_center).archetype_code]).toContain(picked.archetype_code);
-    });
-  });
-
-  it('no dial_first_match row: the derivable fallback (lowest ring, most hops, asked lane, lowest id); an empty family falls to the center', async () => {
-    await withRollback(async ({ client: c }) => {
-      // the chocolate cell has no founder pick on L0
-      await c.query(`UPDATE dial_first_match SET superseded_at = now() WHERE archetype_code = 'chocolate_nutty' AND superseded_at IS NULL`);
-      const floor = await param(c, 'dial_min_grade_rank_first_match');
-      const hops = new Map((await c.query(`SELECT from_coffee_id, count(*)::int n FROM v_dial_hop WHERE in_hop_set GROUP BY 1`)).rows.map(r => [r.from_coffee_id, r.n]));
-      const eligible = (await placements(c)).filter(x => x.archetype_code === 'chocolate_nutty' && x.is_sellable && x.in_stock && x.grade_rank >= floor && x.category_codes.length === 0)
-        .sort((a, b) => a.ring - b.ring || (hops.get(b.coffee_id) ?? 0) - (hops.get(a.coffee_id) ?? 0)
-          || Number(b.lane_code === 'middle') - Number(a.lane_code === 'middle') || a.coffee_id - b.coffee_id);
-      const p = await person(c, { match: 'Chocolate & Nutty' });
-      const d = await quizDecide(c, p);
-      const inputs = (await c.query(`SELECT inputs FROM customer_match_decision WHERE id = $1`, [d.decisionId])).rows[0].inputs;
-      if (eligible.length) {
-        expect(inputs.rule).toBe('derived');
-        expect(d.pickedCoffeeId).toBe(eligible[0].coffee_id);
-        const cands = (await c.query(`SELECT coffee_id, rank FROM customer_match_candidate WHERE decision_id = $1 ORDER BY rank`, [d.decisionId])).rows;
-        expect(cands.map(x => x.coffee_id)).toEqual(eligible.map(x => x.coffee_id));
-      } else {
-        expect(String(inputs.rule).startsWith('center_')).toBe(true);
-      }
-      // Earthy: no sellable coffee at the floor on L0, so the center's first match
-      const earthy = (await placements(c)).filter(x => x.archetype_code === 'earthy' && x.is_sellable && x.in_stock && x.grade_rank >= floor);
-      const e = await quizDecide(c, await person(c, { match: 'Earthy' }));
-      const ei = (await c.query(`SELECT inputs FROM customer_match_decision WHERE id = $1`, [e.decisionId])).rows[0].inputs;
-      expect(String(ei.rule).startsWith('center_')).toBe(earthy.length === 0);
-    });
-  });
-});
+// D1 (the first match by family and lean, Ella map 3) is retired with the code
+// rule: the first bag is dial_start_rule since Ella map 7, tested in dialMap7.test.ts.
 
 describe('decide: hops (D2)', () => {
   it('a coffee outside the move set is refused; stay re-picks the position; a beat tap takes the top-ranked coffee', async () => {
@@ -150,6 +98,7 @@ describe('decide: hops (D2)', () => {
       expect(ok.userId).toBe(house.member_user);
       await withRollback(async ({ client: c }) => {
         const p = await person(c, { match: 'Balanced' }, house.member_user);
+        await ensureStartRules(c);
         const d = await match.decide({ userId: ok.userId, actorUserId: house.actor, trigger: 'quiz_result', move: 'quiz_result', source: 'quiz', sourceId: p.sessionId, quizSessionId: p.sessionId }, c);
         const row = (await c.query(`SELECT user_id, actor_user_id FROM customer_match_decision WHERE id = $1`, [d.decisionId])).rows[0];
         expect(row).toEqual({ user_id: house.member_user, actor_user_id: house.actor });
@@ -253,7 +202,10 @@ describe('position and trail (D4)', () => {
       expect(me.position!.coffeeId).toBe(second.pickedCoffeeId);
       expect(me.trail.map(t => t.coffeeId)).toEqual([first.pickedCoffeeId, second.pickedCoffeeId]);
       expect(me.trail[0].moveWord).toBe(me.copy.trail_start);
-      expect(me.trail[1].moveWord).toBe(open.label);
+      // Ella map 7 (B4): a published step joining the two choices names the move; else the hop's own word
+      const stepWord = (await c.query(`SELECT button_word FROM v_dial_step WHERE on_active_map AND from_coffee_id = $1 AND to_coffee_id = $2`,
+        [first.pickedCoffeeId, second.pickedCoffeeId])).rows[0]?.button_word;
+      expect(me.trail[1].moveWord).toBe(stepWord ?? open.label);
 
       // a coffee placed only in an older (draft) version: copy a placed coffee's row onto an unplaced coffee
       const src = (await c.query(`SELECT p.* FROM dial_placement p JOIN v_dial_placement a ON a.placement_id = p.id WHERE NOT a.is_center AND a.is_sellable ORDER BY a.ring, a.coffee_id LIMIT 1`)).rows[0];

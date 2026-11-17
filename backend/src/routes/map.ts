@@ -64,8 +64,15 @@ router.get('/moves', async (req: AuthRequest, res) => {
   catch (err) { fail(res, 'moves', err); }
 });
 
+// Ella map 7 (B3): the page's read: position, first-bag reason, published steps
+router.get('/steps', async (req: AuthRequest, res) => {
+  try { const s = await subject(req, MOVE_SURFACES); res.json(await matchService.steps(s.userId)); }
+  catch (err) { fail(res, 'steps', err); }
+});
+
 const Decide = z.object({
-  move: z.enum(['stay', 'bolder', 'gentler', 'different']),
+  // Ella map 7: step = a published step from the position (v_dial_step)
+  move: z.enum(['stay', 'bolder', 'gentler', 'different', 'step']),
   coffeeId: z.number().int().positive().optional(),
   forMemberId: z.string().uuid().optional().nullable(),
   /** the client's idempotency key for this tap; a retry with the same key writes nothing new */

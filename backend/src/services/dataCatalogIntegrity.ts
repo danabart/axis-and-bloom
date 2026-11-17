@@ -199,7 +199,7 @@ export async function runDataCatalogIntegrityChecks(
 // instead of as a silent NULL (param() returns NULL for a missing key).
 export const DIAL_SEED_CODES: Record<string, string[]> = {
   dial_lane: ['side_a', 'middle', 'side_b'],
-  dial_move: ['quiz_result', 'stay', 'bolder', 'gentler', 'different', 'liam', 'sibling'],
+  dial_move: ['quiz_result', 'stay', 'bolder', 'gentler', 'different', 'liam', 'sibling', 'step'],
   dial_evidence_grade: ['A', 'B', 'C', 'D'],
   dial_map_version_status: ['draft', 'active', 'retired'],
   dial_first_match_status: ['founder_pick', 'derived'],
@@ -213,9 +213,14 @@ export const DIAL_SEED_CODES: Record<string, string[]> = {
   dial_surface: ['customer_face', 'quiz_result', 'profile_trail', 'reorder_email', 'liam_context', 'qr_door', 'axis_stats'],
   // Ella map 5 (2026-11-16)
   dial_step_basis: ['roaster_said', 'recipe_or_ratings', 'our_guess'],
+  // Ella map 7 (2026-11-17)
+  dial_start_condition: ['always', 'fruity_gt_cn', 'fruity_gt_balanced', 'cn_gt_zero', 'espresso_at_home'],
 };
 // Ella map 3 (2026-11-12): the dial_customer_copy codes matchService and the pages read
-export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_available', 'choose_this', 'see_whole_map', 'trail_title', 'trail_start', 'moved_to', 'email_map_intro'];
+export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_available', 'choose_this', 'see_whole_map', 'trail_title', 'trail_start', 'moved_to', 'email_map_intro',
+  // Ella map 7 (2026-11-17): the /map page
+  'map_eyebrow', 'map_title_first', 'map_title_after', 'map_intro', 'first_bag_title', 'here_title', 'why_this_one',
+  'steps_title', 'steps_hint', 'see_it', 'make_next_bag', 'closing_line'];
 export const DIAL_PARAMETER_KEYS = [
   'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
   'dial_w_ring', 'dial_w_body', 'dial_w_sweet', 'dial_w_lane', 'dial_cap_different',
@@ -225,6 +230,7 @@ export const DIAL_PARAMETER_KEYS = [
   'dial_suggest_body_cut_base', 'dial_suggest_word_pos1', 'dial_suggest_word_later', 'dial_suggest_dark_roast_add',
   'dial_suggest_threshold', 'dial_delta_min_to_mention',
   'dial_size_roaster_cut_1', 'dial_size_roaster_cut_2', // Ella map 5
+  'dial_earthy_branch_reworded_on', // Ella map 7
 ];
 
 async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIntegrityCheck[]> {

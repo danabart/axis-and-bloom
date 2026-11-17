@@ -12,15 +12,19 @@
 // decision reaches it only through Publish. The page types in only chrome
 // (headings, button verbs): every family, lane, ring, size, basis and flag
 // word comes from the API (G4.2). The old workbench is /admin/map/advanced.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+// Ella map 7 (2026-11-17), C4/C5: table 1 is the start rule (dial_start_rule,
+// GET|PUT /start-rules); the family-by-lane first matches live on the advanced
+// page. The lean buttons leave out a closed side (vocabulary.wedgeLanes), and
+// the publish button names how many changes it carries.
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import EllaMapFace from '../bloom/map/EllaMapFace';
 import EllaMapLegend from '../bloom/map/EllaMapLegend';
 import { setLean, type ApiFetch } from '../../lib/catalogWrites';
 import {
-  getDecidedMap, getVocabulary, getWedges, getFirstMatches, getRingHistory, setStep, setRing, publishMap, setFirstMatch,
-  type DecidedMap, type DecisionNow, type StepRow, type Vocabulary, type Wedge, type Seam, type FirstMatch, type RingHistoryRow,
+  getDecidedMap, getVocabulary, getWedges, getStartRules, getRingHistory, setStep, setRing, publishMap, setStartRule,
+  type DecidedMap, type DecisionNow, type StepRow, type Vocabulary, type Wedge, type Seam, type StartRule, type RingHistoryRow,
 } from '../../lib/mapAdmin';
 
 const CARD = 'border border-stone-200 rounded-xl bg-white';
@@ -52,7 +56,7 @@ export default function AdminEllaMap() {
   const [vocab, setVocab] = useState<Vocabulary | null>(null);
   const [wedges, setWedges] = useState<{ wedges: Wedge[]; seams: Seam[] } | null>(null);
   const [map, setMap] = useState<DecidedMap | null>(null);
-  const [firstMatches, setFirstMatchRows] = useState<FirstMatch[]>([]);
+  const [startRules, setStartRuleRows] = useState<StartRule[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [openStep, setOpenStep] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -60,8 +64,8 @@ export default function AdminEllaMap() {
   const load = useCallback(async () => {
     try {
       setError('');
-      const [m, fm] = await Promise.all([getDecidedMap(apiFetch), getFirstMatches(apiFetch)]);
-      setMap(m); setFirstMatchRows(fm);
+      const [m, sr] = await Promise.all([getDecidedMap(apiFetch), getStartRules(apiFetch)]);
+      setMap(m); setStartRuleRows(sr);
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to load the map'); }
   }, [apiFetch]);
   useEffect(() => {
@@ -120,7 +124,7 @@ export default function AdminEllaMap() {
         </section>
 
         <div className="space-y-6">
-          <FirstMatchTable rows={firstMatches} map={map} label={label} apiFetch={apiFetch} onChanged={load} />
+          <StartRuleTable rows={startRules} map={map} apiFetch={apiFetch} onChanged={load} />
           <StepsTable steps={map.steps} vocab={vocab} openId={openStep} setOpenId={setOpenStep} apiFetch={apiFetch} onChanged={load} />
         </div>
       </div>
@@ -187,9 +191,11 @@ function CoffeeCard({ d, map, vocab, label, apiFetch, onClose, onChanged, onOpen
         <div>
           <span className="text-xs text-stone-500">Lean</span>
           <div className="mt-1 flex flex-wrap gap-1" data-testid="lean-buttons">
-            {vocab.lanes.map(l => (
-              <button key={l.code} className={lane === l.code ? BTN_PRIMARY : BTN} onClick={() => setLaneDraft(l.code)}>{label.lane(l.code, d.archetype_code)}</button>
-            ))}
+            {vocab.lanes
+              .filter(l => vocab.wedgeLanes.find(w => w.archetype_code === d.archetype_code && w.lane_code === l.code)?.is_open !== false)
+              .map(l => (
+                <button key={l.code} className={lane === l.code ? BTN_PRIMARY : BTN} onClick={() => setLaneDraft(l.code)} data-lane={l.code}>{label.lane(l.code, d.archetype_code)}</button>
+              ))}
           </div>
         </div>
         <div>
@@ -267,7 +273,9 @@ function PublishBox({ map, apiFetch, onPublished }: { map: DecidedMap; apiFetch:
   return (
     <div className="mt-6 pt-4 border-t border-stone-200" data-testid="publish-box">
       {!open
-        ? <button className={BTN_PRIMARY} onClick={() => { setOpen(true); setLabelText(nextLabel(map.version?.label)); }} data-testid="publish-open">Publish this map</button>
+        ? <button className={BTN_PRIMARY} disabled={u.total === 0} onClick={() => { setOpen(true); setLabelText(nextLabel(map.version?.label)); }} data-testid="publish-open">
+            {u.total === 0 ? 'Nothing to publish' : `Publish ${u.total} change${u.total === 1 ? '' : 's'}`}
+          </button>
         : (
           <div className="grid gap-2 sm:grid-cols-[8rem_1fr_auto] items-center">
             <input className={INPUT} placeholder="Label" value={labelText} onChange={e => setLabelText(e.target.value)} data-testid="publish-label" />
@@ -290,56 +298,113 @@ function PublishBox({ map, apiFetch, onPublished }: { map: DecidedMap; apiFetch:
   );
 }
 
-function FirstMatchTable({ rows, map, label, apiFetch, onChanged }: {
-  rows: FirstMatch[]; map: DecidedMap; label: Labels; apiFetch: ApiFetch; onChanged: () => Promise<void>;
+function StartRuleTable({ rows, map, apiFetch, onChanged }: {
+  rows: StartRule[]; map: DecidedMap; apiFetch: ApiFetch; onChanged: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState<number | null>(null);
-  const [coffeeId, setCoffeeId] = useState<string>('');
+  const [draft, setDraft] = useState<{ coffeeId: string; adminLabel: string; customerReason: string }>({ coffeeId: '', adminLabel: '', customerReason: '' });
+  const [historyOf, setHistoryOf] = useState<string | null>(null);
+  const [history, setHistory] = useState<StartRule[]>([]);
   const [msg, setMsg] = useState('');
-  const options = map.decisions.filter(d => d.is_placeable).sort((a, b) => a.coffee_name.localeCompare(b.coffee_name));
-  async function save(r: FirstMatch) {
+  // a first bag must be placed on the published map (setStartRule refuses otherwise)
+  const options = [...map.placements].sort((a, b) => a.coffee_name.localeCompare(b.coffee_name));
+  const key = (r: StartRule) => `${r.family_code}#${r.priority}`;
+  async function save(r: StartRule) {
     setMsg('');
     try {
-      await setFirstMatch(apiFetch, { archetype: r.archetype_code, lane: r.lane_code, coffeeId: Number(coffeeId), status: 'founder_pick', notes: r.notes });
+      const res = await setStartRule(apiFetch, {
+        family: r.family_code, priority: r.priority, condition: r.condition_code, alsoCondition: r.also_condition_code,
+        coffeeId: Number(draft.coffeeId), adminLabel: draft.adminLabel.trim(), customerReason: draft.customerReason.trim(), notes: r.notes,
+      });
+      setMsg(res.unchanged ? 'Unchanged.' : 'Saved. It applies to the next quiz result at once.');
       setEditing(null);
+      if (historyOf === key(r)) setHistory(await getStartRules(apiFetch, true));
       await onChanged();
     } catch (err) { setMsg(err instanceof Error ? err.message : 'Save failed'); }
   }
+  async function toggleHistory(r: StartRule) {
+    if (historyOf === key(r)) { setHistoryOf(null); return; }
+    try { setHistory(await getStartRules(apiFetch, true)); setHistoryOf(key(r)); }
+    catch (err) { setMsg(err instanceof Error ? err.message : 'History failed'); }
+  }
+  let lastFamily = '';
   return (
-    <section className={`${CARD} p-4`} data-testid="first-match-table">
+    <section className={`${CARD} p-4`} data-testid="start-rule-table">
       <h2 className="text-sm font-medium text-stone-800">1. Where each quiz result starts</h2>
+      <p className="text-xs text-stone-500 mt-1">Within a family the first row that holds wins. A change applies to the next quiz result at once; it does not wait for Publish.</p>
       <table className="w-full text-sm mt-2">
         <thead>
           <tr className="text-left text-xs uppercase tracking-wide text-stone-500">
-            <th className="py-1 font-normal">Quiz result</th><th className="py-1 font-normal">First bag</th><th />
+            <th className="py-1 font-normal">Quiz result</th><th className="py-1 font-normal">When</th>
+            <th className="py-1 font-normal">First bag</th><th className="py-1 font-normal">Why this one (the customer reads)</th><th />
           </tr>
         </thead>
         <tbody>
-          {rows.map(r => (
-            <tr key={r.id} className="border-t border-stone-100">
-              <td className="py-1.5">{label.family(r.archetype_code)}, {label.lane(r.lane_code, r.archetype_code)}</td>
-              <td className="py-1.5 font-medium">
-                {editing === r.id
-                  ? (
-                    <span className="flex gap-1">
-                      <select className={INPUT} value={coffeeId} onChange={e => setCoffeeId(e.target.value)}>
-                        {options.map(o => <option key={o.coffee_id} value={o.coffee_id}>{o.coffee_name}</option>)}
-                      </select>
-                      <button className={BTN_PRIMARY} onClick={() => save(r)}>Save</button>
-                    </span>
-                  )
-                  : r.coffee_name}
-              </td>
-              <td className="py-1.5 text-right">
-                {editing === r.id
-                  ? <button className={LINK} onClick={() => setEditing(null)}>Cancel</button>
-                  : <button className={LINK} onClick={() => { setEditing(r.id); setCoffeeId(String(r.coffee_id)); }}>Change</button>}
-              </td>
-            </tr>
-          ))}
+          {rows.map(r => {
+            const showFamily = r.family_code !== lastFamily;
+            lastFamily = r.family_code;
+            const isEditing = editing === r.id;
+            return (
+              <Fragment key={r.id}>
+                <tr className={`${showFamily ? 'border-t border-stone-200' : ''} align-top`} data-testid="start-rule-row" data-family={r.family_code} data-priority={r.priority}>
+                  <td className="py-1.5 pr-2 font-medium">{showFamily ? r.family_name : ''}</td>
+                  <td className="py-1.5 pr-2">
+                    {isEditing
+                      ? <input className={INPUT} value={draft.adminLabel} onChange={e => setDraft({ ...draft, adminLabel: e.target.value })} data-testid="edit-admin-label" />
+                      : <span data-testid="rule-admin-label">{r.admin_label}</span>}
+                  </td>
+                  <td className="py-1.5 pr-2 font-medium">
+                    {isEditing
+                      ? (
+                        <select className={INPUT} value={draft.coffeeId} onChange={e => setDraft({ ...draft, coffeeId: e.target.value })} data-testid="edit-coffee">
+                          {options.map(o => <option key={o.coffee_id} value={o.coffee_id}>{o.coffee_name}</option>)}
+                        </select>
+                      )
+                      : <span data-testid="rule-coffee">{r.coffee_name}</span>}
+                  </td>
+                  <td className="py-1.5 pr-2 text-stone-600">
+                    {isEditing
+                      ? <textarea className={INPUT} rows={3} value={draft.customerReason} onChange={e => setDraft({ ...draft, customerReason: e.target.value })} data-testid="edit-reason" />
+                      : <span data-testid="rule-reason">{r.customer_reason}</span>}
+                  </td>
+                  <td className="py-1.5 text-right whitespace-nowrap">
+                    {isEditing
+                      ? (
+                        <span className="flex flex-col gap-1 items-end">
+                          <button className={BTN_PRIMARY} onClick={() => save(r)} disabled={!draft.adminLabel.trim() || !draft.customerReason.trim()} data-testid="rule-save">Save</button>
+                          <button className={LINK} onClick={() => setEditing(null)}>Cancel</button>
+                        </span>
+                      )
+                      : (
+                        <span className="flex flex-col gap-1 items-end">
+                          <button className={LINK} onClick={() => { setEditing(r.id); setDraft({ coffeeId: String(r.coffee_id), adminLabel: r.admin_label, customerReason: r.customer_reason }); }} data-testid="rule-change">Change</button>
+                          <button className={LINK} onClick={() => toggleHistory(r)} data-testid="rule-history">History</button>
+                        </span>
+                      )}
+                  </td>
+                </tr>
+                {historyOf === key(r) && (
+                  <tr data-testid="rule-history-rows">
+                    <td />
+                    <td colSpan={4} className="pb-2">
+                      <ul className="text-xs text-stone-600 space-y-1">
+                        {history.filter(h => h.family_code === r.family_code && h.priority === r.priority).map(h => (
+                          <li key={h.id} data-testid="rule-history-row" data-current={h.is_current ? '1' : '0'}>
+                            {new Date(h.created_at).toLocaleString()} · {h.coffee_name} · {h.admin_label} · “{h.customer_reason}”
+                            {h.is_current ? ' (current)' : ` (until ${new Date(h.superseded_at!).toLocaleString()})`}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
-      {msg && <p className="text-xs text-red-700 mt-2">{msg}</p>}
+      {rows.length === 0 && <p className="text-xs text-stone-500 mt-2">No start rule yet.</p>}
+      {msg && <p className="text-xs text-stone-700 mt-2" data-testid="rule-msg">{msg}</p>}
     </section>
   );
 }

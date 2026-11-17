@@ -9,7 +9,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth.js';
 import * as dialReads from '../services/dialReads.js';
-import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, setStep, publish, DialMapError } from '../services/dialPlacementService.js';
+import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, setStep, publish, setStartRule, DialMapError } from '../services/dialPlacementService.js';
 import { getMatchDecisions } from '../services/customerReads.js';
 import { setLean, setRing, CatalogError } from '../services/catalogService.js';
 
@@ -104,6 +104,29 @@ const FirstMatchBody = z.object({
   status: z.enum(['founder_pick', 'derived']).optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
 });
+// Ella map 7 (B5): the start rule, where a quiz result starts. GET returns the
+// current rows (table 1 of /admin/map) and, with ?history=1, every row.
+router.get('/start-rules', read('start rules', req => dialReads.startRules({ history: req.query.history === '1' })));
+const StartRuleBody = z.object({
+  family: z.string().trim().min(1).max(40),
+  priority: z.number().int().positive().max(999),
+  condition: z.string().trim().min(1).max(60),
+  alsoCondition: z.string().trim().min(1).max(60).nullable().optional(),
+  coffeeId: z.number().int().positive(),
+  adminLabel: z.string().trim().min(1).max(300),
+  customerReason: z.string().trim().min(1).max(600),
+  notes: z.string().trim().max(2000).nullable().optional(),
+});
+router.put('/start-rules', async (req: AuthRequest, res) => {
+  try {
+    const b = StartRuleBody.parse(req.body ?? {});
+    res.json(await setStartRule({
+      familyCode: b.family, priority: b.priority, conditionCode: b.condition, alsoConditionCode: b.alsoCondition ?? null,
+      coffeeId: b.coffeeId, adminLabel: b.adminLabel, customerReason: b.customerReason, notes: b.notes ?? null, adminUid: req.uid ?? null,
+    }));
+  } catch (err) { fail(res, 'set start rule', err); }
+});
+
 router.put('/first-match', async (req: AuthRequest, res) => {
   try {
     const b = FirstMatchBody.parse(req.body ?? {});

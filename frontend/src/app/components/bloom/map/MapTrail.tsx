@@ -3,6 +3,9 @@
 // version's face with the dots joined (R3.9). Renders only when the
 // profile_trail surface says map; with the row on lane it renders nothing.
 // Title and move words come from the API (dial_customer_copy, dial_hop_phrase).
+// Ella map 7 (C2): the list as on page 4 of Dana's PDF: each chosen coffee in
+// order, the word of the published step that led to it, the date, and the
+// customer's own words about it when they left some.
 import { useEffect, useState } from 'react';
 import EllaMapFace from './EllaMapFace';
 import { getMapSurfaces, getMapMe, getMapFace, useMapFetch, type MapMe, type MapFaceData } from '../../../lib/mapCustomer';
@@ -34,9 +37,13 @@ export default function MapTrail() {
       <div className="flex flex-col md:flex-row gap-6 items-start">
         <ol className="flex flex-col gap-2 text-sm text-[#3f3a36] flex-1">
           {me.trail.map(t => (
-            <li key={t.step} className="flex gap-2 items-baseline">
-              <span className="text-[11px] uppercase tracking-[0.15em] text-[#a33726]/60 min-w-[6.5rem]">{t.moveWord}</span>
-              <span>{t.name}</span>
+            <li key={t.step} className="flex gap-3 items-baseline" data-testid="trail-row">
+              <span className="text-[11px] uppercase tracking-[0.15em] text-[#a33726]/60 min-w-[6.5rem]" data-testid="trail-word">{t.moveWord}</span>
+              <span className="flex-1">
+                <span className="font-medium" data-testid="trail-coffee">{t.name}</span>
+                <span className="text-xs text-[#6b5a56] ml-2" data-testid="trail-date">{new Date(t.occurredAt).toLocaleDateString()}</span>
+                {t.line && <span className="block text-sm italic text-[#6b5a56]" data-testid="trail-line">“{t.line}”</span>}
+              </span>
             </li>
           ))}
         </ol>

@@ -53,7 +53,7 @@ export interface Wedge {
   ruler_dimension_id: number | null; ruler_dimension_name: string | null;
   side_a_archetype: string; side_b_archetype: string; seam_family: string | null;
 }
-export interface Seam { archetype_a: string; archetype_b: string; label: string | null; is_labelled: boolean }
+export interface Seam { archetype_a: string; archetype_b: string; label: string | null; is_labelled: boolean; is_open?: boolean }
 export interface FirstMatch {
   id: number; archetype_code: string; lane_code: string; coffee_id: number; coffee_name: string; status: string; notes: string | null;
   preview_grade: string | null; active_grade: string | null; min_grade_rank: number;
@@ -76,6 +76,16 @@ export interface Vocabulary {
   flags: Array<{ code: string; label: string; description: string }>;
   readings: Array<{ code: string; label: string; dimension_id: number }>;
   deltaPhrases: Array<{ reading: string; direction: string; sign: number; phrase: string }>;
+  /** Ella map 7: every lane of every family and whether it may be offered (a closed side is not) */
+  wedgeLanes: Array<{ archetype_code: string; lane_code: string; toward_archetype: string | null; is_open: boolean }>;
+  startConditions: Array<{ code: string; label: string; sort_order: number }>;
+}
+/** Ella map 7: one row of the start rule (v_dial_start_rule) */
+export interface StartRule {
+  id: number; family_code: string; family_name: string; family_order: number | null; priority: number;
+  condition_code: string; condition_label: string; also_condition_code: string | null; also_condition_label: string | null;
+  coffee_id: number; coffee_name: string; admin_label: string; customer_reason: string; notes: string | null;
+  decided_by: string | null; created_at: string; superseded_at: string | null; is_current: boolean;
 }
 export interface LeanHistoryRow {
   id: number; lane_code: string; suggested_lane_code: string | null; notes: string | null; basis: Record<string, unknown> | null;
@@ -100,6 +110,11 @@ export const activateVersion = (f: ApiFetch, id: number) =>
   call<{ versionId: number; retiredVersionId: number | null }>(f, `${B}/versions/${id}/activate`, json('POST', {}));
 export const setFirstMatch = (f: ApiFetch, body: { archetype: string; lane: string; coffeeId: number; status?: string; notes?: string | null }) =>
   call<{ id: number; unchanged: boolean }>(f, `${B}/first-match`, json('PUT', body));
+export const getStartRules = (f: ApiFetch, history = false) => call<StartRule[]>(f, `${B}/start-rules${history ? '?history=1' : ''}`);
+export const setStartRule = (f: ApiFetch, body: {
+  family: string; priority: number; condition: string; alsoCondition: string | null; coffeeId: number;
+  adminLabel: string; customerReason: string; notes?: string | null;
+}) => call<{ id: number; unchanged: boolean; supersededId: number | null }>(f, `${B}/start-rules`, json('PUT', body));
 export const setPhrase = (f: ApiFetch, body: { archetype: string | null; move: string; buttonLabel: string; moveLineTemplate?: string | null; edgePhrase?: string | null }) =>
   call<{ id: number; unchanged: boolean }>(f, `${B}/phrases`, json('PUT', body));
 

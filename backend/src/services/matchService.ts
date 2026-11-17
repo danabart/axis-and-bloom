@@ -19,10 +19,11 @@ import * as dialReads from './dialReads.js';
 import { record, type MatchSource } from './customerFacts.js';
 import {
   getMatchCurrent, getMatchTrail, getMatchDecisionBySource, getMatchQuizContext, getCurrentQuizSessionId,
-  getBrewDecafByProfile, type MatchCurrentRow,
+  getBrewDecafByProfile, getMatchTrailLines, type MatchCurrentRow,
 } from './customerReads.js';
 import { getCardPresentations } from './coffeeCardReads.js';
 import { compareCoffee } from './compatibilityReads.js';
+import { getAnchorSize, getSellableSlots } from './catalogReads.js';
 
 export class MatchError extends Error {
   constructor(public status: 400 | 403 | 404 | 409, public code: string, message: string) {
@@ -40,13 +41,10 @@ export const CUSTOMER_MOVES: readonly CustomerMove[] = ['stay', 'bolder', 'gentl
 // code (coffee_category), compared like any other code, not customer copy.
 const DECAF_TAG = 'decaf';
 
-// CTO call 4 (Dana 2026-11-12, decision 2): the cell a quiz result asks for.
-// A delicate lean starts on the Fruity wedge's side toward Floral; otherwise
-// the center and Fruity start on their side_a (the chocolate side), every
-// other family in its middle lane. The family codes are the rule's own words.
-const DELICATE_FAMILY = 'fruity';
-const DELICATE_TOWARD = 'floral';
-const SIDE_A_FAMILIES = new Set(['fruity']);
+// Ella map 7 (2026-11-17), B2: the first bag is a row of dial_start_rule
+// (v_dial_start); when no row wins, the center family's row with this
+// condition code (the brief: Balanced's "always" row). A code, like DECAF_TAG.
+const FALLBACK_CONDITION = 'always';
 
 // ── The customer's context ────────────────────────────────────────────────────
 
@@ -81,9 +79,8 @@ export function passesTagFilter(categoryCodes: string[] | null | undefined, deca
   return decaf ? tags.includes(DECAF_TAG) : tags.length === 0;
 }
 
-// ── First match (CTO call 4) ──────────────────────────────────────────────────
+// ── First bag (Ella map 7, B2) ────────────────────────────────────────────────
 
-interface Wedge { archetype_code: string; is_center: boolean; side_a_archetype: string; side_b_archetype: string }
 interface PlacementRow {
   coffee_id: number; coffee_name: string; archetype_code: string; is_center: boolean; ring: number; lane_code: string;
   grade_rank: number; is_sellable: boolean; in_stock: boolean; category_codes: string[] | null;
@@ -92,63 +89,46 @@ interface PlacementRow {
 export interface FirstMatchResult {
   coffeeId: number;
   coffeeName: string;
-  rule: 'founder_pick' | 'derived' | 'center_founder_pick' | 'center_derived';
-  askedCell: { archetype: string; lane: string };
+  /** start_rule: the session's winning dial_start_rule row; start_fallback: the center's always row */
+  rule: 'start_rule' | 'start_fallback';
+  ruleId: number;
+  reason: string;
+  familyRead: string | null;
+  scores: Record<string, number> | null;
+  conditions: Record<string, boolean> | null;
   candidates: Array<{ coffeeId: number; rank: number }>;
 }
 
-/** The cell a quiz result asks for (archetype, lane). */
-export function firstMatchCell(ctx: Pick<CustomerContext, 'matchArchetypeCode' | 'intensityLean'>, wedges: Wedge[]): { archetype: string; lane: string } | null {
-  const center = wedges.find(w => w.is_center);
-  if (ctx.intensityLean === 'delicate') {
-    const w = wedges.find(x => x.archetype_code === DELICATE_FAMILY);
-    if (w) return { archetype: w.archetype_code, lane: w.side_a_archetype === DELICATE_TOWARD ? 'side_a' : w.side_b_archetype === DELICATE_TOWARD ? 'side_b' : 'middle' };
-  }
-  const w = wedges.find(x => x.archetype_code === ctx.matchArchetypeCode) ?? center;
-  if (!w) return null;
-  return { archetype: w.archetype_code, lane: w.is_center || SIDE_A_FAMILIES.has(w.archetype_code) ? 'side_a' : 'middle' };
-}
-
 /**
- * CTO call 4 with Dana's decisions 2 and 3: the dial_first_match row for the
- * cell when that coffee is placed, sellable, in stock, at or above the grade
- * floor and passes the customer's tag filter; else the derivable fallback
- * (that family's placed, sellable, in-stock coffees at the floor: lowest ring,
- * most hops, the asked lane first, lowest coffee id); else the center's first
- * match by the same two steps. Null when nothing qualifies.
+ * The first bag for a quiz result (Ella map 7): the session's winning row in
+ * v_dial_start, else the center family's always row. The coffee must be placed
+ * on the active map, in stock, at or above the grade floor and pass the
+ * customer's tag filter (decaf as today, OT-126); sellability is not required
+ * (Dana 2026-11-17: no price until brief 8). Null when neither row qualifies.
  */
 export async function firstMatchFor(ctx: CustomerContext, runner: Runner = db): Promise<FirstMatchResult | null> {
-  const { wedges } = await dialReads.wedges(runner) as { wedges: Wedge[] };
-  const cell = firstMatchCell(ctx, wedges);
-  if (!cell) return null;
+  const start = ctx.quizSessionId ? await dialReads.startForSession(ctx.quizSessionId, runner) : null;
+  const fallback = await dialReads.startFallback(FALLBACK_CONDITION, runner);
   const params = await dialReads.parametersInForce('active', runner);
   const floor = Number(params.dial_min_grade_rank_first_match);
   const placements = (await dialReads.placementActive(runner)) as PlacementRow[];
-  const hops = await dialReads.hopCounts(runner);
-  const eligible = (p: PlacementRow) => p.is_sellable && p.in_stock && Number(p.grade_rank) >= floor && passesTagFilter(p.category_codes, ctx.decaf);
-
-  const pick = async (c: { archetype: string; lane: string }, founderRule: FirstMatchResult['rule'], derivedRule: FirstMatchResult['rule']) => {
-    const ranked = placements.filter(p => p.archetype_code === c.archetype && eligible(p))
-      .sort((a, b) => Number(a.ring) - Number(b.ring)
-        || (hops.get(b.coffee_id) ?? 0) - (hops.get(a.coffee_id) ?? 0)
-        || Number(b.lane_code === c.lane) - Number(a.lane_code === c.lane)
-        || a.coffee_id - b.coffee_id);
-    const candidates = ranked.map((p, i) => ({ coffeeId: p.coffee_id, rank: i + 1 }));
-    const founderId = await dialReads.firstMatchFor(c.archetype, c.lane, runner);
-    const founder = founderId === null ? undefined : placements.find(p => p.coffee_id === founderId && eligible(p));
-    if (founder) {
-      return { coffeeId: founder.coffee_id, coffeeName: founder.coffee_name, rule: founderRule, askedCell: cell, candidates: [{ coffeeId: founder.coffee_id, rank: 1 }, ...candidates.filter(x => x.coffeeId !== founder.coffee_id).map(x => ({ ...x, rank: x.rank + 1 }))] };
-    }
-    if (ranked[0]) return { coffeeId: ranked[0].coffee_id, coffeeName: ranked[0].coffee_name, rule: derivedRule, askedCell: cell, candidates };
-    return null;
+  const eligible = (coffeeId: number) => {
+    const p = placements.find(x => x.coffee_id === coffeeId);
+    return !!p && p.in_stock && Number(p.grade_rank) >= floor && passesTagFilter(p.category_codes, ctx.decaf);
   };
-
-  const own = await pick(cell, 'founder_pick', 'derived');
-  if (own) return own;
-  const center = wedges.find(w => w.is_center);
-  if (!center || center.archetype_code === cell.archetype) return null;
-  const centerCell = firstMatchCell({ matchArchetypeCode: center.archetype_code, intensityLean: null }, wedges)!;
-  return pick(centerCell, 'center_founder_pick', 'center_derived');
+  const options: Array<{ rule: FirstMatchResult['rule']; ruleId: number; coffeeId: number; coffeeName: string; reason: string }> = [];
+  if (start?.rule_id) options.push({ rule: 'start_rule', ruleId: start.rule_id, coffeeId: start.coffee_id, coffeeName: start.coffee_name, reason: start.customer_reason });
+  if (fallback && !options.some(o => o.ruleId === fallback.id)) {
+    options.push({ rule: 'start_fallback', ruleId: fallback.id, coffeeId: fallback.coffee_id, coffeeName: fallback.coffee_name, reason: fallback.customer_reason });
+  }
+  const chosen = options.find(o => eligible(o.coffeeId));
+  if (!chosen) return null;
+  const candidates = [chosen, ...options.filter(o => o !== chosen && o.coffeeId !== chosen.coffeeId && eligible(o.coffeeId))]
+    .map((o, i) => ({ coffeeId: o.coffeeId, rank: i + 1 }));
+  return {
+    coffeeId: chosen.coffeeId, coffeeName: chosen.coffeeName, rule: chosen.rule, ruleId: chosen.ruleId, reason: chosen.reason,
+    familyRead: start?.family_read ?? null, scores: start?.scores ?? null, conditions: start?.conditions ?? null, candidates,
+  };
 }
 
 // ── Moves (CTO calls 5 and 6) ─────────────────────────────────────────────────
@@ -272,11 +252,13 @@ async function computeMoves(profileId: string, pos: MatchCurrentRow, runner: Run
 // ── The door (CTO calls 6 and 7) ──────────────────────────────────────────────
 
 export type DecideTrigger = 'quiz_result' | 'hop' | 'liam';
+/** Ella map 7: the dial_move code of a decided step taken on /map */
+export const STEP_MOVE = 'step';
 export interface DecideInput {
   userId: string;
   actorUserId?: string | null;
   trigger: DecideTrigger;
-  /** dial_move code: quiz_result for the quiz; stay, bolder, gentler, different for a hop; liam */
+  /** dial_move code: quiz_result for the quiz; stay, bolder, gentler, different for a hop; step for a decided step (Ella map 7); liam */
   move: string;
   pickedCoffeeId?: number | null;
   /** beat (decision 5): the server picks the move set's top-ranked coffee at click time */
@@ -312,7 +294,9 @@ export async function decide(input: DecideInput, runner: Runner = db): Promise<D
     if (!fm) throw new MatchError(409, 'NO_FIRST_MATCH', 'No coffee qualifies as a first match on the active map.');
     picked = fm.coffeeId; pickedName = fm.coffeeName;
     candidates = fm.candidates.map(c => ({ coffeeId: c.coffeeId, moveId, rank: c.rank, distance: null }));
-    extra.rule = fm.rule; extra.asked_cell = fm.askedCell;
+    // Ella map 7 (B2): the rule row and the facts it read
+    extra.rule = fm.rule; extra.rule_id = fm.ruleId; extra.family_read = fm.familyRead;
+    extra.scores = fm.scores; extra.conditions = fm.conditions;
   } else {
     const pos = await getMatchCurrent(input.userId, runner);
     if (input.trigger === 'liam') {
@@ -323,6 +307,20 @@ export async function decide(input: DecideInput, runner: Runner = db): Promise<D
       picked = input.pickedCoffeeId;
     } else if (!pos) {
       throw new MatchError(409, 'NO_POSITION', 'There is no position yet: the first match comes from the quiz.');
+    } else if (input.move === STEP_MOVE) {
+      // Ella map 7 (B3): a published, shown step leaving the position (v_dial_step)
+      fromCoffeeId = pos.coffeeId;
+      ctx = await customerContext(input.userId, null, runner);
+      const offered = await offeredSteps(pos.coffeeId, ctx.decaf, runner);
+      const choice = offered.find(x => x.to_coffee_id === input.pickedCoffeeId);
+      if (!choice) {
+        throw new MatchError(409, offered.length ? 'NOT_A_STEP' : 'EDGE', offered.length
+          ? `That coffee is not one step from ${pos.coffeeName}.`
+          : `There is no step from ${pos.coffeeName}.`);
+      }
+      picked = choice.to_coffee_id; pickedName = choice.to_coffee_name;
+      candidates = offered.map((x, i) => ({ coffeeId: x.to_coffee_id, moveId, rank: i + 1, distance: null }));
+      extra.step_id = choice.id; extra.step_word = choice.button_word;
     } else if (input.move === 'stay') {
       fromCoffeeId = pos.coffeeId;
       ctx = await customerContext(input.userId, null, runner);
@@ -370,29 +368,40 @@ export async function decide(input: DecideInput, runner: Runner = db): Promise<D
 
 // ── Position and trail (CTO call 3) ───────────────────────────────────────────
 
-/** GET /api/map/me: the position, its start or "no longer available" sentence, the trail on the active version. */
+/** GET /api/map/me: the position, its start or "no longer available" sentence, the first-bag reason before any bag, the trail on the active version. */
 export async function me(profileId: string, runner: Runner = db) {
   const copy = await dialReads.customerCopy(runner);
   const version = await dialReads.activeVersion(runner);
   const pos = await getMatchCurrent(profileId, runner);
   const trailRows = await getMatchTrail(profileId, runner);
   const phrases = (await dialReads.phrases(runner)).resolved as Array<{ archetype_code: string; move_code: string; button_label: string }>;
-  let familyOf = new Map<number, string>();
   const placed = await dialReads.placementActive(runner) as PlacementRow[];
-  familyOf = new Map(placed.map(p => [p.coffee_id, p.archetype_code]));
-  const moveWord = (row: { move_code: string; from_coffee_id: number | null }) => {
+  const familyOf = new Map(placed.map(p => [p.coffee_id, p.archetype_code]));
+  const stepWords = await dialReads.activeStepWords(runner);
+  const lines = await getMatchTrailLines(profileId, runner);
+  // Ella map 7 (B4): the word of the published step that joins two consecutive
+  // choices; the start word for the quiz; a calculated hop keeps its phrase.
+  const moveWord = (row: { move_code: string; from_coffee_id: number | null; picked_coffee_id: number }, prevPicked: number | null) => {
     if (row.move_code === 'quiz_result') return copy.trail_start ?? null;
+    if (prevPicked !== null) {
+      const w = stepWords.get(`${prevPicked}>${row.picked_coffee_id}`);
+      if (w) return w;
+    }
+    if (row.move_code === STEP_MOVE) return null;
     const fam = row.from_coffee_id ? familyOf.get(row.from_coffee_id) : undefined;
     return phrases.find(p => p.archetype_code === fam && p.move_code === row.move_code)?.button_label
       ?? phrases.find(p => p.move_code === row.move_code)?.button_label ?? null;
   };
-  const trail = trailRows.map(t => ({
-    step: t.step, occurredAt: t.occurred_at, move: t.move_code, moveWord: moveWord(t),
+  const trail = trailRows.map((t, i) => ({
+    step: t.step, occurredAt: t.occurred_at, move: t.move_code,
+    moveWord: moveWord(t, i > 0 ? trailRows[i - 1].picked_coffee_id : null),
     coffeeId: t.picked_coffee_id, name: t.picked_coffee_name, byOther: t.actor_user_id !== null,
+    // the customer's own words about this coffee, when they left some (v_customer_feedback_current)
+    line: lines.get(t.picked_coffee_id) ?? null,
     // drawn on the active version (R3.9): the face places the dot; no ring, lane or cell goes to the customer
     onActiveMap: t.active_archetype_code !== null,
   }));
-  if (!pos) return { position: null, trail, versionLabel: version?.label ?? null, copy };
+  if (!pos) return { position: null, firstBag: null, trail, versionLabel: version?.label ?? null, copy };
   const available = pos.isInActiveVersion && pos.isSellable && pos.inStock;
   let sentence: string | null;
   if (!available) {
@@ -411,7 +420,95 @@ export async function me(profileId: string, runner: Runner = db) {
       isInActiveVersion: pos.isInActiveVersion, available, sentence, move: pos.moveCode, occurredAt: pos.occurredAt,
       byOther: pos.actorUserId !== null,
     },
+    firstBag: await firstBagReason(profileId, pos, runner),
     trail, versionLabel: version?.label ?? null, copy,
+  };
+}
+
+/**
+ * Before any bag (the position is the quiz's decision): the one reason the
+ * customer reads under the first bag. The rule row the decision recorded, read
+ * as its (family, priority)'s current row when that still names the same
+ * coffee (so an edited sentence shows at once), else the recorded row; for a
+ * decision with no rule recorded, the session's live winning row when it names
+ * the position's coffee. Null after a bag, or when nothing names this coffee.
+ */
+async function firstBagReason(profileId: string, pos: MatchCurrentRow, runner: Runner): Promise<{ coffeeId: number; reason: string } | null> {
+  if (pos.moveCode !== 'quiz_result') return null;
+  const trail = await getMatchTrail(profileId, runner);
+  const decision = trail.find(t => t.decision_id === pos.decisionId);
+  const inputs = (decision?.inputs ?? {}) as { rule_id?: number; quiz?: { session_id?: string | null } };
+  const rows = inputs.rule_id ? await dialReads.startRules({ history: true }, runner) : [];
+  const recorded = rows.find(r => r.id === inputs.rule_id);
+  const current = recorded ? rows.find(r => r.is_current && r.family_code === recorded.family_code && r.priority === recorded.priority) : undefined;
+  const live = !recorded && inputs.quiz?.session_id ? await dialReads.startForSession(inputs.quiz.session_id, runner) : null;
+  const options = [
+    current && { coffeeId: current.coffee_id, reason: current.customer_reason },
+    recorded && { coffeeId: recorded.coffee_id, reason: recorded.customer_reason },
+    live?.rule_id && { coffeeId: live.coffee_id as number, reason: live.customer_reason as string },
+  ].filter(Boolean) as Array<{ coffeeId: number; reason: string }>;
+  return options.find(o => o.coffeeId === pos.coffeeId) ?? null;
+}
+
+// ── Steps (Ella map 7, B3) ────────────────────────────────────────────────────
+
+/** The published, shown steps leaving a coffee that pass the customer's tag filter (decaf as today), in basis order then word. */
+async function offeredSteps(coffeeId: number, decaf: boolean, runner: Runner) {
+  const steps = await dialReads.stepsFrom(coffeeId, runner);
+  const placed = await dialReads.placementActive(runner) as PlacementRow[];
+  const tags = new Map(placed.map(p => [p.coffee_id, p.category_codes]));
+  return steps.filter(x => tags.has(x.to_coffee_id) && passesTagFilter(tags.get(x.to_coffee_id), decaf));
+}
+
+/** Per coffee, the anchor-size price where one exists (v_coffee_sellable_slot through catalogReads); none otherwise. */
+async function pricesFor(coffeeIds: number[], runner: Runner): Promise<Map<number, { cents: number; sizeLabel: string }>> {
+  if (!coffeeIds.length) return new Map();
+  const anchor = await getAnchorSize(runner);
+  const rows = await getSellableSlots({ weightOz: anchor.weight_oz }, runner);
+  const out = new Map<number, { cents: number; sizeLabel: string }>();
+  for (const r of rows) {
+    if (coffeeIds.includes(r.coffee_id) && !out.has(r.coffee_id)) out.set(r.coffee_id, { cents: r.retail_price_cents, sizeLabel: r.size_label });
+  }
+  return out;
+}
+
+export interface MapStepCard {
+  stepId: number; word: string; coffeeId: number; name: string;
+  /** the step's customer line, or the destination's signature notes when the step has none */
+  line: string | null;
+  notes: string[];
+  price: { cents: number; sizeLabel: string } | null;
+}
+export interface MapStepsResult {
+  position: null | { coffeeId: number; name: string; notes: string[]; price: { cents: number; sizeLabel: string } | null; hasBag: boolean };
+  firstBag: { coffeeId: number; reason: string } | null;
+  steps: MapStepCard[];
+  copy: Record<string, string>;
+}
+
+/**
+ * GET /api/map/steps (Ella map 7, B3): the position, the first-bag reason when
+ * the customer has no bag yet, and the published steps leaving the position.
+ * No ring, lane, grade, version or basis leaves this function.
+ */
+export async function steps(profileId: string, runner: Runner = db): Promise<MapStepsResult> {
+  const copy = await dialReads.customerCopy(runner);
+  const pos = await getMatchCurrent(profileId, runner);
+  if (!pos) return { position: null, firstBag: null, steps: [], copy };
+  const ctx = await customerContext(profileId, null, runner);
+  const offered = await offeredSteps(pos.coffeeId, ctx.decaf, runner);
+  const ids = [pos.coffeeId, ...offered.map(x => x.to_coffee_id)];
+  const [pres, prices] = await Promise.all([getCardPresentations(ids), pricesFor(ids, runner)]);
+  const notes = (id: number) => pres.get(id)?.signatureNotes ?? [];
+  return {
+    position: { coffeeId: pos.coffeeId, name: pos.coffeeName, notes: notes(pos.coffeeId), price: prices.get(pos.coffeeId) ?? null, hasBag: pos.moveCode !== 'quiz_result' },
+    firstBag: await firstBagReason(profileId, pos, runner),
+    steps: offered.map(x => ({
+      stepId: x.id, word: x.button_word, coffeeId: x.to_coffee_id, name: x.to_coffee_name,
+      line: x.customer_line ?? (notes(x.to_coffee_id).length ? notes(x.to_coffee_id).join(', ') : null),
+      notes: notes(x.to_coffee_id), price: prices.get(x.to_coffee_id) ?? null,
+    })),
+    copy,
   };
 }
 
