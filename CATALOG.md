@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-18 from database `axisandbloom` · 218 tables · 113 views · 1865 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `143f9462b2d6` (full value in the footer).
+Generated 2026-11-18 from database `axisandbloom` · 227 tables · 115 views · 1936 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `7aef010364f8` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -43,7 +43,7 @@ Copied verbatim from the top of `backend/src/db/comments.sql`.
 
 ## Tables
 
-### master (91)
+### master (96)
 
 #### `brew_coffee_feeling`
 
@@ -1260,6 +1260,69 @@ Words the unmapped-words view ignores because they name a dimension or a texture
 | `since` | date | no | Date the word was added. |
 | `note` | text | yes | Why the word is ignored, when not obvious. |
 
+#### `fulfillment_adapter`
+
+Lookup of how a fulfillment request is placed: manual (an email to admin_alert_email with that roaster's lines) or shipstation (an order in our ShipStation account that an automation rule hands to the roaster as 3PL provider); the code also names the external system in shipping_carrier_external_code
+
+- **Writer:** seed
+- **Readers:** roastery_fulfillment_config.adapter_code FK, fulfillment_request.adapter_code FK, shipping_carrier_external_code.external_system FK, v_fulfillment_request_status, v_roastery_fulfillment_config, fulfillmentService
+- **Since:** 2026-11-18 (Commerce 6)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; code is the natural key. |
+| `code` | text | no | Adapter code, unique: manual or shipstation. |
+| `label` | text | no | Admin-facing label (the roaster fulfillment form and the order drawer). |
+
+#### `fulfillment_event_kind`
+
+Lookup of what happens to a fulfillment request (created, placed, awaiting_manual, failed, needs_attention, retried, provider_assigned, shipped, rejected, postage_recorded, canceled, cancel_refused, stale_alerted)
+
+- **Writer:** seed
+- **Readers:** fulfillment_event.event_kind FK, v_fulfillment_request_status (last event), fulfillmentService
+- **Since:** 2026-11-18 (Commerce 6)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; code is the natural key. |
+| `code` | text | no | Event kind code, unique. |
+| `label` | text | no | Admin-facing label. |
+
+#### `fulfillment_event_source`
+
+Lookup of where a fulfillment event came from (finalizer, webhook, admin, cron), G2.7 instead of a CHECK list
+
+- **Writer:** seed
+- **Readers:** fulfillment_event.source FK
+- **Since:** 2026-11-18 (Commerce 6)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; code is the natural key. |
+| `code` | text | no | Source code, unique. |
+| `label` | text | no | Admin-facing label. |
+
+#### `fulfillment_request_status`
+
+Lookup of a fulfillment request's states (pending, awaiting_manual, placed, failed, needs_attention, shipped, canceled), each with the order-level status it means, its rank when an order has several requests, and the rules as columns (retryable, closed, canceled by a full refund, outranks a partial shipment) so no list lives in code or a view (G2.1)
+
+- **Writer:** seed
+- **Readers:** fulfillment_request.status FK, fulfillment_event.status FK, v_order_status, v_fulfillment_request_status, fulfillmentService, shipmentService
+- **Since:** 2026-11-18 (Commerce 6)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; code is the natural key. |
+| `code` | text | no | Status code, unique. |
+| `label` | text | no | Admin-facing label (the order drawer). |
+| `order_fulfillment_status` | text | no | FK to order_fulfillment_status(code): what this request state means for the order (failed and needs_attention both mean needs_attention). |
+| `aggregate_rank` | integer | no | Integer; with several requests, v_order_status takes the order status of the highest-ranked request (needs_attention and failed 60, pending 50, awaiting_manual 45, placed 40, shipped 20, canceled 10: a part to place by hand outranks one already in ShipStation). |
+| `is_shipped` | boolean | no | True for shipped: counts toward the order's partial or full shipment. |
+| `is_closed` | boolean | no | True for the end states (shipped, canceled): no retry, no cancel, not an open part for mark-shipped. |
+| `is_retryable` | boolean | no | True for the states admin's Retry (and the daily cron, for ShipStation) may place again: pending, failed, needs_attention. |
+| `cancels_on_full_refund` | boolean | no | True for the states a full refund cancels (decision 4b: every state before shipped; a ShipStation order is deleted, and if ShipStation refuses the admin is told to contact the roaster). |
+| `outranks_partial_shipment` | boolean | no | True for failed and needs_attention: when one request needs attention, the order shows needs_attention even if another roaster has shipped. |
+
 #### `household_account_state`
 
 Lookup of the account-state words on the Family Household tab (login, managed); the code is derived in v_household_member from user_type
@@ -1407,8 +1470,8 @@ Lookup of the things that can happen to an order after payment (paid, finalized,
 Lookup of an order's fulfillment states (pending legacy, awaiting_manual, placed, shipped, delivered, canceled, needs_attention), with the words Profile shows a customer and which states close an order
 
 - **Writer:** seed
-- **Readers:** "order".fulfillment_status FK, order_event.fulfillment_status FK, v_order_status, catalogService (open orders per roaster, via v_order_status.is_closed)
-- **Since:** 2026-10-31 (Commerce 1)
+- **Readers:** "order".fulfillment_status FK, order_event.fulfillment_status FK, fulfillment_request_status.order_fulfillment_status FK, v_order_status, catalogService (open orders per roaster, via v_order_status.is_closed), checkoutService.recordRefund and requestRefund (cancels_on_full_refund)
+- **Since:** 2026-10-31 (Commerce 1); partially_shipped and the two rule columns since Commerce 6 (2026-11-18)
 
 | column | type | null | comment |
 |---|---|---|---|
@@ -1417,6 +1480,8 @@ Lookup of an order's fulfillment states (pending legacy, awaiting_manual, placed
 | `label` | text | no | Admin-facing label. |
 | `customer_label` | text | no | Customer-facing words, facts only (D14): Paid, Paid · sent to the roastery, On its way, Delivered, Canceled; needs_attention and pending show the same words as awaiting_manual (an internal problem is never shown to the customer). Changed by the seed-upgrade block in schema.sql (Website 10, OT-96): a label moves only while it still equals the previous seed value, never over an edited one. |
 | `is_closed` | boolean | no | True for the states that end an order (delivered, canceled); catalogService counts an order as open while this is false. |
+| `cancels_on_full_refund` | boolean | no | True for the states a full refund cancels (awaiting_manual, needs_attention): nothing is with the roaster yet. Was the code list checkoutService.REFUND_CANCELS_FROM (Commerce 6, decision 4, G2.1). Applies to orders without fulfillment requests; orders with requests use fulfillment_request_status.cancels_on_full_refund. |
+| `is_partial_shipment` | boolean | no | True on the one row (partially_shipped) v_order_status derives when some of an order's roaster requests have shipped and the rest are still open (Commerce 6). |
 
 #### `order_payment_status`
 
@@ -1473,7 +1538,7 @@ Lookup of quiz funnel event codes (quiz_start, quiz_complete, email_submitted, q
 Lookup of shipping carriers (usps, ups, fedex, dhl, other) with the tracking-link template the shipping email and Profile build from
 
 - **Writer:** seed
-- **Readers:** roastery_shipment_details.carrier FK, v_order_status, commerceAdminReads (lookups), shipmentService
+- **Readers:** roastery_shipment_details.carrier FK, shipping_carrier_external_code.carrier_code FK, v_order_status, v_fulfillment_request_status, commerceAdminReads (lookups), shipmentService, orderEmails
 - **Since:** 2026-10-31 (Commerce 3)
 
 | column | type | null | comment |
@@ -1483,6 +1548,22 @@ Lookup of shipping carriers (usps, ups, fedex, dhl, other) with the tracking-lin
 | `label` | text | no | Carrier name shown to admin and the customer. |
 | `tracking_url_template` | text | yes | Tracking page URL with {tracking} where the tracking number goes; NULL (other) means no link is shown. |
 | `is_active` | boolean | no | Whether the admin form offers the carrier; default true. |
+
+#### `shipping_carrier_external_code`
+
+Maps an external system's carrier code to our shipping_carrier (decision 3), one row per code: ShipStation's stamps_com, ups_walleted, fedex_walleted, dhl_express_worldwide, globalpost and seko_ltl_walleted, seeded from GET /carriers on our account 2026-11-18. An unknown code is recorded as other with a needs_attention note
+
+- **Writer:** seed
+- **Readers:** fulfillmentService (webhook and reconcile carrier mapping)
+- **Since:** 2026-11-18 (Commerce 6)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; (external_system, external_code) is the natural key. |
+| `external_system` | text | no | FK to fulfillment_adapter(code): whose code this is (shipstation). |
+| `external_code` | text | no | The carrier code as the external system sends it. |
+| `carrier_code` | text | no | FK to shipping_carrier(code): our carrier for it. |
+| `label` | text | yes | The external system's carrier name and id, for the reader. |
 
 #### `shipping_status`
 
@@ -1682,7 +1763,7 @@ Lookup of a subscription's states (pending reserved, active, past_due, paused, c
 | `customer_label` | text | no | Customer-facing words for the state, shown on Profile through v_subscription_status.customer_label; nothing in the frontend types a status word. |
 | `counts_as_subscriber` | boolean | no | True for the states that keep Liam access and the SUBSCRIBER lifecycle stage: active, past_due and paused (Dana, 2026-10-31); lapsed, canceled and pending do not. |
 
-### fact (34)
+### fact (35)
 
 #### `catalog_change`
 
@@ -2150,6 +2231,25 @@ Append-only log of map match decisions: the quiz's first match, a button tap, a 
 | `inputs` | jsonb | no | JSONB customer context at decision time: quiz archetype, secondary, lean, decaf flag and its source, filters applied, candidate count, which first-match rule fired. |
 | `created_at` | timestamp with time zone | no | UTC timestamp the row was recorded. |
 
+#### `fulfillment_event`
+
+Everything that happens to a fulfillment request, one insert-only row per event (G2.13): created, placed, failed, retried, provider assigned, shipped, rejected, postage recorded, canceled or refused, stale alert
+
+- **Writer:** fulfillmentService.recordEvent
+- **Readers:** v_fulfillment_request_status (last event), fulfillmentService (provider and stale checks)
+- **Since:** 2026-11-18 (Commerce 6)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; with created_at it orders the events. |
+| `fulfillment_request_id` | uuid | no | FK to fulfillment_request(id). |
+| `event_kind` | text | no | FK to fulfillment_event_kind(code). |
+| `status` | text | yes | FK to fulfillment_request_status(code): the request's state after the event. |
+| `external_ref` | text | yes | What it refers to outside: the ShipStation orderId, shipment:<id> or fulfillment:<id>, or the Resend message id of a manual email. |
+| `note` | text | yes | Free text: the adapter and bag count, an error, a cancel reason, the provider name. |
+| `source` | text | no | FK to fulfillment_event_source(code). |
+| `created_at` | timestamp with time zone | no | UTC timestamp of the event. |
+
 #### `household_event`
 
 Insert-only history of every household state change (G2.13): kind, source, actor, detail
@@ -2207,7 +2307,7 @@ One paid order, written once when Stripe confirms payment: a one-time checkout o
 | `fulfillment_roaster_id` | uuid | yes | FK to roaster(id); the roastery the order is routed to. NULL = the manual adapter (an email to admin_alert_email); every order is NULL until roaster adapters exist (OPEN_TASKS: ShipStation roaster adapter). |
 | `subscription_id` | uuid | yes | FK to subscription(id); the subscription the order belongs to (first delivery or renewal); NULL for a one-time order (Commerce 2). |
 | `stripe_invoice_id` | text | yes | Stripe invoice id (in_...) of a renewal order, unique; the idempotency key of checkoutService.createSubscriptionOrder. NULL for checkout orders. |
-| `stripe_mode` | text | yes | FK to commerce_stripe_mode(code): the Stripe mode the order was paid in, the livemode of the Stripe object the webhook delivered (session or invoice), written once at insert (Commerce 5, Dana 2026-11-18). Orders before 2026-11-18 set once by migrations/commerce_2026_11_17_stripe_mode.sql from whether their Stripe ids resolve under the live key. NOT NULL from the first boot with no NULL left. \| Writer: checkoutService.completeCheckoutSession, checkoutService.createSubscriptionOrder; manual:migrations/commerce_2026_11_17_stripe_mode.sql |
+| `stripe_mode` | text | no | FK to commerce_stripe_mode(code): the Stripe mode the order was paid in, the livemode of the Stripe object the webhook delivered (session or invoice), written once at insert (Commerce 5, Dana 2026-11-18). Orders before 2026-11-18 set once by migrations/commerce_2026_11_17_stripe_mode.sql from whether their Stripe ids resolve under the live key. NOT NULL from the first boot with no NULL left. \| Writer: checkoutService.completeCheckoutSession, checkoutService.createSubscriptionOrder; manual:migrations/commerce_2026_11_17_stripe_mode.sql |
 
 #### `order_event`
 
@@ -2472,7 +2572,7 @@ Everything that happens to a subscription, one insert-only row per event (same s
 | `source` | text | no | FK to subscription_event_source(code); who wrote it: checkout, cron, webhook, admin or customer. |
 | `created_at` | timestamp with time zone | no | UTC timestamp of the event. |
 
-### operating (75)
+### operating (78)
 
 #### `address`
 
@@ -2881,6 +2981,50 @@ Reliability weight per dial_position_signal source, used to weight signals in th
 | `source` | text | no | Signal source, primary key. One of: cupping, roastery_wheel, client_wheel, sms_feedback, onsite_feedback (CHECK). |
 | `reliability_weight` | numeric | no | Relative weight of this source in the consensus, a unitless multiplier; 0 means the source is ignored. |
 
+#### `fulfillment_request`
+
+One roaster's part of a paid order (decision 4: an order with lines from two roasters is two requests, two ShipStation orders, two shipments, two shipping emails), with its adapter, current state, external ShipStation ids and retry count; the current-state row beside fulfillment_event
+
+- **Writer:** fulfillmentService.createRequestsForOrder, fulfillmentService.place, fulfillmentService.retry, fulfillmentService.cancel, fulfillmentService.markRequestShippedInTx, fulfillmentService.applyShipStationItems
+- **Readers:** v_fulfillment_request_status, v_order_status, fulfillmentService, shipmentService, orderEmails (the shipping email's lines)
+- **Since:** 2026-11-18 (Commerce 6)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | uuid | no | Surrogate UUID primary key; sent to ShipStation as customField3. |
+| `order_id` | uuid | no | FK to "order"(id); sent to ShipStation as customField1. |
+| `roaster_id` | uuid | yes | FK to roaster(id): the roaster of these lines (coffee_sku.roaster_id); NULL only for lines whose SKU has no roaster (always manual). Unique per order with order_id. Sent to ShipStation as customField2. |
+| `sequence` | integer | no | 1..n within the order, in line order; gives the ShipStation orderNumber <first 8 of the order id>-n and the key ab:<order id>:n. |
+| `adapter_code` | text | no | FK to fulfillment_adapter(code), decided when the request is created (the roaster's active config and shipstation_enabled at that moment). |
+| `status` | text | no | FK to fulfillment_request_status(code): the current state; every change is also a fulfillment_event. |
+| `external_order_id` | text | yes | ShipStation orderId once placed, digits as text; NULL for manual. |
+| `external_order_number` | text | yes | ShipStation orderNumber once placed (<first 8 of the order id, upper case>-<sequence>). |
+| `external_order_key` | text | no | Our idempotency key ab:<order uuid>:<sequence>, unique, sent as ShipStation's orderKey (it upserts on it); set for manual requests too. |
+| `attempts` | integer | no | Placement attempts so far (each place call, success or failure); after shipstation_needs_attention_after_attempts failures the request goes to needs_attention. |
+| `last_error` | text | yes | The last placement error message, kept after a later success. |
+| `placed_at` | timestamp with time zone | yes | UTC timestamp it was first placed (ShipStation order created, or the manual email sent); the stale alert counts from it. |
+| `created_at` | timestamp with time zone | no | UTC timestamp the request was created (the finalizer's dispatch). |
+| `updated_at` | timestamp with time zone | no | UTC timestamp of the last state change; the cron's retry delay counts from it. |
+
+#### `fulfillment_shipstation_event`
+
+The ShipStation webhook ledger (decision 6): one row per delivery that passed the token check, with its resource_url, resource_type and body as received, and when and how processing ended. V1 webhooks have no signature and no event id, so idempotency is downstream (markShipped per tracking number). Never purged
+
+- **Writer:** fulfillmentService.recordShipStationWebhook, fulfillmentService.processShipStationEvent, fulfillmentService.closeShipStationEvent
+- **Readers:** fulfillmentService
+- **Since:** 2026-11-18 (Commerce 6)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key. |
+| `resource_url` | text | yes | The resource_url ShipStation sent; fetched with our key only when it is https on shipstation_api_host (decision 5). |
+| `resource_type` | text | yes | The event as ShipStation names it: FULFILLMENT_SHIPPED, SHIP_NOTIFY or FULFILLMENT_REJECTED. |
+| `received_at` | timestamp with time zone | no | UTC timestamp the delivery arrived. |
+| `processed_at` | timestamp with time zone | yes | UTC timestamp processing ended (or the delivery was refused, or recorded while shipstation_enabled = 0); NULL = not finished. |
+| `error` | text | yes | Why processing failed or was skipped; NULL = processed cleanly. |
+| `result` | jsonb | yes | JSON counts from processing: matched, shipped, postage, rejected, unknown, skipped, errors. |
+| `payload` | jsonb | no | The JSON body as received (resource_url, resource_type); never trusted, kept for the record. |
+
 #### `household`
 
 A Family Household: several palates, one box, one card; members are household_member rows
@@ -3245,6 +3389,28 @@ Roaster bag tasting notes mapped to flavor-wheel terms, one row per coffee and t
 | `accepted_at` | timestamp with time zone | yes | UTC timestamp the row was last accepted from the portal; NULL for legacy seed rows \| Writer: catalogService.setRoasterDescriptorsInTx |
 | `retired_at` | timestamp with time zone | yes | UTC timestamp the row was retired; NULL while active \| Writer: catalogService.setRoasterDescriptorsInTx |
 
+#### `roastery_fulfillment_config`
+
+How each roaster's lines are fulfilled: the adapter, and for ShipStation the tag the automation rule keys on, the ship-from warehouse id and an optional requested service; superseded on every change (one current row per roaster, never edited in place)
+
+- **Writer:** fulfillmentService.setRoasterConfigInTx
+- **Readers:** v_roastery_fulfillment_config
+- **Since:** 2026-11-18 (Commerce 6)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key. |
+| `roaster_id` | uuid | no | FK to roaster(id); one current row per roaster (partial unique index on superseded_at IS NULL). |
+| `adapter_code` | text | no | FK to fulfillment_adapter(code). shipstation takes effect only while the parameter shipstation_enabled = 1; otherwise the roaster's requests are manual. |
+| `shipstation_tag` | text | yes | Name of the ShipStation tag put on this roaster's orders (the automation rule's criterion, e.g. roaster:joe-bean); its tag id is looked up in ShipStation by name. Required for shipstation. |
+| `shipstation_ship_from_id` | text | yes | ShipStation warehouse (ship-from location) id sent as advancedOptions.warehouseId, digits as text; NULL leaves it to the account default and the rule (Joe Bean: 1272614). |
+| `requested_service_code` | text | yes | ShipStation service code sent as requestedShippingService for this roaster; NULL uses the parameter shipstation_requested_service. |
+| `is_active` | boolean | no | False switches the roaster back to manual without losing its ShipStation settings. |
+| `since` | timestamp with time zone | no | UTC timestamp the row took effect. |
+| `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer row replaced it; NULL = current. |
+| `set_by` | text | yes | Firebase uid of the admin who saved it. |
+| `note` | text | yes | Why it changed, as the admin typed it. |
+
 #### `roastery_portal_acceptance`
 
 Insert-only log of every time an admin accepted a submitted roaster response into the catalog, with the applied items and catalog values before and after; a trigger rejects UPDATE and DELETE.
@@ -3491,9 +3657,9 @@ A response's ranked tasting notes: the roaster's own words plus the optional clo
 
 One shipment of an order: carrier, tracking number, status and when it left, written when admin marks the order shipped (Commerce 3; later the ShipStation tracking webhooks); linked to its order by order_id (order_line_item.shipment_id stays unused, D11). One row per (order, tracking number)
 
-- **Writer:** shipmentService.markShipped
-- **Readers:** v_order_status, shipmentService
-- **Since:** 2026-05-22 (as shipment); written since 2026-10-31 (Commerce 3)
+- **Writer:** shipmentService.markShipped, shipmentService.recordPostage
+- **Readers:** v_order_status, v_fulfillment_request_status, shipmentService, orderEmails (the shipping email's tracking and lines), commerceAdminReads
+- **Since:** 2026-05-22 (as shipment); written since 2026-10-31 (Commerce 3); the ShipStation webhook and daily reconcile write it through markShipped since Commerce 6 (2026-11-18)
 
 | column | type | null | comment |
 |---|---|---|---|
@@ -3503,11 +3669,15 @@ One shipment of an order: carrier, tracking number, status and when it left, wri
 | `tracking_number` | text | yes | Carrier tracking number. |
 | `carrier` | text | yes | FK to shipping_carrier(code); the carrier, chosen from the lookup on the admin form. |
 | `status` | text | yes | FK to shipping_status(code), default label_created; markShipped writes shipped. delivered and returned are left for the ShipStation thread. |
-| `postage_cost` | numeric | yes | Postage cost in USD dollars (the unit every money column in this schema uses); reserved, never written today. |
+| `postage_cost` | numeric | yes | Postage cost in USD dollars (the unit every money column in this schema uses). Commerce 6: the ShipStation label's shipmentCost when a shipment carries one; NULL when only a 3PL fulfillment arrived (it has no cost field), filled later by the daily reconcile (shipmentService.recordPostage, NULL only). Before Commerce 6: reserved, never written today. |
 | `shipped_at` | timestamp with time zone | yes | UTC timestamp when the shipment left the roastery: the time admin marked it shipped, unless they gave another. |
 | `estimated_delivery` | timestamp with time zone | yes | UTC timestamp of the carrier's estimated delivery. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the row was created. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of the last change. |
+| `service_code` | text | yes | The carrier service the label was bought for, as ShipStation names it (e.g. usps_ground_advantage); NULL for an admin mark-shipped (Commerce 6). |
+| `external_shipment_id` | text | yes | Where the shipment came from in ShipStation: shipment:<shipmentId> (a label in our account) or fulfillment:<fulfillmentId> (a 3PL provider's); NULL for an admin mark-shipped (Commerce 6). |
+| `label_created_at` | timestamp with time zone | yes | UTC timestamp when ShipStation created the label or fulfillment (its createDate); NULL for an admin mark-shipped (Commerce 6). |
+| `fulfillment_request_id` | uuid | yes | FK to fulfillment_request(id): the roaster's part of the order this shipment is for (Commerce 6); NULL for shipments of orders from before Commerce 6. |
 
 #### `sensory_lexicon_attribute`
 
@@ -5029,6 +5199,15 @@ One row per distinct word x source (roaster form, roaster remark, roaster websit
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `evidence_stop_word`, `v_coffee`, `v_cupping_note_family`, `v_cupping_scores_readable`, `v_cupping_sheet_line`, `v_note_mapping_current`, `v_roastery_portal_coffee_hint`, `v_roastery_remark`
 
+#### `v_fulfillment_request_status`
+
+The one read path per fulfillment request: its order, roaster (internal), adapter, state with the lookup's rules, ShipStation ids, attempts and last error, the last event, and the latest shipment for the request (carrier, tracking and link, service, postage)
+
+- **Writer:** none (view)
+- **Readers:** commerceAdminReads (the order drawer), checkoutService.requestRefund, fulfillmentService (cancelForRefund, the daily reconcile)
+- **Since:** 2026-11-18 (Commerce 6)
+- **reads:** `fulfillment_adapter`, `fulfillment_event`, `fulfillment_request`, `fulfillment_request_status`, `roaster`, `roastery_shipment_details`, `shipping_carrier`
+
 #### `v_household`
 
 One row per household: name, admin, who pays (the active house subscription's subscriber, else the admin pointer; OT-103), the house subscription id and status, active member count, proxy quiz count, dissolved_at.
@@ -5112,12 +5291,12 @@ The one read path for revenue, order counts and bags (Commerce 5): one row per o
 
 #### `v_order_status`
 
-One row per order with its current state, the only read path for order state: latest payment status, latest fulfillment status (falling back to the order's at-insert value), the customer label (the payment's when money went back, else the fulfillment's), refunded cents, finalized_at and Liam's order-placed line, all from order_event and the two status lookups; since Commerce 3 also the latest shipment by order_id (shipped_at, carrier and its label, tracking number, tracking_url built from shipping_carrier.tracking_url_template)
+One row per order with its current state, the only read path for order state: latest payment status, fulfillment status, customer label, refunded cents, finalized_at and Liam's order-placed line from order_event and the status lookups; the latest shipment and its tracking_url (Commerce 3). Since Commerce 6 (2026-11-18) an order with fulfillment requests takes its fulfillment status from them via fulfillment_request_status (highest rank, or partially_shipped), and fulfillment_requests (count) is appended; current shape in schema.sql's Commerce 6 block
 
 - **Writer:** none (view)
-- **Readers:** users.GET /api/users/profile (orders), orders.GET /api/orders, catalogService (open orders per roaster), checkoutService.getSessionStatus, commerceAdminReads (/admin/orders), fulfillment/index, orderFinalizer, shipmentService, v_order_reportable
+- **Readers:** users.GET /api/users/profile, orders.GET /api/orders, catalogService, checkoutService (session status, refunds), commerceAdminReads, fulfillment/index, orderFinalizer, shipmentService, v_order_reportable
 - **Since:** 2026-10-31 (Commerce 1)
-- **reads:** `order`, `order_event`, `order_fulfillment_status`, `order_payment_status`, `roastery_shipment_details`, `shipping_carrier`
+- **reads:** `fulfillment_request`, `fulfillment_request_status`, `order`, `order_event`, `order_fulfillment_status`, `order_payment_status`, `roastery_shipment_details`, `shipping_carrier`
 
 #### `v_orders_weekly`
 
@@ -5217,6 +5396,15 @@ One row per quiz session per interpretation version (current and superseded), th
 - **Readers:** reporting_ro (Looker Studio), manual calibration exports, no app code
 - **Since:** 2026-09-25
 - **reads:** `coffee_archetype`, `quiz_answer`, `quiz_session`, `quiz_session_interpretation`
+
+#### `v_roastery_fulfillment_config`
+
+Each roaster's current fulfillment config with the roaster's name and the adapter label
+
+- **Writer:** none (view)
+- **Readers:** fulfillmentService (activeConfig, listRoasterConfigs: the /admin/roasters fulfillment panel)
+- **Since:** 2026-11-18 (Commerce 6)
+- **reads:** `fulfillment_adapter`, `roaster`, `roastery_fulfillment_config`
 
 #### `v_roastery_portal_coffee`
 
@@ -5454,6 +5642,13 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `dial_wedge` | dialPlacementService, seed | dialPlacementService (UPDATE), seed (INSERT, UPDATE) | catalogService, dataCatalogIntegrity, dialPlacementService, dialReads, ellaMapDecided_2026_11_16, ellaMapStartRules_2026_11_17 | v_dial_placement_input, v_dial_placement_preview, v_dial_point, v_dial_start_input, v_dial_start_rule, v_dial_wedge_lane |
 | `evidence_parameter` | evidenceParameterService, seed | evidenceParameterService (INSERT, UPDATE), seed (INSERT, UPDATE) | evidenceParameterService, evidenceReads | — |
 | `evidence_stop_word` | seed | seed (INSERT) | evidenceReads | v_evidence_unmapped_words |
+| `fulfillment_adapter` | seed | seed (INSERT) | checkoutService, commerceAdminReads, fulfillmentService | v_fulfillment_request_status, v_roastery_fulfillment_config |
+| `fulfillment_event` | fulfillmentService | fulfillmentService (INSERT) | checkoutService, commerceAdminReads, fulfillmentService | v_fulfillment_request_status |
+| `fulfillment_event_kind` | seed | seed (INSERT) | — | — |
+| `fulfillment_event_source` | seed | seed (INSERT) | — | — |
+| `fulfillment_request` | fulfillmentService | fulfillmentService (INSERT, UPDATE) | admin, catalogService, checkoutService, commerceAdminReads, customerReads, exportCalibration, fulfillmentService, householdReads, index, orderEmails, orders, shipmentService, stripeFeeSync, users | v_fulfillment_request_status, v_order_status |
+| `fulfillment_request_status` | seed | seed (INSERT) | admin, catalogService, checkoutService, commerceAdminReads, customerReads, exportCalibration, fulfillmentService, householdReads, index, orders, shipmentService, stripeFeeSync, users | v_fulfillment_request_status, v_order_status |
+| `fulfillment_shipstation_event` | fulfillmentService | fulfillmentService (INSERT, UPDATE) | fulfillmentService | — |
 | `household` | householdService | householdService (INSERT, UPDATE) | householdReads, householdService | v_household, v_household_invitation, v_household_numbers |
 | `household_account_state` | seed | seed (INSERT) | householdReads | — |
 | `household_event` | householdService, manual:migrations/household_2026_11_07 | householdService (INSERT) | customerReads, householdReads, householdService | v_household_event |
@@ -5497,9 +5692,10 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `quiz_session_interpretation` | quizSession | quizSession (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, householdReads, householdService, quizInterpretationBackfill, quizSession, subscriptionShipment | v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
 | `quiz_type` | seed | seed (INSERT) | homeContentReads | v_quiz_scoring_matrix |
 | `quiz_vector` | none | — | — | — |
-| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axisStatsReads, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, commerceAdminReads, cuppingReads, customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, ellaMapDecided_2026_11_16, ellaMapFiveCoffees_2026_11_16, ellaMapStartRules_2026_11_17, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelierEval, sommelierGate, sommelierIntegrity, sommelierRag, sommelierReplyCheck, sommelier_eval_seed, sommelier_gate_rule_seed | v_coffee, v_roastery_remark |
+| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axisStatsReads, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, checkoutService, coffees, commerceAdminReads, cuppingReads, customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, ellaMapDecided_2026_11_16, ellaMapFiveCoffees_2026_11_16, ellaMapStartRules_2026_11_17, evidenceIntegrity, evidenceReads, freeSlots, fulfillmentService, orderEmails, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelierEval, sommelierGate, sommelierIntegrity, sommelierRag, sommelierReplyCheck, sommelier_eval_seed, sommelier_gate_rule_seed | v_coffee, v_fulfillment_request_status, v_roastery_fulfillment_config, v_roastery_remark |
 | `roastery_blend_vector` | none | — | — | — |
 | `roastery_coffee_descriptors` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT) | admin, catalogService, cuppingReads, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceReads, roasteryPortalReads | v_collaborative_flavor_wheel |
+| `roastery_fulfillment_config` | fulfillmentService | fulfillmentService (INSERT, UPDATE) | fulfillmentService | v_roastery_fulfillment_config |
 | `roastery_portal_acceptance` | roasteryPortalService | roasteryPortalService (INSERT) | roasteryPortalReads | v_roastery_portal_progress |
 | `roastery_portal_coffee` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | catalogReads, catalogService, cuppingReads, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceIntegrity, evidenceReads, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads | v_coffee_customer_descriptor, v_roastery_portal_coffee, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_roastery_portal_progress, v_roastery_remark |
 | `roastery_portal_dimension` | seed | seed (INSERT, UPDATE) | catalogReads, catalogService, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceReads, roasteryPortalReads | v_coffee_card, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint |
@@ -5513,10 +5709,11 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `roastery_portal_response_dimension` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | catalogReads, catalogService, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceReads, roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_progress |
 | `roastery_portal_response_note` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | catalogReads, catalogService, cuppingReads, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceReads, roasteryPortalReads, roasteryPortalService | v_coffee_customer_descriptor, v_roastery_portal_coffee_hint, v_roastery_portal_progress |
 | `roastery_remark` | roasteryRemarkService | roasteryRemarkService (INSERT) | catalogService, cuppingReads, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, evidenceIntegrity, evidenceReads, roasteryRemarkReads | v_roastery_remark |
-| `roastery_shipment_details` | shipmentService | shipmentService (INSERT) | admin, catalogService, checkoutService, commerceAdminReads, customerReads, exportCalibration, householdReads, index, orders, shipmentService, stripeFeeSync, users | v_order_status |
+| `roastery_shipment_details` | shipmentService | shipmentService (INSERT, UPDATE) | admin, catalogService, checkoutService, commerceAdminReads, customerReads, exportCalibration, fulfillmentService, householdReads, index, orderEmails, orders, shipmentService, stripeFeeSync, users | v_fulfillment_request_status, v_order_status |
 | `sensory_lexicon_attribute` | seed | seed (INSERT, UPDATE) | — | — |
 | `sensory_source` | seed | seed (INSERT) | — | — |
-| `shipping_carrier` | seed | seed (INSERT) | admin, catalogService, checkoutService, commerceAdminReads, customerReads, exportCalibration, householdReads, index, orders, shipmentService, stripeFeeSync, users | v_order_status |
+| `shipping_carrier` | seed | seed (INSERT) | admin, catalogService, checkoutService, commerceAdminReads, customerReads, exportCalibration, fulfillmentService, householdReads, index, orderEmails, orders, shipmentService, stripeFeeSync, users | v_fulfillment_request_status, v_order_status |
+| `shipping_carrier_external_code` | seed | seed (INSERT) | fulfillmentService | — |
 | `shipping_status` | seed | seed (INSERT) | — | — |
 | `sommelier_answer` | seed, sommelierAnswerService | seed (INSERT), sommelierAnswerService (INSERT, UPDATE) | sommelierReads | — |
 | `sommelier_eval_case` | sommelierEvalService | sommelierEvalService (INSERT, UPDATE) | sommelierReads | — |
@@ -5572,11 +5769,11 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 **Dead candidates, observed (0):** none.
 
-**Dead candidates, static (25):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `sensory_lexicon_attribute`, `sensory_source`, `shipping_status`, `subscription_event_kind`, `subscription_event_source`, `subscription_kind`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
+**Dead candidates, static (27):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_note_dimension_weight`, `customer_order_kind`, `fulfillment_event_kind`, `fulfillment_event_source`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `sensory_lexicon_attribute`, `sensory_source`, `shipping_status`, `subscription_event_kind`, `subscription_event_source`, `subscription_kind`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
 
-**Touched since the reset (218):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `brew_coffee_feeling`, `brew_cupboard_brand`, `brew_cupboard_brand_alias`, `brew_cupboard_brand_kind`, `brew_drink`, `brew_drink_base_method`, `brew_drink_dilution`, `brew_drink_milk`, `brew_parameter`, `brew_profile_field`, `brew_profile_field_value`, `brew_profile_op`, `brew_profile_picker`, `brew_profile_value_kind`, `campaign_landing_event`, `catalog_change`, `checkout_session`, `checkout_session_line`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_archetype_relationship_kind`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_lean_assignment`, `coffee_milk_recommendation`, `coffee_presentation`, `coffee_retail_price`, `coffee_ring_assignment`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `commerce_parameter`, `commerce_stripe_mode`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_dispute`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_identity_unlink`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_match_candidate`, `customer_match_decision`, `customer_order_kind`, `dial_cupper_scale_weight`, `dial_customer_copy`, `dial_dark_roast_level`, `dial_delta_direction`, `dial_delta_phrase`, `dial_evidence_grade`, `dial_first_match`, `dial_first_match_status`, `dial_flag`, `dial_hop_phrase`, `dial_lane`, `dial_map_version`, `dial_map_version_status`, `dial_model`, `dial_move`, `dial_placement`, `dial_position_signal`, `dial_provisional_sample_pattern`, `dial_reading`, `dial_ring`, `dial_ring_cut`, `dial_seam`, `dial_size`, `dial_size_cut`, `dial_source_weight`, `dial_start_condition`, `dial_start_rule`, `dial_step`, `dial_step_basis`, `dial_surface`, `dial_wedge`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_account_state`, `household_event`, `household_event_kind`, `household_event_source`, `household_invitation`, `household_invitation_status`, `household_member`, `household_member_role`, `household_member_status`, `household_parameter`, `household_quiz_state`, `household_role`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `marketing_home_quote`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_event`, `order_event_kind`, `order_fulfillment_status`, `order_line_item`, `order_payment_status`, `order_refund_reason`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_funnel_event_type`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `shipping_carrier`, `shipping_status`, `sommelier_answer`, `sommelier_eval_case`, `sommelier_eval_phrasing`, `sommelier_eval_result`, `sommelier_eval_run`, `sommelier_evaluation`, `sommelier_gate_rule`, `sommelier_gate_rule_example`, `sommelier_gate_rule_replay`, `sommelier_messages`, `sommelier_reply_check`, `sommelier_sessions`, `sommelier_sms_feedback`, `sommelier_turn`, `sommelier_turn_label`, `stripe_event`, `subscriber_source`, `subscription`, `subscription_event`, `subscription_event_kind`, `subscription_event_source`, `subscription_item`, `subscription_kind`, `subscription_status`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
+**Touched since the reset (227):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `brew_coffee_feeling`, `brew_cupboard_brand`, `brew_cupboard_brand_alias`, `brew_cupboard_brand_kind`, `brew_drink`, `brew_drink_base_method`, `brew_drink_dilution`, `brew_drink_milk`, `brew_parameter`, `brew_profile_field`, `brew_profile_field_value`, `brew_profile_op`, `brew_profile_picker`, `brew_profile_value_kind`, `campaign_landing_event`, `catalog_change`, `checkout_session`, `checkout_session_line`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_archetype_relationship_kind`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_lean_assignment`, `coffee_milk_recommendation`, `coffee_presentation`, `coffee_retail_price`, `coffee_ring_assignment`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `commerce_parameter`, `commerce_stripe_mode`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_dispute`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_identity_unlink`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_match_candidate`, `customer_match_decision`, `customer_order_kind`, `dial_cupper_scale_weight`, `dial_customer_copy`, `dial_dark_roast_level`, `dial_delta_direction`, `dial_delta_phrase`, `dial_evidence_grade`, `dial_first_match`, `dial_first_match_status`, `dial_flag`, `dial_hop_phrase`, `dial_lane`, `dial_map_version`, `dial_map_version_status`, `dial_model`, `dial_move`, `dial_placement`, `dial_position_signal`, `dial_provisional_sample_pattern`, `dial_reading`, `dial_ring`, `dial_ring_cut`, `dial_seam`, `dial_size`, `dial_size_cut`, `dial_source_weight`, `dial_start_condition`, `dial_start_rule`, `dial_step`, `dial_step_basis`, `dial_surface`, `dial_wedge`, `evidence_parameter`, `evidence_stop_word`, `fulfillment_adapter`, `fulfillment_event`, `fulfillment_event_kind`, `fulfillment_event_source`, `fulfillment_request`, `fulfillment_request_status`, `fulfillment_shipstation_event`, `household`, `household_account_state`, `household_event`, `household_event_kind`, `household_event_source`, `household_invitation`, `household_invitation_status`, `household_member`, `household_member_role`, `household_member_status`, `household_parameter`, `household_quiz_state`, `household_role`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `marketing_home_quote`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_event`, `order_event_kind`, `order_fulfillment_status`, `order_line_item`, `order_payment_status`, `order_refund_reason`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_funnel_event_type`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_fulfillment_config`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `shipping_carrier`, `shipping_carrier_external_code`, `shipping_status`, `sommelier_answer`, `sommelier_eval_case`, `sommelier_eval_phrasing`, `sommelier_eval_result`, `sommelier_eval_run`, `sommelier_evaluation`, `sommelier_gate_rule`, `sommelier_gate_rule_example`, `sommelier_gate_rule_replay`, `sommelier_messages`, `sommelier_reply_check`, `sommelier_sessions`, `sommelier_sms_feedback`, `sommelier_turn`, `sommelier_turn_label`, `stripe_event`, `subscriber_source`, `subscription`, `subscription_event`, `subscription_event_kind`, `subscription_event_source`, `subscription_item`, `subscription_kind`, `subscription_status`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
 
 ---
 
-catalog-hash: 143f9462b2d6c623e04978b524a4ba552c584adce6b5fb570589927b7e0eb0f2
-lineage-hash: 652ee67090e7688a9ef99319eb3305d60d3e49b49441ae18bd86bb5b06a30075
+catalog-hash: 7aef010364f89903b694be71287ae2817804af1b914bfca2c63622c66151bf28
+lineage-hash: c80891c81189e38eb68a5f7370e38805ff9d2d7b399b08c2129c231d9645e325

@@ -324,3 +324,23 @@ Part D needs your go for:
   - set the Joe Bean fulfillment config through `/admin/roasters`;
   - switch `shipstation_enabled` to 1 only on your word; the boot or a manual call then subscribes the webhooks, and I record their ids.
 - **Before Part E:** Joe Bean's four SKUs must be in the catalog (decision 2), and you place the real order.
+
+---
+
+## Part D, step 1: deployed off (2026-11-18)
+
+- **Code:** `9c7d480` pushed. Deploy run 44381407913 is green (the lints in CI passed); the revision is **`axis-bloom-backend-00876-44l`**.
+- **Startup log:** `[stripe] mode=live`, `DB schema verified`, `[db-comments] applied 2278 statements`, `[shipstation] enabled=false`. No ERROR or WARNING.
+  - `[data-catalog]` reported `CATALOG.md` stale (expected before the regeneration) and the 27 dead-table candidates (not from Commerce 6).
+- **`CATALOG.md`:** regenerated from prod (227 tables, 115 views, 1936 columns, catalog-hash `7aef0103…`, equal to the live hash at boot). It adds the 9 tables and 2 views.
+- **Read-only smoke on prod** (the admin services over read-only connections; unauthenticated HTTP):
+  - `listRoasterConfigs`: 0 configs; adapters manual and shipstation. The Joe Bean config is not set, per Dana.
+  - Parameters: `shipstation_enabled` = 0; requested service `usps_ground_advantage`; host `ssapi.shipstation.com`; packaging 2; retry 1 h; attention after 3; stale 7 days.
+  - `/admin/orders` reads: one live order, 0b6ac7e9, Canceled; its detail has 0 requests and 7 events. Lookups load.
+  - `v_order_status`: the 6 orders keep their statuses (3 awaiting_manual, 2 canceled, 1 shipped), all with `fulfillment_requests` 0. 0 requests, 0 ledger rows, 6 carrier mappings.
+  - Unauthenticated: the admin routes answer 401; the webhook with a wrong token answers 404.
+  - The live bundle on `axis-and-bloom-prod.web.app` contains the new drawer section and the roaster Fulfillment panel. Not checked signed in.
+- **Test-DB cleanup:** described under Part C, "Full `src` suite". No prod data was written.
+
+**STOP.** `shipstation_enabled` stays 0 and the Joe Bean fulfillment config is not set. Next: Task 0.5 steps 2 and 4–7 in the ShipStation Dashboard. Then, on Dana's word, the key check, the Joe Bean config through `/admin/roasters`, and switching `shipstation_enabled` to 1.
+
