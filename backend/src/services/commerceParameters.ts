@@ -33,6 +33,8 @@ const FORMAT_CHECKS: Record<string, (v: string) => boolean> = {
   // Commerce 6 (2026-11-18): shipstation_requested_service (a V1 service code, e.g. usps_ground_advantage).
   'shipstation service code': v => /^[a-z0-9_]{2,60}$/.test(v),
   // Commerce 6: shipstation_api_host, a bare host name (no scheme, path or port).
+  // Commerce 6 (2026-11-18): roaster_sku_prefix, upper-case letters and digits, optional trailing dash.
+  'sku prefix': v => /^[A-Z0-9]{1,8}-?$/.test(v),
   'hostname': v => /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v),
 };
 

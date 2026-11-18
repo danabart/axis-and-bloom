@@ -7003,3 +7003,8 @@ Brief: `backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_1_CAPTUR
 - **Schema:** see `WHAT_WE_BUILT_DB.md` As of 2026-11-18 (Commerce 6). `v_order_status` derives the order's fulfillment status from its requests (`partially_shipped` is new).
 - **Deploy:** `deploy.yml` passes `SHIPSTATION_API_KEY`, `SHIPSTATION_API_SECRET` and `SHIPSTATION_WEBHOOK_TOKEN`.
 - **Tests:** `fulfillment/fulfillment.test.ts` was rewritten on the test DB, with 14 cases (ShipStation and emails faked). The `commerceAdmin.test.ts` cleanup also covers the new rows.
+- **ShipStation on (Part D step 2, 2026-11-18):** Joe Bean config 1 (tag `roaster:joe-bean`, ship-from `1272614`), `shipstation_enabled` = 1, webhooks 22882 / 22883 / 22884.
+- **Roaster SKU codes we mint (Dana, 2026-11-18):** Joe Bean assigns none.
+  - `catalogService.upsertSkuInTx` gives a SKU saved without a `roaster_sku` the `commerce_parameter` `roaster_sku_prefix` (`AB-`) plus the next number of `coffee_sku_roaster_sku_seq`, 4 digits.
+  - It refuses a different code once one is set (`ROASTER_SKU_LOCKED`, 409). Codes received from roasters are kept.
+  - Applied once on prod to every active SKU without a code (`backend/tmp/c6_mint_skus.ts`).

@@ -391,6 +391,34 @@ describe('retireCoffee / restoreCoffee', () => {
   });
 });
 
+describe('upsertSku roaster SKU codes (Commerce 6, 2026-11-18)', () => {
+  it('mints prefix + 4 digits when none is given, keeps a received code, and refuses a change once set', async () => {
+    let roaster: { id: string } | undefined;
+    let coffeeId: number | undefined;
+    try {
+      roaster = await makeRoaster('Vitest Roaster Sku Roastery');
+      coffeeId = (await makeCoffee('Vitest Roaster Sku Coffee', roaster.id)).id;
+      const prefix = (await db.query<{ value_text: string }>(`SELECT value_text FROM commerce_parameter WHERE key = 'roaster_sku_prefix' AND superseded_at IS NULL`)).rows[0].value_text;
+      const sku = async (w: number) => (await db.query<{ roaster_sku: string | null }>(`SELECT roaster_sku FROM coffee_sku WHERE coffee_id = $1 AND weight_oz = $2`, [coffeeId, w])).rows[0].roaster_sku;
+
+      await upsertSku({ coffeeId, weightOz: 12 }, ACTOR);
+      const minted = await sku(12);
+      expect(minted!.startsWith(prefix)).toBe(true);
+      expect(minted!.slice(prefix.length)).toMatch(/^\d{4,}$/);
+      await upsertSku({ coffeeId, weightOz: 12, costToUs: 9.5 }, ACTOR); // a later save keeps it
+      expect(await sku(12)).toBe(minted);
+      await upsertSku({ coffeeId, weightOz: 12, roasterSku: minted! }, ACTOR); // same code is fine
+      await expect(upsertSku({ coffeeId, weightOz: 12, roasterSku: 'OTHER-1' }, ACTOR)).rejects.toMatchObject({ code: 'ROASTER_SKU_LOCKED' });
+      expect(await sku(12)).toBe(minted);
+
+      await upsertSku({ coffeeId, weightOz: 80, roasterSku: 'VT-5' }, ACTOR); // received from the roaster
+      expect(await sku(80)).toBe('VT-5');
+    } finally {
+      await cleanupRoasterAndCoffees(roaster, coffeeId ? [coffeeId] : []);
+    }
+  });
+});
+
 describe('deactivateRoastery / reactivateRoastery', () => {
   it('deactivate cascades coffee_slot_assignment; reactivate does not restore it', async () => {
     let roaster: { id: string } | undefined;

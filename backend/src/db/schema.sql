@@ -13169,6 +13169,15 @@ LEFT JOIN shipping_carrier sc ON sc.code = sh.carrier
 LEFT JOIN order_payment_status ps ON ps.code = lp.payment_status
 LEFT JOIN order_fulfillment_status fs ON fs.code = COALESCE(rq.derived_status, lf.fulfillment_status, o.fulfillment_status);
 
+-- A12. Roaster SKU codes we mint (Dana, 2026-11-18). Joe Bean assigns no
+-- codes, so a SKU saved with no roaster_sku gets roaster_sku_prefix plus the
+-- next number of this sequence, 4 digits (catalogService.upsertSkuInTx).
+-- Assigned once, never changed; codes received from a roaster are kept.
+CREATE SEQUENCE IF NOT EXISTS coffee_sku_roaster_sku_seq START 1;
+INSERT INTO commerce_parameter (key, value_numeric, value_text, note)
+SELECT 'roaster_sku_prefix', NULL, 'AB-', 'Prefix of the roaster SKU code we mint for a SKU saved without one: prefix + a 4-digit number from coffee_sku_roaster_sku_seq, assigned once and never changed. A new prefix applies only to codes minted after it. Format: sku prefix.'
+WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = 'roaster_sku_prefix');
+
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END COMMERCE 6 block
 -- ═══════════════════════════════════════════════════════════════════════════

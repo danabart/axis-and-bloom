@@ -3,6 +3,7 @@ import { db, withTransaction, type Tx } from '../db/client.js';
 import { getAvgCuppingScore } from './dialSuggestion.js';
 import { refreshDialSignal } from './cuppingService.js';
 import { getSizes, getAnchorSize } from './catalogReads.js';
+import { commerceParamText } from './commerceParameters.js';
 import { getFamilies } from './evidenceReads.js';
 import { record } from './customerFacts.js';
 import {
@@ -61,7 +62,7 @@ export interface Ctx {
 export type CatalogErrorCode =
   | 'COFFEE_NOT_FOUND' | 'SLOT_NOT_FOUND' | 'ROASTER_NOT_FOUND' | 'COFFEE_INACTIVE' | 'SLOT_INACTIVE'
   | 'HOME_EXISTS' | 'PRIORITY_TAKEN' | 'NOTE_REQUIRED' | 'ALREADY_ASSIGNED' | 'SKU_EXISTS'
-  | 'ROASTER_STATE' | 'INVALID_INPUT' | 'SPEC_VIOLATION' | 'UNKNOWN_SIZE'
+  | 'ROASTER_STATE' | 'INVALID_INPUT' | 'SPEC_VIOLATION' | 'UNKNOWN_SIZE' | 'ROASTER_SKU_LOCKED'
   | 'CATEGORY_NOT_FOUND' | 'CATEGORY_EXISTS' | 'CATEGORY_IN_USE'
   | 'CLOSED_SIDE'; // Ella map 7: a lean on a side the map closes
 
@@ -1158,15 +1159,20 @@ export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ bl
       [input.coffeeId, input.weightOz, input.isActive ?? null]
     );
     let blendId: string;
+    const givenSku = input.roasterSku?.trim() || null;
     if (existingResult.rowCount) {
       const existing = existingResult.rows[0];
+      // A roaster_sku is set once and never changed (Dana, 2026-11-18).
+      if (givenSku && existing.roaster_sku != null && givenSku !== existing.roaster_sku) {
+        throw new CatalogError(409, 'ROASTER_SKU_LOCKED', `This SKU's roaster code is ${existing.roaster_sku} and cannot be changed`);
+      }
       const updateResult = await tx.query<{ id: string }>(
         `UPDATE coffee_sku SET
            blend_name = COALESCE($1, blend_name), roaster_sku = COALESCE($2, roaster_sku),
            shopify_variant_id = COALESCE($3, shopify_variant_id), cost_to_us = COALESCE($4, cost_to_us),
            is_active = COALESCE($5, is_active), updated_at = now()
          WHERE id = $6 RETURNING id`,
-        [input.blendName ?? null, input.roasterSku ?? null, input.shopifyVariantId ?? null, input.costToUs ?? null,
+        [input.blendName ?? null, givenSku, input.shopifyVariantId ?? null, input.costToUs ?? null,
          input.isActive ?? null, existing.id]
       );
       blendId = updateResult.rows[0].id;
@@ -1174,12 +1180,32 @@ export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ bl
       const insertResult = await tx.query<{ id: string }>(
         `INSERT INTO coffee_sku (roaster_id, coffee_id, blend_name, weight_oz, roaster_sku, shopify_variant_id, cost_to_us, is_active)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [coffee.roaster_id, input.coffeeId, input.blendName ?? coffee.name, input.weightOz, input.roasterSku ?? null,
+        [coffee.roaster_id, input.coffeeId, input.blendName ?? coffee.name, input.weightOz, givenSku,
          input.shopifyVariantId ?? null, input.costToUs ?? null, input.isActive ?? true]
       );
       blendId = insertResult.rows[0].id;
     }
+    await mintRoasterSkuInTx(tx, blendId);
     return { blendId, before: existingResult.rows[0] ?? null };
+}
+
+/**
+ * A SKU saved with no roaster_sku gets one we mint: roaster_sku_prefix plus
+ * the next number of coffee_sku_roaster_sku_seq, at least 4 digits (Dana,
+ * 2026-11-18: Joe Bean assigns no codes). A number whose code some SKU already
+ * carries (a code received from a roaster) is skipped. No-op when set.
+ */
+async function mintRoasterSkuInTx(tx: Tx, skuId: string): Promise<void> {
+  const row = (await tx.query<{ roaster_sku: string | null }>(`SELECT roaster_sku FROM coffee_sku WHERE id = $1 FOR UPDATE`, [skuId])).rows[0];
+  if (!row || row.roaster_sku != null) return;
+  const prefix = (await commerceParamText('roaster_sku_prefix')).trim();
+  for (;;) {
+    const n = (await tx.query<{ n: string }>(`SELECT nextval('coffee_sku_roaster_sku_seq') AS n`)).rows[0].n;
+    const code = `${prefix}${n.padStart(4, '0')}`;
+    if ((await tx.query(`SELECT 1 FROM coffee_sku WHERE roaster_sku = $1`, [code])).rowCount) continue;
+    await tx.query(`UPDATE coffee_sku SET roaster_sku = $1, updated_at = now() WHERE id = $2 AND roaster_sku IS NULL`, [code, skuId]);
+    return;
+  }
 }
 
 export async function upsertSku(input: UpsertSkuInput, ctx: Ctx): Promise<CatalogWriteResult<{ blendId: string }>> {

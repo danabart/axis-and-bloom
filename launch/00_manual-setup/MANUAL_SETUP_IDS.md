@@ -189,7 +189,13 @@ Brief `backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_6_SHIPSTATION.m
 7. Packing slip: Settings → Templates → Packing Slips. Axis & Bloom header and footer, item name and quantity only, no "Sold by" roaster line. Record the template name here. Confirm with Dena that Joe Bean prints our template.
 8. Webhooks: nothing in the Dashboard. At boot, while `shipstation_enabled` = 1, the backend subscribes `FULFILLMENT_SHIPPED`, `SHIP_NOTIFY` and `FULFILLMENT_REJECTED` to `https://<BACKEND_URL>/api/webhooks/shipstation/<token>`. It logs `[shipstation] enabled=true webhooks …` with the ids.
 
-**Filled in at Part D:** webhook ids · tag id of `roaster:joe-bean` · rule name · Joe Bean's provider id · packing-slip template name · the Joe Bean row in `/admin/roasters` → Fulfillment (adapter ShipStation, tag `roaster:joe-bean`, ship-from `1272614`).
+**Part D (2026-11-18):** `shipstation_enabled` = 1 since 21:37 UTC.
+- Webhooks (ours, to `<BACKEND_URL>/api/webhooks/shipstation/<token>`): `FULFILLMENT_SHIPPED` **22882**, `SHIP_NOTIFY` **22883**, `FULFILLMENT_REJECTED` **22884**.
+- Tag `roaster:joe-bean` = **85175**. Rule "Joe Bean" (Dana). Joe Bean provider id: not exposed by V1; read it off the first order.
+- `/admin/roasters` → Fulfillment: Joe Bean config id 1 (ShipStation, tag `roaster:joe-bean`, ship-from `1272614`, service from the parameter).
+- Packing-slip template name: still to record.
+
+**Originally listed for Part D:** webhook ids · tag id of `roaster:joe-bean` · rule name · Joe Bean's provider id · packing-slip template name · the Joe Bean row in `/admin/roasters` → Fulfillment (adapter ShipStation, tag `roaster:joe-bean`, ship-from `1272614`).
 
 **Rollback:** set `shipstation_enabled` to 0 in `/admin/commerce`. New paid orders go back to the manual email at once. Requests already in ShipStation stay there; cancel them from the order drawer or the ShipStation Dashboard.
 

@@ -344,3 +344,39 @@ Part D needs your go for:
 
 **STOP.** `shipstation_enabled` stays 0 and the Joe Bean fulfillment config is not set. Next: Task 0.5 steps 2 and 4–7 in the ShipStation Dashboard. Then, on Dana's word, the key check, the Joe Bean config through `/admin/roasters`, and switching `shipstation_enabled` to 1.
 
+
+---
+
+## Part D, step 2: ShipStation on (2026-11-18)
+
+Dana: the Dashboard steps are done (tag, rule "Joe Bean" → provider Joe Bean Roasters with the requested service and auto-send, carriers shared, auto-funding on). Script `backend/tmp/c6_d2_enable.ts`, through the one writers (`fulfillmentService.setRoasterConfig`, `commerceParameters.setParameter`, `fulfillmentService.ensureWebhookSubscriptions`), as admin `5d005443…`.
+
+- **Key check (read-only, V1):**
+  - Carriers: the same 6 (`stamps_com` 1906567, `ups_walleted` 1906568, …); `balance` still reads 0 through the API with auto-funding on.
+  - Tags: `roaster:joe-bean` = **85175**, the only tag.
+  - Warehouse `1272614` "Joe Bean Roasters (Rochester NY)", default.
+  - USPS `usps_ground_advantage` listed.
+  - **Provider: not visible through V1.** `GET /fulfillmentproviders` lists only "Auctane Fulfillment"; there is no V1 call for partner (3PL) providers. It shows on the first order (Part E check 2).
+- **Joe Bean config:** `roastery_fulfillment_config` id 1. Adapter `shipstation`, tag `roaster:joe-bean`, ship-from `1272614`, requested service NULL (falls back to the parameter, `usps_ground_advantage`), active.
+- **Switch:** `shipstation_enabled` 0 → 1 at 2026-11-18 21:37:28 UTC. The running revision reads it within 60 s (parameter cache); no redeploy.
+- **Webhooks:** `ensureWebhookSubscriptions` with `BACKEND_URL` set to the Cloud Run value, so the target equals what prod computes (the next boot finds them and keeps them):
+  - `FULFILLMENT_SHIPPED` **22882**, `SHIP_NOTIFY` **22883**, `FULFILLMENT_REJECTED` **22884**; all active, all to our URL.
+  - `22666` (`API_TRACK`, not ours) untouched.
+- **After:** 0 requests, 0 ledger rows, 0 events; the webhook with a wrong token answers 404. No order placed.
+
+### Roaster SKUs (Dana, 2026-11-18)
+
+Joe Bean doesn't assign SKU codes; we mint our own: the `commerce_parameter` `roaster_sku_prefix` (default `AB-`) plus a 4-digit sequence per SKU row, assigned once and never changed. **Not yet written.**
+- `roaster_sku_prefix` does not exist on prod. Nothing mints a code yet: `catalogService.upsertSkuInTx` only stores a `roasterSku` it is given (COALESCE), and nothing stops a later change.
+- That needs a schema change and a deploy: seed the parameter, add a sequence, and mint inside the catalog writer when the code is NULL, refusing a change once it is set.
+- Waiting on Dana's go for that change and its push. Then the four codes go in through the writer.
+- Other roasters' existing `roaster_sku` values (e.g. `6BEAN-12`, `BALI-5`) are not touched.
+
+| coffee_sku | Joe Bean coffee | House name | 12 oz |
+|---|---|---|---|
+| fd54005d… | Tiger Stripe Espresso (2914) | Coado | roaster_sku NULL |
+| 4b50cc27… | Geometric Filter Coffee (2915) | Bright & Tart | roaster_sku NULL |
+| c847847f… | Blossom Dark Roast (2916) | There's No Place Like Home | roaster_sku NULL |
+| 3b7fd321… | Fabricator House Roast (2917) | Quieta Non Movere | roaster_sku NULL |
+
+**STOP.** ShipStation is on with Joe Bean configured. Any paid order with a Joe Bean line now goes to ShipStation, and with `roaster_sku` NULL it lands `needs_attention` ("no roaster SKU") with the admin alert, not in ShipStation. Rollback: `shipstation_enabled` = 0 in `/admin/commerce`. Next: the SKU codes, then Part E.
