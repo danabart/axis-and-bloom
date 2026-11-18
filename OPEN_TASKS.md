@@ -410,7 +410,15 @@ Every paid order goes to the manual adapter (`services/fulfillment/manual.ts`: a
 
 **ShipStation adapter: tracking webhooks call `shipmentService.markShipped`** (Commerce 3, 2026-11-01). Since #250 a shipment is recorded only by `markShipped(orderId, { carrier, trackingNumber, roasterId, shippedAt })` (today from `/admin/orders`): the shipment row, the `shipped` event and the customer's tracking email once, idempotent per tracking number. ShipStation's ship-notify webhook maps its carrier code to a `shipping_carrier` row and calls the same function; nothing else writes `roastery_shipment_details`. `delivered` / `returned` (`shipping_status`) have no writer yet.
 
-### OT-64: Commerce 4, live cutover (Commerce 3, 2026-11-01)
+### OT-64: Commerce 4, live cutover (Commerce 3, 2026-11-01) — ✅ Resolved 2026-11-18
+
+**Live since 2026-11-17** (rev `00869-6z8`, `[stripe] mode=live`, `pk_live_` bundle).
+- The $1 gate passed on prod on 2026-11-18: order `0b6ac7e9…` paid at 01:41 UTC, refunded at 02:18 UTC, gate rows off at 02:22 UTC.
+- The payment method domain is registered (`pmd_1UcyX925hnyYIAkSYRFkPcBK`).
+- Record: `backend/src/features/commerce/CLOSING_REPORT_4.md`. Rollback: `MANUAL_SETUP_IDS.md` → Commerce 4.
+- No live subscription exists, so there is no "first live renewal" to watch yet: the Household test subscription `b0b6b130` was canceled at the cutover. The daily job logs the first one when it happens.
+- ShipStation (OT-58) stays open.
+
 
 Brief 4 of the commerce README: live keys with Dana. Needs at least:
 - live secret and publishable keys, a live webhook endpoint with the 10 events (six checkout/charge plus four `invoice.*`) and its signing secret;
@@ -460,6 +468,12 @@ Seen by Dana on prod during Commerce 3 Part E; deliberately left out of that bri
 Also from Part E, recorded only: the payment-trouble email's "Update your card" link once landed on the home page (11-03); not reproduced (`/profile` is open under the pre-launch gate). See `CLOSING_REPORT_3.md` → "Noticed during Part E".
 
 ### OT-60: test-mode Stripe events to the prod endpoint (Commerce 1, 2026-10-31)
+
+**Commerce 4 note (2026-11-18).** Prod now verifies webhooks with the live signing secret (`STRIPE_WEBHOOK_SECRET` v2). Two consequences:
+- A sandbox event delivered to the sandbox endpoint `we_1UWaPO0QYxZQN6jDi2Y9lp6q` (still enabled, still pointing at prod) can no longer be recorded. Its signature does not verify.
+- The sandbox will retry each such delivery and email about the failures.
+
+Two ways forward: disable that endpoint in the sandbox Dashboard, or point it at a local relay for dev runs. Dana's call. The last open sandbox invoice is in `CLOSING_REPORT_4.md` → 0.5.
 
 The sandbox's one webhook endpoint (`we_1UWaPO0QYxZQN6jDi2Y9lp6q`) points at prod Cloud Run, so every test-mode event, including the local Part E acceptance runs against `axisandbloom_test`, is also delivered there. Before the Commerce 1 deploy prod answers 404 (Stripe retries for up to 3 days and emails about failures); after it, prod records an unknown session's event and answers 200 (`UnknownCheckoutSessionError`). Consider a second, local-only endpoint or the Stripe CLI for dev runs.
 
@@ -536,11 +550,11 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-10-24 | OT-41: retire `topicLog` / `token_events usage_log` once `engagementMetrics` and `sommelierGuards` read `sommelier_turn` | Open |
 | 2026-10-31 | OT-58: ShipStation roaster adapter (tracking webhooks call `shipmentService.markShipped`, #250) | Open |
 | 2026-10-31 | OT-59: mixed-roaster order split | Open |
-| 2026-10-31 | OT-60: test-mode Stripe events also reach the prod endpoint | Open |
+| 2026-10-31 | OT-60: test-mode Stripe events also reach the prod endpoint | Open: since Commerce 4 they fail signature on prod; disable or repoint the sandbox endpoint (note in the section) |
 | 2026-10-31 | OT-61: Liam order_status could read v_order_status | Open (Dana's call) |
 | 2026-10-31 | OT-62: Commerce 3, subscription self-service and admin | ✅ Resolved 2026-11-01 (#250) |
 | 2026-10-31 | OT-63: Stripe retry schedule for renewal invoices (Smart Retries, up to 8 within 2 weeks, then left past-due; our 21-day lapse voids it) | ✅ Resolved 2026-10-31 |
-| 2026-11-01 | OT-64: Commerce 4, live cutover | Open |
+| 2026-11-01 | OT-64: Commerce 4, live cutover | ✅ Resolved 2026-11-18 (live since 2026-11-17, `CLOSING_REPORT_4.md`) |
 | 2026-11-04 | OT-65: commerce cosmetic pass (Profile order total "$" and short order number; admin name fallback) | Open |
 | 2026-11-04 | OT-66: FAQ page wanted (design + copy from Camila/Dana); footer FAQ link omitted until `/faq` exists (Website 1) | Open |
 | 2026-11-04 | OT-67: per-page palette swaps (`#9a2918` / `#a33726` / `#f2f1ea` inline literals → `--ab-*` tokens) left to the website page briefs; file list in `website_handoff/CLOSING_REPORT_1.md` (Website 1) | Done 2026-11-06 (Website 9, #261: the five old literals → tokens on the listed pages, the drawer, gift redemption and Flavor Intelligence; neutral greys and family colours stay) |
@@ -590,7 +604,7 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-11-07 | OT-111: decision 1 (the box ships what resolves) applies to drinker reasons only (no quiz, left the box). A subscriber's own bag that cannot be named (nothing sellable, a category coffee gone) still stops the whole renewal, as before; whether that should also skip-and-ship is Dana's call (Family Household 3) | Open |
 | 2026-11-08 | OT-112: the cart is in memory only (`CartContext`): it empties on a page reload and on the pre-launch gate's bounce, so a built house box (or any cart) is lost before checkout. Persist it (per-browser storage, or server-side for a signed-in buyer) (Family Household 3, Part E) | Open |
 | 2026-11-08 | OT-113: the order-confirmation headline (`v_order_status.order_placed_line`) is built from `order.lines[0]` (`orderFinalizer.ts:44`, `primaryCoffeeId`), so it leads with another household member's bag when that line comes first; it should lead with the buyer's own bag (or name the house order) (Family Household 3, Part E) | Open |
-| 2026-11-08 | OT-114: the embedded Stripe Checkout (test mode) offers "Bank" (US bank account) beside card; decide the payment methods and pin them on the session or in the Stripe dashboard before the live cutover (OT-64) (Family Household 3, Part E) | Open |
+| 2026-11-08 | OT-114: the embedded Stripe Checkout (test mode) offers "Bank" (US bank account) beside card; decide the payment methods and pin them on the session or in the Stripe dashboard before the live cutover (OT-64) (Family Household 3, Part E) | ✅ Resolved 2026-11-16 (Commerce 4 B3): the live default configuration `pmc_1UVxad25hnyYIAkSjEaHhGqo` is card, Apple Pay, Google Pay and Link only; no bank |
 | 2026-11-08 | OT-115: placement pass after Utopian's retirement (cupping evidence brief 8, Part C): balanced_sweet slot 3 "Bright & Balanced" is empty (was Union, 2934); fruity slot 4 "Jammy & Aromatic" lost its home placement (Flying Jewel, 2891; it had no 12 oz price, so it was not on sale). No archetype lost its default. Dana's placement, through the workbench | Open |
 | 2026-11-09 | OT-116: cupping evidence brief 9 left two things as designed, to revisit if they bite. (1) A dispute is tied to one cupper row, so re-saving that row (a transcription correction) creates an undisputed successor, and the dispute stays on the superseded row; raise it again on the new row if it still applies. (2) The per-cupper cell of `v_evidence_dimension` and the call of `v_evidence_archetype_call` show the cupper's latest session; when that value is disputed it is excluded from the agreement and the call tally, and the same cupper's older session does not stand in. |
 | 2026-11-09 | OT-117: 22 vitest failures at HEAD 7939920 on a freshly refreshed test DB (measured in cupping evidence brief 9, `CLOSING_REPORT_9.md`). Most follow from brief 8's prod data: Utopian inactive, Geometric's third session (s42), Tiger Stripe placed without basis. They are in evidenceViews (6) and evidenceAdmin (3). The rest are in sommelierEval, sommelierRag, sommelierAnswer, catalogService, schema.catalog_blueprint, lintCustomer and quizScoring (6), and qrDoor's cleanup FK. The tests pin facts that the data has since changed; re-pin them or re-scope them. Also: `npm run test:db:refresh` exits 0 when gcloud fails (it now needs `CLOUDSDK_PYTHON` = Python 3.10+). |
@@ -621,3 +635,10 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-11-17 | OT-142: Ella map 7: three first bags are not sellable yet (The Daily, Geometric, Amsterdam): the page shows them without a price and choosing records the position only; brief 8 (prices and coffee-grain sellability, after Commerce 4) makes every coffee buyable | Open |
 | 2026-11-17 | OT-143: Ella map 7: the 13 current `dial_first_match` rows (family by lane) are read by nothing customer-facing any more; they stay on `/admin/map/advanced` (Dana 2026-11-17, answer 4). Retire them, or keep them as the founder's notes, in the switch brief (brief 4) | Open |
 | 2026-11-17 | OT-144: Ella map 7: the 2 quiz-result decisions on production were made with the old code rule (Ella map 3) and are not rewritten; their next quiz writes a new decision through `v_dial_start`. The backfill for every quiz result is brief 4's (OT-124) | Open |
+| 2026-11-18 | OT-145: an admin filter for test-mode orders and events left on prod. They are told apart by `stripe_event.payload->>'livemode'` and by date (before 2026-11-17 15:13 UTC); nothing is deleted (Commerce 4). Dana's call | Open |
+| 2026-11-18 | OT-146: the reporting views do not read payment status or refunds. `v_orders_weekly` sums gross `total_amount_paid` over every order. `v_customer_bag_attribution`, `v_customer_timeline`, `v_palate_evidence` and `v_household_numbers` count refunded and test orders like paid ones. Only `v_order_status` reads `order_event`. Proposal: count paid, not-fully-refunded orders through `v_order_status`, and show gross and refunded cents side by side. `CLOSING_REPORT_4.md` → Order data trace (Commerce 4) | Open |
+| 2026-11-18 | OT-147: `"order".transaction_fee` is NULL when the balance transaction is not settled at webhook time. This holds for 5 of the 6 Stripe orders on prod, including the live $1 order (Link). Nothing fills it in later, since `charge.updated` is neither subscribed nor handled (Commerce 4) | Open |
+| 2026-11-18 | OT-148: `BUSINESS_TZ` is a constant (`subscriptionService.ts:28`, interpolated into SQL at `:256`), and `America/New_York` is repeated in `householdEmails.ts:126` and `householdReads.ts:304` (G2.1). Separately, `v_orders_weekly` groups by UTC weeks. Proposal: a `commerce_parameter` row `business_time_zone` ("Format: iana time zone"), with `todayEastern` → async `todayBusiness`, a bound SQL parameter, and the view grouping in that zone. Its own brief (Commerce 4) | Open |
+| 2026-11-18 | OT-149: G2.9 says to default `timezone('utc', now())`. On a `timestamptz` column that is a timestamp without time zone, read back in the session's `TimeZone`. It is correct only while every connection is UTC (prod is; `db/client.ts` sets nothing). Proposal: amend G2.9 to `now()`, then move the existing defaults in their own brief. Dana's call (Commerce 4) | Open |
+| 2026-11-18 | OT-150: `GET /api/users/profile` bumps `user_profile.updated_at` on every load (`users.ts:72-74`, `ON CONFLICT … DO UPDATE SET updated_at = NOW()`). The column cannot say when the profile last changed; it overwrote the Stripe customer replacement's time on 2026-11-18 (Commerce 4) | Open |
+| 2026-11-18 | OT-151: `orderFinalizer` falls back to `tokenEconomy?.orderBonus ?? 10`. The number lives in sommelier config, but the `10` fallback is typed in code (G2.1) (Commerce 4) | Open |

@@ -6899,3 +6899,40 @@ Brief: `backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_1_CAPTUR
 - **Tests:** `dialMap7.test.ts` (5 cases: every Data 1 row from fixtures including the three readings, the tie rule and espresso both ways; the decision's recorded rule and the fallbacks; `setStartRule` supersede and refusals; the closed side; steps, the step decision and the trail); `matchService.test.ts` D1 retired with the code rule, the rest seed the start rule in their rollback; `mapAdmin.test.ts` vocabulary keys.
 - **Production (2026-11-17, 2699b6b, rev 00867):** seed 11 rows (9 rules, 2 retirements; second dry run identical), rerun 0; `v_dial_start` matches the Task 0 simulation for all 99 current sessions (78 real: Benchmark 26, The Daily 16, Fabricator 13, La Familia 12, Geometric 7, Cafè Feminista 3, The Village 1); every `dial_surface` row `lane`; `CATALOG.md` regenerated from production.
 - **Test DB (2026-11-17):** seed 11 rows (9 rules, 2 retirements), rerun 0; `v_dial_start` agrees with the read-only simulation for all 185 current sessions; acceptance in the browser with marked Zzz admins (`map7_*.png`).
+
+### 275. Commerce 4: live cutover (2026-11-16 to 2026-11-18)
+
+`backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_4_LIVE_CUTOVER.md` · `CLOSING_REPORT_4.md` · OT-64 closed. Stripe moved from the sandbox to the live account `acct_1UVxa425hnyYIAkS`. **Live since 2026-11-17** (rev `00869-6z8`). The pre-launch curtain stays up: going live with Stripe is not launching the site.
+
+- **What changed:**
+  - **Secrets:** new Secret Manager versions (v2, live) of `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; v1 (test) is disabled. The key is a restricted `rk_live_` key.
+  - **Frontend:** `deploy.yml` builds with `VITE_STRIPE_PUBLISHABLE_KEY` = `pk_live_…`.
+  - **Live Dashboard, recorded in `MANUAL_SETUP_IDS.md` → Commerce 4:**
+    - Dana activated the account, with Radar Lite.
+    - The CTO session recreated the sandbox settings: tax category and NJ registration; payment methods card, Apple Pay, Google Pay and Link; branding; receipts off; Smart Retries 8×/2 weeks.
+    - The live webhook `we_1UcTtB25hnyYIAkSqQmkzKQR` has the same 10 events.
+    - Payment method domain `www.axisandbloomcoffee.com` (`pmd_1UcyX925hnyYIAkSYRFkPcBK`): Apple Pay and Google Pay active. Apple needed no association file.
+- **Code (37f26ff, ae02461):**
+  - **`stripe.getOrCreateStripeCustomer`:** a saved customer id Stripe does not know in this mode (a sandbox `cus_` under a live key) is replaced. The new customer's metadata holds `replaced_customer_id`, the profile is updated by compare-and-swap, and the log shows `[stripe] customer replaced`. Each id is checked once per process.
+  - **`stripeMode()`:** accepts `rk_` keys (comment and tests).
+  - **`subscriptionService.cancel`:** takes an optional reason for the event note.
+  - **`cartResolver.applyLiveGateOverride`**, the $1 gate: three `commerce_parameter` rows, `live_gate_override_cents`, `live_gate_free_shipping` and `live_gate_override_email`, all seeded off. When the gate is on, the named email's one-time checkouts are priced at the override, with shipping optionally free. Subscriptions and the cart quote are never gated. The rows are read by `commerceParameters`, which has a new text format, `email or empty`. The code path stays for the next cutover.
+  - **Tests:** `stripe.test.ts` (new, 10), `cartResolver.test.ts` +5, `commerceParameters.test.ts` +1, `subscriptionSelfService.test.ts` +1.
+- **Prod data:**
+  - The Household test subscription `b0b6b130` was canceled through `subscriptionService.cancel` (admin, "sandbox card, live cutover").
+  - Test-mode rows stay; nothing is deleted.
+  - Dana's sandbox customer was replaced on her first live checkout: `cus_Va3eBGMG4YfD43` → `cus_VeGNCORezTxvah`.
+- **The gate (2026-11-18):**
+  - Dana paid $1.00 live, through Link: order `0b6ac7e9-3e0a-45f8-9de5-4ceb51ade2b4`, `pi_3Ucxrr25hnyYIAkS14flyHRq`.
+  - Both emails were sent, and the first live webhook was processed.
+  - She refunded it in full from `/admin/orders`: `charge.refunded` arrived live, and the order shows Refunded · Canceled. The fee was $0.33.
+  - The gate rows went back to 0 / 0 / empty, and the same cart for her email prices at $29.00 + $5.95.
+- **What did not change:** prices, shipping, discounts, the tax switch (`tax_collection_enabled` 0), the webhook handler, the finalizer, the renewal job and the admin pages. These are the same in both modes.
+- **Found while tracing the order (open):**
+  - OT-146: the reporting views count refunded and test orders.
+  - OT-147: `"order".transaction_fee` is often NULL.
+  - OT-148: `BUSINESS_TZ` is a constant, and the weekly view uses UTC weeks.
+  - OT-149: G2.9's `timezone('utc', now())` default.
+  - OT-150: a profile read bumps `updated_at`.
+  - OT-151: the `?? 10` order-bonus fallback.
+  - OT-145: an admin filter for test rows.

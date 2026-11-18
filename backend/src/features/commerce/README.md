@@ -1,5 +1,7 @@
 # Commerce workstream — Stripe payments (one-time + subscriptions)
 
+**Status: LIVE since 2026-11-17** (Commerce 4: live Stripe account, rev `00869-6z8`, `[stripe] mode=live`; $1 gate passed 2026-11-18; `CLOSING_REPORT_4.md`). Briefs 1–3 were built and accepted in test mode. The pre-launch curtain is a separate step.
+
 Decided 2026-10-29 (Dana + CTO session). Four briefs, run in order, each testable in Stripe test mode:
 
 | # | Brief | Delivers |

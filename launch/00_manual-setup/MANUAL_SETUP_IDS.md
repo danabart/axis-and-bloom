@@ -110,7 +110,7 @@ Brief: `backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_4_LIVE_CUTOVER
 | B1 | Tax: preset category "Coffee Beans or Ground Coffee" (`txcd_41050006`), copied from the sandbox; head office Union City NJ | CTO session | ✅ 2026-11-16 (API: tax settings active, default `txcd_41050006`, head office Union City) |
 | B2 | Tax registration: NJ, state sales tax | CTO session | ✅ 2026-11-16 (API: US/NJ `state_sales_tax`, active) |
 | B3 | Payment methods: Cards, Apple Pay, Google Pay, Link only | CTO session | ✅ 2026-11-16 (API: default config `pmc_1UVxad25hnyYIAkSjEaHhGqo` = apple_pay, card, google_pay, link) |
-| B4 | Payment method domains: `www.axisandbloomcoffee.com` for Apple Pay / Google Pay | CTO session | ⏳ none listed in live on 2026-11-16 (API returns no domains) |
+| B4 | Payment method domains: `www.axisandbloomcoffee.com` for Apple Pay / Google Pay | Claude Code (Dana's go, decision 5) | ✅ 2026-11-18: **`pmd_1UcyX925hnyYIAkSYRFkPcBK`**, registered through the live API (`backend/tmp/commerce4_pm_domain.ts`). Apple Pay, Google Pay, Link and PayPal all `active`; Stripe verified Apple Pay without a domain association file, so no static route was added. The apex `axisandbloomcoffee.com` is not registered. |
 | B5 | Branding: brand `#3a3c3e`, accent `#ca526d`, copied from the sandbox | CTO session | ✅ 2026-11-16 (API: primary `#3a3c3e`, secondary `#ca526d`) |
 | B6 | Emails: successful-payment and refund receipts off | CTO session | ✅ 2026-11-16 |
 | B7 | Billing → Manage failed payments: Smart Retries, up to 8 times within 2 weeks, invoice left past-due | CTO session | ✅ 2026-11-16 |
@@ -127,6 +127,28 @@ Brief: `backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_4_LIVE_CUTOVER
 `deploy.yml` maps both secrets as `:latest`. Rollback: re-enable v1 of both secrets, disable v2, set the `pk_test_` value back in `deploy.yml`, push (redeploy). No DB change.
 
 The `subscription-daily` scheduler job is unchanged by the cutover (same URL, same secret).
+
+**Live since 2026-11-17** (rev `00869-6z8`, `[stripe] mode=live`; publishable key `pk_live_` since that deploy). The $1 gate:
+- purchase on 2026-11-18 01:41 UTC: order `0b6ac7e9-3e0a-45f8-9de5-4ceb51ade2b4`, `pi_3Ucxrr25hnyYIAkS14flyHRq`;
+- refunded at 02:18 UTC;
+- gate rows back to 0 / 0 / empty at 02:22 UTC.
+
+Evidence is in `CLOSING_REPORT_4.md`.
+
+**Rollback (Part E), full steps:**
+1. In Secret Manager, re-enable v1 of `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` and disable v2. Both are mapped `:latest`, so the next instance that starts boots test.
+2. Set the `pk_test_51UVkXO…` value back in `deploy.yml` (the rollback value is in the comment there) and push. This redeploys and rebuilds the frontend.
+3. Check that the boot log shows `[stripe] mode=test` and that the bundle on `axis-and-bloom-prod.web.app` has `pk_test_`. `www` answers 403 to curl (Cloudflare), so check the bundle there.
+4. No DB change.
+   - Any live `cus_` id saved on a profile is replaced by a sandbox customer on that user's next checkout (`stripe.getOrCreateStripeCustomer`: a `resource_missing` answer means a new customer, and the old id goes into its metadata). Going back to live repeats this in the other direction.
+   - Live orders keep their live ids. In the sandbox, refunds of live orders cannot be made from `/admin/orders`; refund them in the live Dashboard after switching back.
+
+**Test-mode rows remain on prod**, and are not deleted. These are `+checkout1`'s orders, Dana's Commerce 2/3 orders, subscriptions and events, and the Household test subscription `b0b6b130` (canceled on 2026-11-17, source admin, note "sandbox card, live cutover"). Their Stripe ids are sandbox ids (`cs_test_`, `pi_` / `in_` of the sandbox account, `evt_` with `livemode` false). Live rows are told apart by `stripe_event.payload->>'livemode'` and by date (after 2026-11-17 15:13 UTC). No admin filter exists; OT-145 if Dana wants one.
+
+**The $1 gate stays in code for the next cutover:** `cartResolver.applyLiveGateOverride` plus the `commerce_parameter` rows `live_gate_override_cents`, `live_gate_free_shipping` and `live_gate_override_email`, all seeded off. To use it:
+- set the email, then shipping, then cents (cents last turns it on) through `/admin/commerce` or `setParameter`;
+- it prices one-time checkouts only;
+- supersede the rows back to 0 / 0 / empty when done (cents first).
 
 ## Open before ads warm-up (~Aug 3)
 

@@ -71,7 +71,7 @@ Living checklist of behaviors that must keep working across future changes. Crea
 
 ## Commerce — Stripe one-time checkout (Commerce 1, 2026-10-31)
 
-Test mode until Commerce brief 4. Stripe test cards: `4242 4242 4242 4242` (success), `4000 0000 0000 0002` (decline), `4000 0025 0000 3155` (3D Secure). Full record: `backend/src/features/commerce/CLOSING_REPORT_1.md`.
+Run these locally against the sandbox; prod is live since 2026-11-17 (Commerce 4). Stripe test cards: `4242 4242 4242 4242` (success), `4000 0000 0000 0002` (decline), `4000 0025 0000 3155` (3D Secure). Full record: `backend/src/features/commerce/CLOSING_REPORT_1.md`.
 
 - [ ] **Success**: cart → `/checkout` → pay with 4242 → exactly one `"order"` row, its lines, a `paid` + `finalized` `order_event`, one admin new-order email, one customer confirmation email; `/checkout/return` shows Liam's line (or the fallback) and the cart empties; Profile → Orders shows "Paid · being roasted" and the real total (dollars, not 1/100).
 - [ ] **Decline**: 4000…0002 → Stripe shows the decline inline, no order, the session expires (`checkout_session.status = expired` after the expiry window).
@@ -79,7 +79,7 @@ Test mode until Commerce brief 4. Stripe test cards: `4242 4242 4242 4242` (succ
 - [ ] **Shipping from data**: 1 bag → `shipping_fee_cents`; `free_shipping_min_bags` bags → free; change `shipping_fee_cents` on `/admin/commerce` → the next checkout charges it, no deploy.
 - [ ] **No roaster name** on the Stripe form, the return page, the customer email or Profile (the admin email is the only place the roaster coffee appears).
 - [ ] `POST /api/orders` answers 410 `use_checkout`; nothing but `checkoutService` writes `"order"` / `order_line_item` / `order_event` (`npm run lint:lineage`).
-- [ ] Boot log shows `[stripe] mode=test` (never `live` before brief 4).
+- [ ] Boot log shows `[stripe] mode=live` on prod (since Commerce 4, 2026-11-17) and `mode=test` locally; `disabled` anywhere is a broken secret.
 - [ ] **Tax switch off**: no Stripe Tax call, order taxes 0 (`tax_collection_enabled` = 0 since 2026-10-31: the Stripe session and renewal invoice show automatic tax disabled, `"order".taxes_collected` = 0).
 - [ ] **Header cart** (Checkout UX 1): the icon opens the drawer on every page with the nav, the badge matches the floating button, both are hidden while gated.
 - [ ] **Return page**: `/checkout/return` with no `?preview=true` shows the confirmation signed in, and goes to `/sign-in` with `session_id` kept when signed out; never the curtain.
@@ -88,7 +88,7 @@ Test mode until Commerce brief 4. Stripe test cards: `4242 4242 4242 4242` (succ
 
 ## Commerce — subscriptions (Commerce 2, 2026-10-31)
 
-Test mode until Commerce brief 4. Full record: `backend/src/features/commerce/CLOSING_REPORT_2.md`. Renewals are Stripe one-off invoices our daily job (`GET /api/cron/subscription-daily`, Cloud Scheduler `subscription-daily`) creates; the `invoice.paid` webhook writes the order.
+Run these locally against the sandbox; prod is live since 2026-11-17 (Commerce 4). Full record: `backend/src/features/commerce/CLOSING_REPORT_2.md`. Renewals are Stripe one-off invoices our daily job (`GET /api/cron/subscription-daily`, Cloud Scheduler `subscription-daily`) creates; the `invoice.paid` webhook writes the order.
 
 - [ ] **Subscribe**: cart → "Make it a subscription" → frequency (2/4/6 weeks from `/api/checkout/rules`) → the cart and `/checkout` show the server-quoted price (5% one bag, 10% two or more; never the collection discount on top) → pay with 4242 → one order with `is_subscription`, a `subscription` `active` with `next_delivery_date` = today + N weeks, `started` event; the return page says "Next delivery <date>, every N weeks"; Profile → Orders shows "Your subscription".
 - [ ] **Subscription renewal ships current dial position**: turn the Bloom Dial for the subscription's archetype → the next renewal order's line is that position's house name and price; with `subscription_ships_current_dial_position` = 0 it is the signup slot.
@@ -100,7 +100,7 @@ Test mode until Commerce brief 4. Full record: `backend/src/features/commerce/CL
 
 ## Commerce — admin and self-service (Commerce 3, 2026-11-01)
 
-Test mode until Commerce brief 4. Full record: `backend/src/features/commerce/CLOSING_REPORT_3.md`.
+Run these locally against the sandbox; prod is live since 2026-11-17 (Commerce 4). Full record: `backend/src/features/commerce/CLOSING_REPORT_3.md`.
 
 - [ ] **Customer skip/pause/cancel** (Profile → subscription panel): change frequency 2→4 weeks → next date unchanged, `frequency_changed` event, one email. Skip → `skip_requested`, Profile shows the cycle after; a second skip answers "already skipped"; on the skipped date the daily job records `renewal_skipped_skip`, charges nothing, advances the date. Pause (date within `subscription_pause_max_weeks`) → `paused`, Profile shows the resume date; Resume → `resumed`, next date rescheduled if it fell inside the pause; a pause whose date passed is resumed by the daily job (`source = cron`). Cancel → `canceled`, open renewal invoice voided, Liam access gone, one email.
 - [ ] **Update card**: on a past_due subscription, "Update your card" (Profile, or the payment-trouble email link) → setup-mode Checkout → `payment_method_updated`; the open invoice is paid with the new card, `invoice.paid` writes one renewal order, status back to `active`. A card that declines after saving (`4000 0000 0000 0341`) leaves it past_due with the card saved.
@@ -109,6 +109,18 @@ Test mode until Commerce brief 4. Full record: `backend/src/features/commerce/CL
 - [ ] **Retry fulfillment** on a `needs_attention` order → `fulfillment_dispatched` (source admin), status `awaiting_manual`; the admin new-order email is not sent twice.
 - [ ] **Admin new-order email** shows the customer's name, email and a link that opens `/admin/orders/<id>`.
 - [ ] Nothing but `shipmentService` writes `roastery_shipment_details` (`npm run lint:lineage`).
+
+## Commerce — live Stripe (Commerce 4, 2026-11-17)
+
+Live since 2026-11-17 (rev `00869-6z8`). Full record: `backend/src/features/commerce/CLOSING_REPORT_4.md`. Rollback: `launch/00_manual-setup/MANUAL_SETUP_IDS.md` → Commerce 4.
+
+- [ ] **Mode matches on both ends**: the prod boot log shows `[stripe] mode=live`, and the bundle on `axis-and-bloom-prod.web.app` carries `pk_live_`. `www` answers 403 to curl, so check the bundle there. A live key with a test bundle, or the reverse, breaks every checkout.
+- [ ] **Restricted key accepted**: `stripeMode()` reads `rk_live_` / `rk_test_` like `sk_` (`stripe.test.ts`).
+- [ ] **Saved customer from the other mode**: a profile whose `stripe_customer_id` Stripe answers "No such customer" for gets a new customer on its next checkout, and the checkout succeeds. The log shows `[stripe] customer replaced user=… old=… new=…`, and the new customer's metadata has `replaced_customer_id` (`stripe.test.ts`).
+- [ ] **The $1 gate is off**: `live_gate_override_cents` 0, `live_gate_free_shipping` 0, `live_gate_override_email` empty on `/admin/commerce`. With the gate on, only the named email's **one-time** checkout is $1 a bag (subscriptions never), and the cart quote stays at full price (`cartResolver.test.ts`).
+- [ ] **Apple Pay / Google Pay**: the payment method domain `www.axisandbloomcoffee.com` (`pmd_1UcyX925hnyYIAkSYRFkPcBK`) shows active for both in the live Dashboard.
+- [ ] **Live webhook**: `stripe_event` rows have `payload->>'livemode'` = `true`, processed and with no error. A refund from `/admin/orders` arrives as `charge.refunded` and shows "Refunded · Canceled" on an unshipped order.
+
 ## Website chrome — header, Menu overlay, footer (Website 1, 2026-11-04)
 
 Full record: `backend/src/features/website_handoff/CLOSING_REPORT_1.md`. Unit cases: `frontend/src/app/components/chrome/chrome.test.tsx` (`cd frontend && npm test`).
