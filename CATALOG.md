@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-18 from database `axisandbloom` · 227 tables · 115 views · 1936 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `7aef010364f8` (full value in the footer).
+Generated 2026-11-18 from database `axisandbloom` · 227 tables · 115 views · 1936 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `eae60fc54e34` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -583,7 +583,7 @@ Sellable bag-size variant (SKU) of one coffee at one roaster, carrying Shopify v
 | `roaster_id` | uuid | yes | FK to roaster(id); the roastery that fulfils this SKU, copied from coffees.roaster_id when the SKU is created. |
 | `blend_name` | text | no | Display name of the SKU; defaults to the coffee's name on insert and is used by the coffee_id name-match backfill. |
 | `shopify_variant_id` | text | yes | Shopify variant ID passed to Shopify when an order for this SKU is placed; NULL until mapped. |
-| `roaster_sku` | text | yes | The roaster's own SKU code for this bag size; NULL if not set. |
+| `roaster_sku` | text | yes | SKU code of this bag size on the roaster's side (the ShipStation item sku): the code the roaster gave us, or one we minted (commerce_parameter roaster_sku_prefix + a 4-digit number from coffee_sku_roaster_sku_seq) when the SKU was saved without one (Commerce 6, 2026-11-18). Set once by catalogService.upsertSkuInTx and never changed. |
 | `cost_to_us` | numeric | yes | Wholesale cost to Axis and Bloom for one bag of this SKU in USD dollars (admin field "Cost to us ($)", two decimals); written by catalogService.upsertSkuInTx from Admin Supply and Inventory and from catalog import, shown in Admin Supply and Inventory, read by no customer-facing path. |
 | `is_active` | boolean | yes | True while the SKU is available from the roaster (the only availability lever; false = Paused); set false by coffee or roastery retirement. |
 | `coffee_type` | text | yes | Class: deprecated \| DEPRECATED 2026-10-16: never read or written, always the default blend; the kind of coffee is coffees.blend_or_single. |
@@ -5775,5 +5775,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: 7aef010364f89903b694be71287ae2817804af1b914bfca2c63622c66151bf28
-lineage-hash: c80891c81189e38eb68a5f7370e38805ff9d2d7b399b08c2129c231d9645e325
+catalog-hash: eae60fc54e34163da35fa901334461f469976144cfd22cb184b19c1407915103
+lineage-hash: 489faeddb564feea3892791d3add609767fd231105558d786a7bf46c92ec377a

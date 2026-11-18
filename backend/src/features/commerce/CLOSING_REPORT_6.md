@@ -364,19 +364,36 @@ Dana: the Dashboard steps are done (tag, rule "Joe Bean" → provider Joe Bean R
   - `22666` (`API_TRACK`, not ours) untouched.
 - **After:** 0 requests, 0 ledger rows, 0 events; the webhook with a wrong token answers 404. No order placed.
 
-### Roaster SKUs (Dana, 2026-11-18)
+### Roaster SKUs we mint (Dana, 2026-11-18)
 
-Joe Bean doesn't assign SKU codes; we mint our own: the `commerce_parameter` `roaster_sku_prefix` (default `AB-`) plus a 4-digit sequence per SKU row, assigned once and never changed. **Not yet written.**
-- `roaster_sku_prefix` does not exist on prod. Nothing mints a code yet: `catalogService.upsertSkuInTx` only stores a `roasterSku` it is given (COALESCE), and nothing stops a later change.
-- That needs a schema change and a deploy: seed the parameter, add a sequence, and mint inside the catalog writer when the code is NULL, refusing a change once it is set.
-- Waiting on Dana's go for that change and its push. Then the four codes go in through the writer.
-- Other roasters' existing `roaster_sku` values (e.g. `6BEAN-12`, `BALI-5`) are not touched.
+Joe Bean doesn't assign SKU codes; we mint our own. Commit `11280b2`, deploy 44406529722 green, rev **`axis-bloom-backend-00878-gkp`** (boot: `[shipstation] enabled=true webhooks FULFILLMENT_SHIPPED:22882, SHIP_NOTIFY:22883, FULFILLMENT_REJECTED:22884`, the existing ones kept; no ERROR).
+- **Schema:**
+  - `commerce_parameter` `roaster_sku_prefix` = `AB-` (format `sku prefix`: `^[A-Z0-9]{1,8}-?$`).
+  - Sequence `coffee_sku_roaster_sku_seq`. `ab_app` has USAGE through the all-sequences grant.
+- **Writer:** `catalogService.upsertSkuInTx`.
+  - A SKU created or saved with no `roaster_sku` gets prefix + the next number, at least 4 digits; a number whose code already exists is skipped.
+  - A different code on a SKU that has one is refused (`ROASTER_SKU_LOCKED`, 409). The same code is accepted.
+  - Codes received from roasters (`6BEAN-12`, `BALI-5`, …) are kept.
+- **Test:** `catalogService.test.ts` "upsertSku roaster SKU codes".
+  - The catalog test files: 87/88. The one failure is the known baseline `catalogService` case (`PRIORITY_TAKEN`, OT-140).
+  - The six CI lints are clean, and the backend typecheck passes.
+- **Applied once on prod** (`backend/tmp/c6_mint_skus.ts`, through `catalogService.upsertSku`, actor Dana, one catalog change-log row each): every active SKU without a code, 12 rows; 0 left. Order: `created_at`.
 
-| coffee_sku | Joe Bean coffee | House name | 12 oz |
+| Code | Roaster | Coffee | Size |
 |---|---|---|---|
-| fd54005d… | Tiger Stripe Espresso (2914) | Coado | roaster_sku NULL |
-| 4b50cc27… | Geometric Filter Coffee (2915) | Bright & Tart | roaster_sku NULL |
-| c847847f… | Blossom Dark Roast (2916) | There's No Place Like Home | roaster_sku NULL |
-| 3b7fd321… | Fabricator House Roast (2917) | Quieta Non Movere | roaster_sku NULL |
+| AB-0001 | Joe Coffee Company | Amsterdam | 12 oz |
+| AB-0002 | Joe Coffee Company | Big City | 12 oz |
+| AB-0003 | Joe Coffee Company | Benchmark | 12 oz |
+| AB-0004 | Joe Coffee Company | Nightcap Decaf | 12 oz |
+| AB-0005 | Joe Coffee Company | Colombia La Familia Guarnizo | 12 oz |
+| AB-0006 | Joe Coffee Company | The Village | 12 oz |
+| AB-0007 | Joe Coffee Company | Cafè Feminista: Montze Olvera | 12 oz |
+| AB-0008 | Joe Coffee Company | The Daily | 12 oz |
+| AB-0009 | Joe Bean Roasters | Fabricator House Roast | 12 oz |
+| AB-0010 | Joe Bean Roasters | Geometric Filter Coffee | 12 oz |
+| AB-0011 | Joe Bean Roasters | Blossom Dark Roast | 12 oz |
+| AB-0012 | Joe Bean Roasters | Tiger Stripe Espresso | 12 oz |
 
-**STOP.** ShipStation is on with Joe Bean configured. Any paid order with a Joe Bean line now goes to ShipStation, and with `roaster_sku` NULL it lands `needs_attention` ("no roaster SKU") with the admin alert, not in ShipStation. Rollback: `shipstation_enabled` = 0 in `/admin/commerce`. Next: the SKU codes, then Part E.
+- **`CATALOG.md`:** regenerated from prod (catalog-hash `eae60fc5…`).
+
+**STOP before Part E.** ShipStation is on with Joe Bean configured, and every active SKU has a code. A paid order with a Joe Bean line now goes to ShipStation (tag `roaster:joe-bean`, rule "Joe Bean"). Rollback: `shipstation_enabled` = 0 in `/admin/commerce`. Next: Part E, the real acceptance order.
