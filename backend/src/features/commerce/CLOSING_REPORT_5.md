@@ -207,6 +207,17 @@ See `WHAT_WE_BUILT.md` #276. In short:
 - **Full `src` suite:** 1252 passed, 23 failed, 6 skipped (112 files). All 23 failures are in the OT-140 baseline files: evidenceViews 7, quizScoring 6, evidenceAdmin 4, sommelierEval 2, sommelierRag 2, sommelierAnswer 1, catalogService 1, schema.catalog_blueprint 1, qrDoor (file-level cleanup FK). None are from Commerce 5. Lints (6) and backend tsc are green. The frontend tsc errors (7) were all there before this change.
 - **The 2020-02-10 fixture week** = orders 3, new customers 3, gross 9000, refunded 1000, net 8000, fee 170. The test order and the fully refunded order are excluded, and a Sunday 21:00 Eastern order counts in that week, not the next.
 
+## Deploy (2026-11-18)
+
+- **Code:** `9e80761` was pushed. Deploy run 44246177972 is green; the revision is `axis-bloom-backend-00873-87l`.
+- **Boot log:** `[stripe] mode=live` and `DB schema verified`. `[commerce-integrity] "order".stripe_mode is NULL on 6 order(s)` appeared, as expected before the backfill. No ERROR.
+- **Prod, read-only:**
+  - The `commerce_stripe_mode` rows are test=false and live=true. `counts_as_revenue` is set on paid and partially_refunded.
+  - `v_order_reportable` has 6 rows, all `is_reportable` false, because no mode is set yet. `v_orders_weekly` is empty, and `v_customer_bag_attribution` has 0 bags.
+  - The parameters are America/New_York and 10. `stripe_mode` is still nullable.
+- **`CATALOG.md`:** regenerated from prod (218 tables, 113 views, catalog-hash `143f9462…`).
+- **Not checked:** `/admin/commerce` in a signed-in browser.
+
 ## Acceptance (to be confirmed on prod after the backfill)
 
 Five test orders plus the refunded live one, zero reportable.
