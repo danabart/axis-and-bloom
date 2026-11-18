@@ -467,9 +467,11 @@ Seen by Dana on prod during Commerce 3 Part E; deliberately left out of that bri
 
 Also from Part E, recorded only: the payment-trouble email's "Update your card" link once landed on the home page (11-03); not reproduced (`/profile` is open under the pre-launch gate). See `CLOSING_REPORT_3.md` → "Noticed during Part E".
 
-### OT-60: test-mode Stripe events to the prod endpoint (Commerce 1, 2026-10-31)
+### OT-60: test-mode Stripe events to the prod endpoint (Commerce 1, 2026-10-31) — ✅ Resolved 2026-11-17
 
-**Commerce 4 note (2026-11-18).** Prod now verifies webhooks with the live signing secret (`STRIPE_WEBHOOK_SECRET` v2). Two consequences:
+**Closed:** the CTO session disabled the sandbox endpoint `we_1UWaPO0QYxZQN6jDi2Y9lp6q` on 2026-11-17 (Dana, 2026-11-18). No sandbox event reaches prod any more. For local dev runs, use `backend/tmp/stripe-relay.ts`: it reads the Events API and posts signed events to the local server.
+
+**Commerce 4 note (2026-11-18), written before the endpoint was known to be off.** Prod now verifies webhooks with the live signing secret (`STRIPE_WEBHOOK_SECRET` v2). Two consequences:
 - A sandbox event delivered to the sandbox endpoint `we_1UWaPO0QYxZQN6jDi2Y9lp6q` (still enabled, still pointing at prod) can no longer be recorded. Its signature does not verify.
 - The sandbox will retry each such delivery and email about the failures.
 
@@ -550,7 +552,7 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-10-24 | OT-41: retire `topicLog` / `token_events usage_log` once `engagementMetrics` and `sommelierGuards` read `sommelier_turn` | Open |
 | 2026-10-31 | OT-58: ShipStation roaster adapter (tracking webhooks call `shipmentService.markShipped`, #250) | Open |
 | 2026-10-31 | OT-59: mixed-roaster order split | Open |
-| 2026-10-31 | OT-60: test-mode Stripe events also reach the prod endpoint | Open: since Commerce 4 they fail signature on prod; disable or repoint the sandbox endpoint (note in the section) |
+| 2026-10-31 | OT-60: test-mode Stripe events also reach the prod endpoint | ✅ Resolved 2026-11-17 (the CTO session disabled the sandbox endpoint `we_1UWaPO…`) |
 | 2026-10-31 | OT-61: Liam order_status could read v_order_status | Open (Dana's call) |
 | 2026-10-31 | OT-62: Commerce 3, subscription self-service and admin | ✅ Resolved 2026-11-01 (#250) |
 | 2026-10-31 | OT-63: Stripe retry schedule for renewal invoices (Smart Retries, up to 8 within 2 weeks, then left past-due; our 21-day lapse voids it) | ✅ Resolved 2026-10-31 |

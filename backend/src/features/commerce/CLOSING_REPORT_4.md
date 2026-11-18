@@ -253,7 +253,7 @@ In `MANUAL_SETUP_IDS.md` → Commerce 4:
 - **`OPEN_TASKS.md`:**
   - OT-64 closed.
   - OT-114 closed (the live payment methods have no bank).
-  - OT-60 annotated: sandbox deliveries now fail signature on prod; disable or repoint the sandbox endpoint, Dana's call.
+  - OT-60 closed: the CTO session disabled the sandbox endpoint `we_1UWaPO…` on 2026-11-17 (Dana, 2026-11-18), so no sandbox event reaches prod.
   - OT-145 to OT-151 added, from this brief.
   - ShipStation (OT-58) stays open.
   - No "first live renewal" task: no live subscription exists.
