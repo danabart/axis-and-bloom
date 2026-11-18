@@ -46,6 +46,8 @@ import checkoutRouter from './routes/checkout.js';
 import commerceAdminRouter, { adminOrdersRouter, adminSubscriptionsRouter } from './routes/commerceAdmin.js';
 import subscriptionsRouter from './routes/subscriptions.js';
 import { handleStripeWebhook } from './routes/stripeWebhook.js';
+import shipstationWebhookRouter from './routes/shipstationWebhook.js';
+import { ensureWebhookSubscriptions } from './services/fulfillmentService.js';
 import { stripeMode } from './services/stripe.js';
 import { runEvidenceIntegrityChecks, formatEvidenceIntegrityLog } from './services/evidenceIntegrity.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
@@ -97,6 +99,9 @@ app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
 console.log(`[stripe] mode=${stripeMode()}`);
 app.use(express.json());
+// Commerce 6 (2026-11-18): the ShipStation webhook (JSON, token in the path,
+// routes/shipstationWebhook.ts). Above the global rate limiter, like Stripe's.
+app.use('/api/webhooks/shipstation', shipstationWebhookRouter);
 // C17 — keyed on the real visitor IP (see middleware/clientIp.ts), not
 // req.ip directly: behind Cloudflare -> Firebase Hosting -> Cloud Run,
 // req.ip alone collapses every visitor onto a shared Google-internal
@@ -316,6 +321,15 @@ async function start() {
     }
   } catch (err) {
     console.error('Commerce 5 stripe_mode check error (non-fatal):', err);
+  }
+
+  // Commerce 6 (2026-11-18): the ShipStation webhook subscriptions, once, when
+  // shipstation_enabled = 1 (a no-op while 0). Reports, never blocks.
+  try {
+    const sub = await ensureWebhookSubscriptions();
+    console.log(`[shipstation] enabled=${sub.enabled}${sub.subscribed.length ? ' webhooks ' + sub.subscribed.map(w => `${w.event}:${w.id}${w.created ? ' (new)' : ''}`).join(', ') : ''}`);
+  } catch (err) {
+    console.error('[shipstation] webhook subscription check failed (non-fatal):', err instanceof Error ? err.message : err);
   }
 
   try {

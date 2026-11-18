@@ -155,6 +155,44 @@ Evidence is in `CLOSING_REPORT_4.md`.
 - it prices one-time checkouts only;
 - supersede the rows back to 0 / 0 / empty when done (cents first).
 
+## ShipStation (Commerce 6, added 2026-11-18)
+
+Brief `backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_6_SHIPSTATION.md` · `CLOSING_REPORT_6.md`. Our ShipStation account. Each roaster is a 3PL fulfillment provider inside it. We pay the postage on our own shared carrier account. **Off until Dana's go: the `commerce_parameter` `shipstation_enabled` stays 0.** No secrets in this file.
+
+**Account, as read through the API on 2026-11-18 (V1, `ssapi.shipstation.com`, key + secret basic auth, 40 requests a minute):**
+- **Store:** `249581` "Manual Orders". Orders created through the API land here.
+- **Ship-from location (warehouse):** `1272614` "Joe Bean Roasters (Rochester NY)", 565 Blossom Rd, 14610, the default.
+- **Carriers** (V1 code = `shippingProviderId`; the `se-…` ids are what the Dashboard shows), all $0 balance on 2026-11-18:
+  - `stamps_com` = 1906567 (**se-1906567**, USPS)
+  - `ups_walleted` = 1906568 (**se-1906568**, UPS)
+  - `fedex_walleted` = 1906569
+  - `dhl_express_worldwide` = 1906877
+  - `globalpost` = 1906862
+  - `seko_ltl_walleted` = 1906878
+- **Mapping to our carriers:** the lookup `shipping_carrier_external_code`.
+- **A webhook that is not ours:** `22666` `API_TRACK` (`IsLabelAPIHook`) to an AWS URL, probably ShipStation's own. Left alone (Dana, 2026-11-18).
+- **Secrets** (Secret Manager, project `axis-and-bloom-prod`, passed to the backend through `deploy.yml --set-secrets` since Commerce 6): `SHIPSTATION_API_KEY`, `SHIPSTATION_API_SECRET`, `SHIPSTATION_WEBHOOK_TOKEN`. All three are at v1, created 2026-11-18.
+
+**Task 0.5: Dana's steps in the ShipStation Dashboard** (the CTO session drives most of these in her browser):
+1. ~~Account created.~~ Done. Settings → Shipping → Ship From Locations: "Joe Bean Roasters" already exists (`1272614`). Later, one location per roaster.
+2. Settings → Shipping → Carriers: ShipStation carrier USPS (`stamps_com`), at least, with a payment method and **auto-funding**; Dana enters the card. Settings → Printing: 4×6 label.
+3. ~~API key and secret, and the webhook token, in Secret Manager.~~ Done 2026-11-18.
+4. Fulfillment Providers: accept Joe Bean's invite (Dena sends it). Carrier Sharing: share the USPS carrier with Joe Bean, with "require shared services" on.
+5. **Tag:** create the tag `roaster:joe-bean` (Settings → Tags). The backend looks the tag up by name and does not create it.
+6. **Automation rule "Joe Bean":** criteria = the order has tag `roaster:joe-bean`. Actions:
+   - Set Fulfillment Provider = Joe Bean;
+   - ship from Joe Bean;
+   - service USPS Ground Advantage (`usps_ground_advantage`, the parameter `shipstation_requested_service`);
+   - "automatically send fulfillment requests" on.
+
+   Later, one rule per roaster.
+7. Packing slip: Settings → Templates → Packing Slips. Axis & Bloom header and footer, item name and quantity only, no "Sold by" roaster line. Record the template name here. Confirm with Dena that Joe Bean prints our template.
+8. Webhooks: nothing in the Dashboard. At boot, while `shipstation_enabled` = 1, the backend subscribes `FULFILLMENT_SHIPPED`, `SHIP_NOTIFY` and `FULFILLMENT_REJECTED` to `https://<BACKEND_URL>/api/webhooks/shipstation/<token>`. It logs `[shipstation] enabled=true webhooks …` with the ids.
+
+**Filled in at Part D:** webhook ids · tag id of `roaster:joe-bean` · rule name · Joe Bean's provider id · packing-slip template name · the Joe Bean row in `/admin/roasters` → Fulfillment (adapter ShipStation, tag `roaster:joe-bean`, ship-from `1272614`).
+
+**Rollback:** set `shipstation_enabled` to 0 in `/admin/commerce`. New paid orders go back to the manual email at once. Requests already in ShipStation stay there; cancel them from the order drawer or the ShipStation Dashboard.
+
 ## Open before ads warm-up (~Aug 3)
 
 1. ~~Meta domain verification~~ ✅ done 2026-07-17.

@@ -19,6 +19,7 @@ import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { lapseSponsoredSubscription } from '../services/subscriptionService.js';
 import { runSubscriptionDaily } from '../services/subscriptionRenewal.js';
 import { syncStripeFees } from '../services/stripeFeeSync.js';
+import { runShipStationDaily } from '../services/fulfillmentService.js';
 import { surfaceIsMap } from '../services/dialReads.js';
 import { moves as mapMoves } from '../services/matchService.js';
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -630,7 +631,10 @@ router.get('/subscription-daily', requireCronSecret, async (_req, res) => {
     // Commerce 5 (2026-11-18): Stripe fees on orders that have none yet (stripeFeeSync).
     const fees = await syncStripeFees();
     console.log(`[cron/subscription-daily] fees (${fees.mode}): checked ${fees.checked}, recorded ${fees.recorded}, pending ${fees.pending}, errors ${fees.errors}`);
-    res.json({ ...result, fees });
+    // Commerce 6 (2026-11-18): ShipStation retry and reconcile (no-op while shipstation_enabled = 0).
+    const shipstation = await runShipStationDaily();
+    console.log(`[cron/subscription-daily] shipstation: enabled ${shipstation.enabled}, retried ${shipstation.retried}, reconciled shipped ${shipstation.reconciled.shipped}, postage ${shipstation.reconciled.postage}, provider ${shipstation.providerAssigned}, stale ${shipstation.staleAlerted}, errors ${shipstation.errors.length + shipstation.reconciled.errors.length}`);
+    res.json({ ...result, fees, shipstation });
   } catch (err) {
     console.error('[cron/subscription-daily]', err);
     res.status(500).json({ error: 'Cron job failed' });

@@ -638,7 +638,7 @@ export async function recordFee(
  * it, never on the admin's click (Dana, 2026-10-31, decision 4). A partial
  * refund never does.
  */
-export async function recordRefund(charge: Stripe.Charge): Promise<{ orderId: string | null; canceledFulfillment: boolean }> {
+export async function recordRefund(charge: Stripe.Charge): Promise<{ orderId: string | null; canceledFulfillment: boolean; fulfillmentWarnings?: string[] }> {
   const paymentIntentId = idOf(charge.payment_intent as string | Stripe.PaymentIntent | null);
   if (!paymentIntentId) return { orderId: null, canceledFulfillment: false };
   const order = (await db.query<{ id: string }>(`SELECT id FROM "order" WHERE stripe_payment_intent_id = $1`, [paymentIntentId])).rows[0];
@@ -652,7 +652,7 @@ export async function recordRefund(charge: Stripe.Charge): Promise<{ orderId: st
     if (code && (await db.query(`SELECT 1 FROM order_refund_reason WHERE code = $1`, [code])).rows.length) reasonCode = code;
   }
 
-  return withTransaction(async tx => {
+  const recorded = await withTransaction(async tx => {
     await tx.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`refund:${order.id}`]);
     await tx.query(
       `INSERT INTO order_event (order_id, event_kind, payment_status, amount_refunded_cents, stripe_ref, refund_reason, source)
@@ -661,8 +661,11 @@ export async function recordRefund(charge: Stripe.Charge): Promise<{ orderId: st
     );
     let canceledFulfillment = false;
     if (full) {
-      const st = (await tx.query<{ fulfillment_status: string | null }>(`SELECT fulfillment_status FROM v_order_status WHERE order_id = $1`, [order.id])).rows[0];
-      if (st && REFUND_CANCELS_FROM.includes(st.fulfillment_status ?? '')) {
+      // Commerce 6 (G2.1): which states a refund cancels is order_fulfillment_status.cancels_on_full_refund.
+      const st = (await tx.query<{ fulfillment_status: string | null; cancels: boolean | null; requests: number }>(
+        `SELECT s.fulfillment_status, fs.cancels_on_full_refund AS cancels, s.fulfillment_requests AS requests
+         FROM v_order_status s LEFT JOIN order_fulfillment_status fs ON fs.code = s.fulfillment_status WHERE s.order_id = $1`, [order.id])).rows[0];
+      if (st?.cancels && !st.requests) {
         await recordOrderEvent({
           orderId: order.id, kind: 'canceled', fulfillmentStatus: 'canceled', stripeRef: charge.id,
           note: `fully refunded before it was placed with the roaster (was ${st.fulfillment_status})`, source: 'webhook',
@@ -672,10 +675,18 @@ export async function recordRefund(charge: Stripe.Charge): Promise<{ orderId: st
     }
     return { orderId: order.id, canceledFulfillment };
   });
+  if (!full) return recorded;
+  // Commerce 6, decision 4b: every request a refund cancels is canceled, its
+  // ShipStation order deleted; a refused delete is an admin email ("contact the roaster").
+  const { cancelForRefund } = await import('./fulfillmentService.js');
+  const results = await cancelForRefund(order.id, 'webhook');
+  const warnings = results.filter(r => r.warning).map(r => r.warning as string);
+  if (results.some(r => r.canceled) && !recorded.canceledFulfillment) {
+    await recordOrderEvent({ orderId: order.id, kind: 'canceled', stripeRef: charge.id, source: 'webhook',
+      note: `fully refunded; ${results.filter(r => r.canceled).length} fulfillment request(s) canceled${warnings.length ? `, ${warnings.length} refused` : ''}` });
+  }
+  return { ...recorded, canceledFulfillment: recorded.canceledFulfillment || results.some(r => r.canceled), fulfillmentWarnings: warnings };
 }
-
-/** Fulfillment states a full refund cancels: nothing placed with the roaster yet. */
-export const REFUND_CANCELS_FROM = ['awaiting_manual', 'needs_attention'];
 
 export class RefundError extends Error {
   constructor(public status: 400 | 404 | 409, public code: string, message: string) { super(message); }
@@ -701,11 +712,17 @@ export async function requestRefund(orderId: string, req: RefundRequest): Promis
   if (!STRIPE_ENABLED) throw new RefundError(409, 'stripe_not_configured', 'Stripe is not configured.');
   if (!/^[0-9a-f-]{36}$/i.test(orderId)) throw new RefundError(404, 'order_not_found', 'Order not found.');
   const o = (await db.query<{ stripe_payment_intent_id: string | null; total_amount_paid: string; paid_at: string | null; created_at: string;
-    amount_refunded_cents: number; fulfillment_status: string | null; refunds: string; past_window: boolean }>(
+    amount_refunded_cents: number; fulfillment_status: string | null; refunds: string; past_window: boolean;
+    order_cancels: boolean | null; requests: number; request_cancels: number; shipstation_open: number; shipped_requests: number }>(
     `SELECT o.stripe_payment_intent_id, o.total_amount_paid, o.paid_at, o.created_at, s.amount_refunded_cents, s.fulfillment_status,
+            fs.cancels_on_full_refund AS order_cancels, s.fulfillment_requests AS requests,
+            (SELECT count(*)::int FROM v_fulfillment_request_status r WHERE r.order_id = o.id AND r.cancels_on_full_refund) AS request_cancels,
+            (SELECT count(*)::int FROM v_fulfillment_request_status r WHERE r.order_id = o.id AND r.cancels_on_full_refund AND r.adapter_code = 'shipstation' AND r.external_order_id IS NOT NULL) AS shipstation_open,
+            (SELECT count(*)::int FROM v_fulfillment_request_status r WHERE r.order_id = o.id AND r.is_shipped) AS shipped_requests,
             (SELECT count(*) FROM order_event e WHERE e.order_id = o.id AND e.event_kind IN ('refund_partial', 'refund_full')) AS refunds,
             COALESCE(o.paid_at, o.created_at) < now() - make_interval(days => $2::int) AS past_window
-     FROM "order" o JOIN v_order_status s ON s.order_id = o.id WHERE o.id = $1`,
+     FROM "order" o JOIN v_order_status s ON s.order_id = o.id
+     LEFT JOIN order_fulfillment_status fs ON fs.code = s.fulfillment_status WHERE o.id = $1`,
     [orderId, await commerceParam('refund_window_days')]
   )).rows[0];
   if (!o) throw new RefundError(404, 'order_not_found', 'Order not found.');
@@ -729,11 +746,18 @@ export async function requestRefund(orderId: string, req: RefundRequest): Promis
     metadata: { order_id: orderId, reason_code: reason.code, ...(req.adminId ? { admin: req.adminId } : {}) },
   }, { idempotencyKey: `refund:${orderId}:${amount}:${Number(o.refunds)}` });
 
-  const placed = o.fulfillment_status === 'placed' || o.fulfillment_status === 'shipped';
+  const hasRequests = Number(o.requests) > 0;
+  const shipped = hasRequests ? Number(o.shipped_requests) > 0 : o.fulfillment_status === 'shipped';
+  const placedLegacy = !hasRequests && o.fulfillment_status === 'placed';
+  const warnings = [
+    shipped ? `${hasRequests && Number(o.request_cancels) > 0 ? 'Part of this order has' : 'This order has'} already shipped: the refund does not stop it.` : null,
+    placedLegacy ? 'This order is already placed with the roaster: the refund does not stop it. Cancel it with the roaster by hand.' : null,
+    full && Number(o.shipstation_open) > 0 ? 'Its ShipStation order will be deleted when Stripe confirms the refund; if ShipStation refuses (the roaster may already have it), you will get an email to contact the roaster.' : null,
+  ].filter(Boolean);
   return {
     refundId: refund.id, status: refund.status ?? null, amountCents: amount, full,
-    cancelsFulfillment: full && REFUND_CANCELS_FROM.includes(o.fulfillment_status ?? ''),
-    warning: placed ? `This order is already ${o.fulfillment_status === 'shipped' ? 'shipped' : 'placed with the roaster'}: the refund does not stop it. Cancel it with the roaster by hand.` : null,
+    cancelsFulfillment: full && (hasRequests ? Number(o.request_cancels) > 0 : Boolean(o.order_cancels)),
+    warning: warnings.length ? warnings.join(' ') : null,
     pastRefundWindow: Boolean(o.past_window),
   };
 }

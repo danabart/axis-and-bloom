@@ -66,7 +66,11 @@ afterAll(async () => {
     const orders = (await db.query<{ id: string }>(`SELECT id FROM "order" WHERE user_id = $1`, [userId])).rows.map(r => r.id);
     await db.query(`DELETE FROM transactional_email_log WHERE email = $1`, [`${UID}@example.com`]);
     await db.query(`DELETE FROM transactional_email_log WHERE template = ANY($1::text[])`, [orders.flatMap(o => [`admin_new_order:${o}`, `admin_fulfillment_attention:${o}`])]);
+    // Commerce 6: the per-roaster requests the dispatch created.
+    await db.query(`DELETE FROM fulfillment_event WHERE fulfillment_request_id IN (SELECT id FROM fulfillment_request WHERE order_id = ANY($1::uuid[]))`, [orders]);
+    await db.query(`DELETE FROM transactional_email_log WHERE template LIKE ANY($1::text[])`, [orders.map(o => `admin_fulfillment:%${o}%`)]);
     await db.query(`DELETE FROM roastery_shipment_details WHERE order_id = ANY($1::uuid[])`, [orders]);
+    await db.query(`DELETE FROM fulfillment_request WHERE order_id = ANY($1::uuid[])`, [orders]);
     await db.query(`DELETE FROM order_event WHERE order_id = ANY($1::uuid[])`, [orders]);
     await db.query(`UPDATE checkout_session SET order_id = NULL WHERE user_id = $1`, [userId]);
     await db.query(`DELETE FROM order_line_item WHERE order_id = ANY($1::uuid[])`, [orders]);

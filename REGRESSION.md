@@ -122,6 +122,20 @@ Live since 2026-11-17 (rev `00869-6z8`). Full record: `backend/src/features/comm
 - [ ] **Live webhook**: `stripe_event` rows have `payload->>'livemode'` = `true`, processed and with no error. A refund from `/admin/orders` arrives as `charge.refunded` and shows "Refunded · Canceled" on an unshipped order.
 
 
+## Commerce — ShipStation fulfillment per roaster (Commerce 6, 2026-11-18)
+
+- [ ] A paid order becomes one `fulfillment_request` per roaster on its lines. Dispatching again creates and posts nothing.
+- [ ] `shipstation_enabled` = 0, or a roaster with no active ShipStation config: its request is manual, one admin email listing only that roaster's lines.
+- [ ] Paid order → ShipStation request → ship-notify → tracking email:
+  - [ ] the request is `placed`, with a ShipStation order `<8>-<n>`, key `ab:<order>:<n>`, the roaster's tag, the roaster's SKU and the house name, and the roaster coffee only in the internal notes;
+  - [ ] `FULFILLMENT_SHIPPED` or `SHIP_NOTIFY` → one shipment per tracking number, with the shipping email listing only that part's lines;
+  - [ ] the order shows `partially_shipped`, then `shipped`.
+- [ ] A retry looks the order up in ShipStation first (GET before POST). A failure goes to `needs_attention` after `shipstation_needs_attention_after_attempts`, with one admin email. A missing roaster SKU goes to `needs_attention` at once, with the reason.
+- [ ] Webhook: a wrong token is a 404 with no ledger row. A `resource_url` that is not https on `shipstation_api_host` is refused and nothing is fetched. An unknown order is recorded and changes nothing. An unknown carrier code is recorded as `other`, with a note.
+- [ ] A full refund deletes the unshipped ShipStation order and cancels the requests. If ShipStation refuses, the request gets a `cancel_refused` event and the admin an email to contact the roaster.
+- [ ] Daily cron (`subscription-daily`, third step): retries failed placements, fills postage once a label's shipment shows up, notes the provider, and alerts once about a request placed more than `shipstation_stale_days` ago.
+- [ ] Customers never see a roaster name: items, emails and Profile show house names only.
+
 ## Commerce — reporting and bookkeeping (Commerce 5, 2026-11-18)
 
 Full record: `backend/src/features/commerce/CLOSING_REPORT_5.md`. Unit cases: `commerce5Reporting.test.ts`, `commerceBackfill.test.ts`, `users.profileUpdatedAt.test.ts`, `orderFinalizer.test.ts`.

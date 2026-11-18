@@ -97,6 +97,13 @@ export async function getOrderDetail(orderId: string) {
      FROM roastery_shipment_details d LEFT JOIN shipping_carrier c ON c.code = d.carrier LEFT JOIN roaster r ON r.id = d.roaster_id
      WHERE d.order_id = $1 ORDER BY d.shipped_at NULLS LAST, d.created_at`, [orderId]
   )).rows;
+  // Commerce 6: one row per roaster's request (internal: roaster names are fine here, admin only).
+  const fulfillmentRequests = (await db.query(
+    `SELECT fulfillment_request_id AS id, sequence, roaster_id, roaster_name, adapter_code, adapter_label, status, status_label,
+            is_retryable, is_closed, external_order_id, external_order_number, attempts, last_error, placed_at,
+            last_event_kind, last_event_at, last_event_note, shipment_id, carrier_label, tracking_number, tracking_url, service_code, postage_cost, shipped_at
+     FROM v_fulfillment_request_status WHERE order_id = $1 ORDER BY sequence`, [orderId]
+  )).rows;
   return {
     orderId: o.orderId, createdAt: o.createdAt, paidAt: o.paidAt,
     customer: { name: [o.firstName, o.lastName].filter(Boolean).join(' ') || null, email: o.email, firebaseUid: o.firebaseUid },
@@ -110,7 +117,7 @@ export async function getOrderDetail(orderId: string) {
       const i = internal.get(l.blendId);
       return { ...l, roasterCoffee: i?.coffeeName ?? null, roasterName: i?.roasterName ?? null, roasterSku: i?.roasterSku ?? null };
     }),
-    shipments, events,
+    shipments, events, fulfillmentRequests,
     stripe: {
       paymentIntentId: o.stripePaymentIntentId, paymentUrl: dashboardUrl('payments', o.stripePaymentIntentId),
       invoiceId: extra?.stripe_invoice_id ?? null, invoiceUrl: dashboardUrl('invoices', extra?.stripe_invoice_id ?? null),

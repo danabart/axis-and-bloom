@@ -35,6 +35,10 @@ interface OrderDetail {
   shipments: Array<{ id: string; carrier_label: string | null; tracking_number: string; status: string; shipped_at: string | null; roaster_name: string | null; tracking_url: string | null }>;
   events: Array<{ id: number; created_at: string; kind_label: string; note: string | null; source: string; amount_refunded_cents: number | null; refund_reason_label: string | null; stripe_ref: string | null }>;
   stripe: { paymentIntentId: string | null; paymentUrl: string | null; invoiceId: string | null; invoiceUrl: string | null; customerUrl: string | null };
+  // Commerce 6: one request per roaster (internal).
+  fulfillmentRequests: Array<{ id: string; sequence: number; roaster_name: string | null; adapter_code: string; adapter_label: string; status: string; status_label: string;
+    is_retryable: boolean; is_closed: boolean; external_order_id: string | null; external_order_number: string | null; attempts: number; last_error: string | null;
+    last_event_note: string | null; carrier_label: string | null; tracking_number: string | null; tracking_url: string | null; postage_cost: string | null; shipped_at: string | null }>;
 }
 
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
@@ -43,7 +47,7 @@ const input = 'border border-stone-300 rounded px-2 py-1 text-sm';
 const btn = 'px-3 py-1.5 rounded text-sm font-normal text-white hover:opacity-80 disabled:opacity-40';
 const RETRYABLE = ['needs_attention', 'awaiting_manual'];
 // Mark shipped: anything paid and not closed (a second parcel on a shipped order too).
-const SHIPPABLE = ['needs_attention', 'awaiting_manual', 'placed', 'shipped'];
+const SHIPPABLE = ['needs_attention', 'awaiting_manual', 'placed', 'shipped', 'partially_shipped'];
 
 export default function AdminOrders() {
   const { user } = useAuth();
@@ -163,6 +167,8 @@ function OrderDrawer({ orderId, lookups, authed, onClose, onChanged }: {
   const [refundDollars, setRefundDollars] = useState('');
   const [reason, setReason] = useState(lookups.refundReasons[0]?.code ?? '');
   const [confirmRefund, setConfirmRefund] = useState(false);
+  const [shipRequest, setShipRequest] = useState('');
+  const [cancelReason, setCancelReason] = useState('');
 
   const load = useCallback(() => authed(`/api/admin/orders/${orderId}`).then(d => { setO(d); setError(''); })
     .catch(err => setError(err instanceof Error ? err.message : 'Failed to load the order')), [authed, orderId]);
@@ -220,6 +226,37 @@ function OrderDrawer({ orderId, lookups, authed, onClose, onChanged }: {
               <p className="text-stone-700">{[o.shipsTo.street, [o.shipsTo.city, o.shipsTo.state, o.shipsTo.postalCode].filter(Boolean).join(' '), o.shipsTo.country].filter(Boolean).join(', ')}</p>
             </section>
 
+            {o.fulfillmentRequests.length > 0 && (
+              <section data-testid="order-requests">
+                <p className="text-xs uppercase text-stone-400 mb-1">Fulfillment by roaster (internal)</p>
+                {o.fulfillmentRequests.map(r => (
+                  <div key={r.id} className="py-1 border-b border-stone-100" data-testid="order-request">
+                    <div className="flex justify-between gap-2">
+                      <span>Part {r.sequence} · {r.roaster_name ?? 'no roaster'} · {r.adapter_label}</span>
+                      <span className="text-stone-700">{r.status_label}</span>
+                    </div>
+                    <div className="text-xs text-stone-500">
+                      {r.external_order_number && <>ShipStation {r.external_order_number}{r.external_order_id ? ` (#${r.external_order_id})` : ''} · </>}
+                      attempts {r.attempts}
+                      {r.tracking_number && <> · {r.carrier_label} {r.tracking_url ? <a className="underline" href={r.tracking_url} target="_blank" rel="noreferrer">{r.tracking_number}</a> : r.tracking_number}</>}
+                      {r.postage_cost != null && <> · postage ${Number(r.postage_cost).toFixed(2)}</>}
+                    </div>
+                    {r.last_error && !r.is_closed && <div className="text-xs text-red-600">{r.last_error}</div>}
+                    {!r.is_closed && (
+                      <div className="flex flex-wrap gap-2 mt-1 items-center">
+                        {r.is_retryable && <button className={btn} style={{ backgroundColor: '#78716c' }} disabled={busy} data-testid="request-retry"
+                          onClick={() => run('Retry', `/api/admin/orders/${orderId}/fulfillment-requests/${r.id}/retry`, {}, d => d.ok ? `Part ${r.sequence}: ${d.status}.` : `Part ${r.sequence} failed again: ${d.error}`)}>Retry</button>}
+                        <input className={`${input} flex-1 min-w-32`} placeholder="Cancel reason" value={cancelReason} onChange={e => setCancelReason(e.target.value)} data-testid="request-cancel-reason" />
+                        <button className={btn} style={{ backgroundColor: '#b05642' }} disabled={busy || !cancelReason.trim()} data-testid="request-cancel"
+                          onClick={() => run('Cancel', `/api/admin/orders/${orderId}/fulfillment-requests/${r.id}/cancel`, { reason: cancelReason.trim() },
+                            d => d.canceled ? `Part ${r.sequence} canceled.` : (d.warning ?? 'Not canceled.'))}>Cancel part</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </section>
+            )}
+
             {o.shipments.length > 0 && (
               <section>
                 <p className="text-xs uppercase text-stone-400 mb-1">Shipments</p>
@@ -244,7 +281,7 @@ function OrderDrawer({ orderId, lookups, authed, onClose, onChanged }: {
             {SHIPPABLE.includes(o.status.fulfillmentStatus ?? '') && o.status.paymentStatus !== 'refunded' && (
               <section className="flex flex-col gap-2">
                 <p className="text-xs uppercase text-stone-400">Fulfillment</p>
-                {RETRYABLE.includes(o.status.fulfillmentStatus ?? '') && <button className={`${btn} w-fit`} style={{ backgroundColor: '#78716c' }} disabled={busy} data-testid="order-retry"
+                {o.fulfillmentRequests.length === 0 && RETRYABLE.includes(o.status.fulfillmentStatus ?? '') && <button className={`${btn} w-fit`} style={{ backgroundColor: '#78716c' }} disabled={busy} data-testid="order-retry"
                   onClick={() => run('Retry', `/api/admin/orders/${orderId}/fulfillment/retry`, {}, d => d.ok ? `Dispatched (${d.adapter}).${d.note ? ` ${d.note}` : ''}` : `Failed again: ${d.error}`)}>
                   Retry fulfillment
                 </button>}
@@ -252,9 +289,15 @@ function OrderDrawer({ orderId, lookups, authed, onClose, onChanged }: {
                   <select className={input} value={carrier} onChange={e => setCarrier(e.target.value)} data-testid="order-carrier">
                     {lookups.carriers.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
                   </select>
+                  {o.fulfillmentRequests.filter(r => !r.is_closed).length > 1 && (
+                    <select className={input} value={shipRequest} onChange={e => setShipRequest(e.target.value)} data-testid="order-ship-request">
+                      <option value="">Which part?</option>
+                      {o.fulfillmentRequests.filter(r => !r.is_closed).map(r => <option key={r.id} value={r.id}>Part {r.sequence} · {r.roaster_name ?? 'no roaster'}</option>)}
+                    </select>
+                  )}
                   <input className={`${input} flex-1 min-w-40`} placeholder="Tracking number" value={tracking} onChange={e => setTracking(e.target.value)} data-testid="order-tracking" />
                   <button className={btn} style={{ backgroundColor: '#b05642' }} disabled={busy || !tracking.trim()} data-testid="order-mark-shipped"
-                    onClick={() => run('Mark shipped', `/api/admin/orders/${orderId}/shipped`, { carrier, trackingNumber: tracking.trim() },
+                    onClick={() => run('Mark shipped', `/api/admin/orders/${orderId}/shipped`, { carrier, trackingNumber: tracking.trim(), ...(shipRequest ? { fulfillmentRequestId: shipRequest } : {}) },
                       d => d.created ? `Marked shipped; shipping email ${d.emailStatus ?? 'not sent'}.` : 'Already marked shipped with this tracking number.')}>
                     Mark shipped
                   </button>

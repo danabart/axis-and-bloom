@@ -6967,3 +6967,39 @@ Brief: `backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_1_CAPTUR
   - New: `commerce5Reporting.test.ts`, `users.profileUpdatedAt.test.ts` and `commerceBackfill.test.ts` (the rehearsal runs in a rollback).
   - Fixtures updated in palate, household, qrDoor, subscription and finalizer tests.
 - **Open:** OT-152 (the rest of `tokenEconomy` in Firestore) and OT-153 (admin Stripe links use the key's mode).
+
+### 277. Commerce 6: ShipStation fulfillment (2026-11-18, built; live after Parts D–E)
+
+`backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_6_SHIPSTATION.md` · `CLOSING_REPORT_6.md` · OT-58 (closes at Part E). Our ShipStation account (V1 API), with Joe Bean as 3PL provider first and other roasters joining the same way (OT-154). Everything is behind `shipstation_enabled` = 0.
+
+- **Per roaster:**
+  - A paid order becomes one `fulfillment_request` per roaster on its lines.
+  - `dispatchFulfillment` creates the requests and places each one, replacing the single-adapter `adapterFor` and `manual.ts`.
+  - The manual adapter emails only that roaster's lines.
+  - The shipping email lists only the lines of the shipment's part (`orderEmails.forShipment`).
+- **ShipStation adapter** (`fulfillment/shipstation.ts`, `shipstationClient.ts`):
+  - order `<8>-<n>`, `orderKey` `ab:<order>:<n>`;
+  - items = the house name and the roaster SKU, and the roaster coffee only in the internal notes;
+  - the roaster's tag, so the automation rule assigns the provider;
+  - weight = coffee + `packaging_weight_oz`; ship-from warehouse; requested service from config or the parameter;
+  - GET before POST on a retry, and a wait on 429.
+  - A missing SKU, tag or address goes to `needs_attention` with the reason.
+- **Webhook** `POST /api/webhooks/shipstation/:token`:
+  - token compared in constant time (a wrong one is a 404, with no ledger row);
+  - a `resource_url` that is not https on `shipstation_api_host` is refused before any fetch;
+  - every delivery is recorded in the `fulfillment_shipstation_event` ledger;
+  - `FULFILLMENT_SHIPPED` / `SHIP_NOTIFY` → `shipmentService.markShipped`, now with service, postage, external id and request;
+  - `FULFILLMENT_REJECTED` → `needs_attention`.
+  - The boot subscribes the three events once while the switch is on.
+- **Daily cron, third step:** retries failed placements, reconciles placed requests and missing postage, notes the provider, and sends a stale alert once.
+- **Refunds (decision 4b):**
+  - A full refund deletes the unshipped ShipStation order and cancels the requests. A refused delete is a `cancel_refused` event plus an admin email.
+  - The cancel list moved from code to lookup columns (`cancels_on_full_refund` on both status tables).
+- **Admin:**
+  - the order drawer shows the parts per roaster (status, ShipStation number, attempts, error, tracking, postage) with Retry and Cancel part;
+  - mark-shipped asks which part on a split order;
+  - `/admin/roasters` → Edit has a Fulfillment panel (adapter, tag, ship-from, service);
+  - the new parameters are on `/admin/commerce`.
+- **Schema:** see `WHAT_WE_BUILT_DB.md` As of 2026-11-18 (Commerce 6). `v_order_status` derives the order's fulfillment status from its requests (`partially_shipped` is new).
+- **Deploy:** `deploy.yml` passes `SHIPSTATION_API_KEY`, `SHIPSTATION_API_SECRET` and `SHIPSTATION_WEBHOOK_TOKEN`.
+- **Tests:** `fulfillment/fulfillment.test.ts` was rewritten on the test DB, with 14 cases (ShipStation and emails faked). The `commerceAdmin.test.ts` cleanup also covers the new rows.

@@ -27,6 +27,20 @@ The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXI
 
 `coffees` stays `coffees`; `archetype_enum` (a type, not a table) is unchanged.
 
+> **As of 2026-11-18 (Commerce 6, `WHAT_WE_BUILT.md` #277)**:
+> - **New lookups:** `fulfillment_adapter` (manual, shipstation); `fulfillment_request_status` (the order status each state means, a rank, and rule columns); `fulfillment_event_kind`; `fulfillment_event_source`; `shipping_carrier_external_code` (ShipStation's six carrier codes).
+> - **New tables:**
+>   - `roastery_fulfillment_config` (per roaster, superseded only);
+>   - `fulfillment_request` (one per order × roaster, key `ab:<order>:<n>`);
+>   - `fulfillment_event` (insert-only);
+>   - `fulfillment_shipstation_event` (the webhook ledger).
+> - **New columns:**
+>   - `order_fulfillment_status.cancels_on_full_refund`, which replaces the code list `REFUND_CANCELS_FROM`, and `is_partial_shipment`, plus the new row `partially_shipped`;
+>   - `roastery_shipment_details.service_code`, `external_shipment_id`, `label_created_at` and `fulfillment_request_id` (its `created_at` default is now `now()`).
+> - **Parameters:** `shipstation_enabled` (0), `shipstation_requested_service`, `shipstation_api_host`, `packaging_weight_oz`, `shipstation_push_retry_hours`, `shipstation_needs_attention_after_attempts`, `shipstation_stale_days`.
+> - **New views:** `v_fulfillment_request_status` and `v_roastery_fulfillment_config`.
+> - **`v_order_status`** derives the fulfillment status from the requests and appends `fulfillment_requests`. Its current shape is in the Commerce 6 block; the Commerce 3 definition now only creates it on a fresh database.
+>
 > **As of 2026-11-18 (Commerce 5, `WHAT_WE_BUILT.md` #276)**: new lookup `commerce_stripe_mode` (test, live, `is_reportable`); new columns `"order".stripe_mode` (FK, written once at insert from Stripe's `livemode`, NOT NULL after `migrations/commerce_2026_11_17_stripe_mode.sql`), `order_payment_status.counts_as_revenue`, `order_event.amount_cents` (the fee on the new kind `fee_recorded`, one per order, index `order_event_one_fee`); new kinds `fee_recorded`, `live_gate`; parameters `business_time_zone`, `order_bonus_tokens`. New view `v_order_reportable`, the one read path for revenue and bags; `v_orders_weekly`, `v_customer_bag_attribution` and `v_household_numbers` re-pointed to it in the Commerce 5 block at the end of `schema.sql` (the earlier definitions stay for a fresh database). `"order".transaction_fee` is now the at-insert value only.
 
 > **As of 2026-11-05 (Website 4, `WHAT_WE_BUILT.md` #254)**: new column `coffee_category_assignment.customer_name` (OT-70: a category coffee's customer-facing name lives on its category role; one writer `catalogService.setCategoryCustomerName`). Description in `CATALOG.md`.

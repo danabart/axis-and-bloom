@@ -111,17 +111,19 @@ export async function sendOrderConfirmationEmail(orderId: string): Promise<SendO
 
 // ── admin (internal) ─────────────────────────────────────────────────────────
 
-export interface InternalLine { blendId: string; coffeeName: string | null; roasterName: string | null; roasterSku: string | null }
+export interface InternalLine { blendId: string; coffeeName: string | null; roasterName: string | null; roasterSku: string | null; roasterId: string | null }
 
 /** The resolved roaster coffee per line (internal only: the admin email and /admin/orders). */
 export async function internalLines(o: OrderSummary): Promise<Map<string, InternalLine>> {
-  const r = await db.query<{ blend_id: string; coffee_name: string | null; roaster_name: string | null; roaster_sku: string | null }>(
-    `SELECT sku.id AS blend_id, vc.name AS coffee_name, vc.roaster_name, sku.roaster_sku
+  const r = await db.query<{ blend_id: string; coffee_name: string | null; roaster_name: string | null; roaster_sku: string | null; roaster_id: string | null }>(
+    `SELECT sku.id AS blend_id, vc.name AS coffee_name, vc.roaster_name, sku.roaster_sku, sku.roaster_id
      FROM coffee_sku sku LEFT JOIN v_coffee vc ON vc.id = sku.coffee_id
      WHERE sku.id = ANY($1::uuid[])`,
     [o.lines.map(l => l.blendId)]
   );
-  return new Map(r.rows.map(row => [row.blend_id, { blendId: row.blend_id, coffeeName: row.coffee_name, roasterName: row.roaster_name, roasterSku: row.roaster_sku }]));
+  return new Map(r.rows.map(row => [row.blend_id, {
+    blendId: row.blend_id, coffeeName: row.coffee_name, roasterName: row.roaster_name, roasterSku: row.roaster_sku, roasterId: row.roaster_id,
+  }]));
 }
 
 export async function renderAdminNewOrderEmail(o: OrderSummary): Promise<{ subject: string; html: string; text: string }> {
@@ -153,9 +155,37 @@ export async function renderAdminNewOrderEmail(o: OrderSummary): Promise<{ subje
   return { subject: `New order: ${o.lines.reduce((n, l) => n + l.quantity, 0)} bag(s), ${money(o.totalCents)}`, html: `<pre style="${FONT};font-size:14px;">${esc(text)}</pre>`, text };
 }
 
-export async function sendAdminNewOrderEmail(o: OrderSummary): Promise<SendOnceResult> {
+/**
+ * Commerce 6: a manual fulfillment request emails only its roaster's lines.
+ * part = { sequence, of } when the order has several requests; the first
+ * request keeps the pre-Commerce-6 dedupe key, so a replay of an older order
+ * still sends nothing new.
+ */
+export async function sendAdminNewOrderEmail(o: OrderSummary, part?: { sequence: number; of: number; lines: OrderSummary['lines'] }): Promise<SendOnceResult> {
   const to = await commerceParamText('admin_alert_email');
-  return sendOnce({ to, kind: 'transactional', template: `admin_new_order:${o.orderId}`, ...await renderAdminNewOrderEmail(o) });
+  const view = part ? { ...o, lines: part.lines } : o;
+  const rendered = await renderAdminNewOrderEmail(view);
+  const multi = part && part.of > 1;
+  return sendOnce({
+    to, kind: 'transactional',
+    template: !part || part.sequence === 1 ? `admin_new_order:${o.orderId}` : `admin_new_order:${o.orderId}:${part.sequence}`,
+    ...rendered,
+    subject: multi ? `${rendered.subject} (part ${part.sequence} of ${part.of})` : rendered.subject,
+  });
+}
+
+/** Commerce 6: an internal alert about one fulfillment request (needs attention, rejected, cancel refused, stale). Once per key. */
+export async function sendAdminFulfillmentAlert(input: { orderId: string; key: string; subject: string; text: string }): Promise<SendOnceResult> {
+  const to = await commerceParamText('admin_alert_email');
+  const adminUrl = `${FRONTEND_URL()}/admin/orders/${input.orderId}`;
+  const text = `${input.text}
+
+Order ${input.orderId}
+Admin: ${adminUrl}`;
+  return sendOnce({
+    to, kind: 'transactional', template: `admin_fulfillment:${input.key}`,
+    subject: input.subject, html: `<pre style="${FONT};font-size:14px;">${esc(text)}</pre>`, text,
+  });
 }
 
 // ── shipped (Commerce 3, B6) ─────────────────────────────────────────────────
@@ -202,11 +232,40 @@ export function renderShippingNotificationEmail(o: OrderSummary): { subject: str
 
 /** The customer's shipping email, once per shipment. */
 export async function sendShippingNotificationEmail(orderId: string, shipmentId: string): Promise<SendOnceResult> {
-  const o = await getOrderSummary(orderId);
-  if (!o) throw new Error(`order ${orderId} not found`);
-  const to = await customerEmail(o);
+  const full = await getOrderSummary(orderId);
+  if (!full) throw new Error(`order ${orderId} not found`);
+  const to = await customerEmail(full);
   if (!to) throw new Error(`order ${orderId}: the customer has no email address`);
-  return sendOnce({ to, kind: 'transactional', template: `order_shipped:${shipmentId}`, ...renderShippingNotificationEmail(o) });
+  return sendOnce({ to, kind: 'transactional', template: `order_shipped:${shipmentId}`, ...renderShippingNotificationEmail(await forShipment(full, shipmentId)) });
+}
+
+/**
+ * Commerce 6: the email is about this shipment (its carrier and tracking), and
+ * when the order went to several roasters, only the lines of this shipment's
+ * request (decision 4: one "on its way" email per roaster). House names only.
+ */
+export async function forShipment(o: OrderSummary, shipmentId: string): Promise<OrderSummary> {
+  const sh = (await db.query<{ id: string; carrier: string | null; carrier_label: string | null; tracking_number: string | null; tracking_url: string | null;
+    shipped_at: string | null; roaster_id: string | null; requests: number }>(
+    `SELECT d.id, d.carrier, c.label AS carrier_label, d.tracking_number, d.shipped_at, fr.roaster_id,
+            CASE WHEN c.tracking_url_template IS NOT NULL AND d.tracking_number IS NOT NULL
+                 THEN replace(c.tracking_url_template, '{tracking}', d.tracking_number) END AS tracking_url,
+            (SELECT COUNT(*)::int FROM fulfillment_request x WHERE x.order_id = d.order_id) AS requests
+     FROM roastery_shipment_details d
+     LEFT JOIN shipping_carrier c ON c.code = d.carrier
+     LEFT JOIN fulfillment_request fr ON fr.id = d.fulfillment_request_id
+     WHERE d.id = $1 AND d.order_id = $2`, [shipmentId, o.orderId]
+  )).rows[0];
+  if (!sh) return o;
+  let lines = o.lines;
+  if (sh.requests > 1) {
+    const internal = await internalLines(o);
+    lines = o.lines.filter(l => (internal.get(l.blendId)?.roasterId ?? null) === sh.roaster_id);
+  }
+  return {
+    ...o, lines,
+    shipment: { id: sh.id, carrier: sh.carrier, carrierLabel: sh.carrier_label, trackingNumber: sh.tracking_number, trackingUrl: sh.tracking_url, shippedAt: sh.shipped_at },
+  };
 }
 
 export async function sendAdminFulfillmentAttentionEmail(orderId: string, error: string, attempts: number): Promise<SendOnceResult> {

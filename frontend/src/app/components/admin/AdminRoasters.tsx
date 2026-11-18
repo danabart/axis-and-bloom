@@ -313,6 +313,59 @@ function RoasterLifecycleDialog({
   );
 }
 
+// Commerce 6 (2026-11-18): how this roaster's lines are fulfilled
+// (roastery_fulfillment_config, superseded on every save). The adapter list
+// comes from the API; ShipStation needs the tag its automation rule keys on.
+interface FulfillmentConfig { roaster_id: string; adapter_code: string; shipstation_tag: string | null; shipstation_ship_from_id: string | null;
+  requested_service_code: string | null; is_active: boolean; since: string; note: string | null }
+function FulfillmentConfigPanel({ roasterId, current, adapters, getToken, onSaved }: {
+  roasterId: string; current: FulfillmentConfig | null; adapters: Array<{ code: string; label: string }>;
+  getToken: () => Promise<string>; onSaved: () => void;
+}) {
+  const [adapterCode, setAdapterCode] = useState(current?.adapter_code ?? adapters[0]?.code ?? '');
+  const [tag, setTag] = useState(current?.shipstation_tag ?? '');
+  const [shipFrom, setShipFrom] = useState(current?.shipstation_ship_from_id ?? '');
+  const [service, setService] = useState(current?.requested_service_code ?? '');
+  const [isActive, setIsActive] = useState(current?.is_active ?? true);
+  const [note, setNote] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const field = 'border border-stone-300 rounded px-2 py-1 text-sm';
+  async function save() {
+    setBusy(true); setMsg('');
+    try {
+      const res = await fetch(`/api/admin/commerce/fulfillment-config/${roasterId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getToken()}` },
+        body: JSON.stringify({ adapterCode, shipstationTag: tag || null, shipstationShipFromId: shipFrom || null, requestedServiceCode: service || null, isActive, note: note || null }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.message ?? d.error ?? 'Save failed');
+      setMsg('Saved.'); setNote(''); onSaved();
+    } catch (err) { setMsg(err instanceof Error ? err.message : 'Save failed'); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="mt-5 pt-4 border-t border-stone-200" data-testid="fulfillment-config">
+      <p className="text-xs uppercase text-stone-400 mb-2">Fulfillment</p>
+      <p className="text-xs text-stone-500 mb-2">{current ? `Current since ${new Date(current.since).toLocaleDateString()}${current.is_active ? '' : ' (inactive)'}` : 'Not configured: manual email.'}</p>
+      <div className="flex flex-wrap gap-2 items-center text-sm">
+        <select className={field} value={adapterCode} onChange={e => setAdapterCode(e.target.value)} data-testid="fulfillment-adapter">
+          {adapters.map(a => <option key={a.code} value={a.code}>{a.label}</option>)}
+        </select>
+        <input className={field} placeholder="ShipStation tag" value={tag} onChange={e => setTag(e.target.value)} data-testid="fulfillment-tag" />
+        <input className={`${field} w-32`} placeholder="Ship-from id" value={shipFrom} onChange={e => setShipFrom(e.target.value)} data-testid="fulfillment-ship-from" />
+        <input className={field} placeholder="Service (default from Commerce)" value={service} onChange={e => setService(e.target.value)} data-testid="fulfillment-service" />
+        <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} /> Active</label>
+        <input className={`${field} flex-1 min-w-40`} placeholder="Note (why)" value={note} onChange={e => setNote(e.target.value)} />
+        <button className="px-3 py-1.5 rounded text-sm text-white hover:opacity-80 disabled:opacity-40" style={{ backgroundColor: '#b05642' }}
+          disabled={busy || !adapterCode} onClick={save} data-testid="fulfillment-save">Save fulfillment</button>
+      </div>
+      {msg && <p className="text-xs text-stone-600 mt-1">{msg}</p>}
+    </div>
+  );
+}
+
 export default function AdminRoasters() {
   const { user } = useAuth();
   const [roasters, setRoasters]       = useState<Roaster[]>([]);
@@ -324,8 +377,16 @@ export default function AdminRoasters() {
   // confirm panel open, and a one-line post-success summary to show next.
   const [lifecycleFor, setLifecycleFor] = useState<{ id: string; direction: 'deactivate' | 'reactivate' } | null>(null);
   const [summary, setSummary] = useState('');
+  const [fulfillment, setFulfillment] = useState<{ configs: FulfillmentConfig[]; adapters: Array<{ code: string; label: string }> }>({ configs: [], adapters: [] });
 
   async function getToken() { return user!.getIdToken(); }
+
+  async function loadFulfillment() {
+    try {
+      const res = await fetch('/api/admin/commerce/fulfillment-config', { headers: { Authorization: `Bearer ${await getToken()}` } });
+      if (res.ok) setFulfillment(await res.json());
+    } catch (err) { reportError('[AdminRoasters/fulfillment]', err); }
+  }
 
   async function load() {
     try {
@@ -349,7 +410,7 @@ export default function AdminRoasters() {
     }
   }
 
-  useEffect(() => { if (user) load(); }, [user]);
+  useEffect(() => { if (user) { load(); loadFulfillment(); } }, [user]);
 
   async function handleAdd(data: RoasterFormData) {
     const res = await fetch('/api/admin/roasters', {
@@ -498,6 +559,13 @@ export default function AdminRoasters() {
                   onSave={data => handleEdit(r.id, data)}
                   onCancel={() => setEditingId(null)}
                   submitLabel="Save Changes"
+                />
+                <FulfillmentConfigPanel
+                  roasterId={r.id}
+                  current={fulfillment.configs.find(c => c.roaster_id === r.id) ?? null}
+                  adapters={fulfillment.adapters}
+                  getToken={getToken}
+                  onSaved={loadFulfillment}
                 />
               </div>
             )}

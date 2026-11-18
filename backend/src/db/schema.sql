@@ -10055,7 +10055,14 @@ WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = v.key);
 -- place). v_order_status gains the latest shipment by order_id and its
 -- tracking link; v_subscription_status gains when it was canceled and
 -- whether a card is on file.
-CREATE OR REPLACE VIEW v_order_status AS
+-- Commerce 6 (2026-11-18): this is the first shape, created only on a fresh
+-- database. The current shape (derived from fulfillment_request, column
+-- fulfillment_requests appended) is in the COMMERCE 6 block; replacing it here
+-- with fewer columns would fail at every later boot.
+DO $c3view$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_views WHERE schemaname = 'public' AND viewname = 'v_order_status') THEN
+    EXECUTE $v$
+CREATE VIEW v_order_status AS
 SELECT o.id AS order_id,
        o.user_id,
        o.created_at,
@@ -10105,7 +10112,10 @@ LEFT JOIN LATERAL (
 ) sh ON true
 LEFT JOIN shipping_carrier sc ON sc.code = sh.carrier
 LEFT JOIN order_payment_status ps ON ps.code = lp.payment_status
-LEFT JOIN order_fulfillment_status fs ON fs.code = COALESCE(lf.fulfillment_status, o.fulfillment_status);
+LEFT JOIN order_fulfillment_status fs ON fs.code = COALESCE(lf.fulfillment_status, o.fulfillment_status)
+$v$;
+  END IF;
+END $c3view$;
 
 CREATE OR REPLACE VIEW v_subscription_status AS
 SELECT s.id AS subscription_id,
@@ -12819,6 +12829,350 @@ SELECT
 -- END COMMERCE 5 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- COMMERCE 6 block (2026-11-18) — ShipStation fulfillment, per roaster.
+-- backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_6_SHIPSTATION.md
+-- A paid order becomes one fulfillment_request per roaster (decision 4). Each
+-- request is placed by its roaster's adapter (manual email, or a ShipStation
+-- order in our account, which an automation rule hands to the roaster as 3PL
+-- provider). Tracking comes back by webhook (FULFILLMENT_SHIPPED / SHIP_NOTIFY)
+-- into shipmentService.markShipped. Everything is behind the parameter
+-- shipstation_enabled (0 = every request uses the manual adapter).
+-- G2.4: CATALOG.md checked (CLOSING_REPORT_6): roaster is contact data,
+-- roastery_shipment_details is the shipment and stays, order_event is per
+-- order (a placement is per order x roaster with retries and an external id),
+-- stripe_event is Stripe's ledger. New prefix fulfillment_ (stated in the brief).
+-- Placed after v_order_status and the Commerce 5 block, before the grants.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- A1. Adapters (G2.7). The code is also the external system name in
+-- shipping_carrier_external_code.
+CREATE TABLE IF NOT EXISTS fulfillment_adapter (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT UNIQUE NOT NULL,
+  label TEXT NOT NULL
+);
+INSERT INTO fulfillment_adapter (code, label) VALUES
+  ('manual',      'Manual (email to the admin alert address)'),
+  ('shipstation', 'ShipStation (our account; the roaster is the 3PL provider)')
+ON CONFLICT (code) DO NOTHING;
+
+-- A2. Order-level fulfillment status: partially_shipped (some roasters have
+-- shipped, others not yet), and the rules as columns (G2.1): which states a
+-- full refund cancels (decision 4; was checkoutService.REFUND_CANCELS_FROM),
+-- and which row is the partial-shipment state the view derives.
+ALTER TABLE order_fulfillment_status ADD COLUMN IF NOT EXISTS cancels_on_full_refund BOOLEAN;
+ALTER TABLE order_fulfillment_status ADD COLUMN IF NOT EXISTS is_partial_shipment BOOLEAN NOT NULL DEFAULT false;
+INSERT INTO order_fulfillment_status (code, label, customer_label, is_closed) VALUES
+  ('partially_shipped', 'Partially shipped (some roasters shipped)', 'On its way', false)
+ON CONFLICT (code) DO NOTHING;
+UPDATE order_fulfillment_status SET is_partial_shipment = true WHERE code = 'partially_shipped' AND NOT is_partial_shipment;
+UPDATE order_fulfillment_status SET cancels_on_full_refund = (code IN ('awaiting_manual', 'needs_attention'))
+WHERE cancels_on_full_refund IS NULL;
+ALTER TABLE order_fulfillment_status ALTER COLUMN cancels_on_full_refund SET DEFAULT false;
+ALTER TABLE order_fulfillment_status ALTER COLUMN cancels_on_full_refund SET NOT NULL;
+
+-- A3. Request status (G2.7). Each row says what it means for the order
+-- (order_fulfillment_status), which wins when an order has several requests
+-- (aggregate_rank, highest wins), whether a full refund cancels it, and
+-- whether it beats the partial-shipment state (a request needing attention
+-- shows as needs_attention even when another roaster has shipped).
+-- awaiting_manual (45) outranks placed (40): a part Dana must place by hand is
+-- what the order shows.
+CREATE TABLE IF NOT EXISTS fulfillment_request_status (
+  id                        SERIAL PRIMARY KEY,
+  code                      TEXT UNIQUE NOT NULL,
+  label                     TEXT NOT NULL,
+  order_fulfillment_status  TEXT NOT NULL REFERENCES order_fulfillment_status(code),
+  aggregate_rank            INT NOT NULL,
+  is_shipped                BOOLEAN NOT NULL DEFAULT false,
+  is_closed                 BOOLEAN NOT NULL DEFAULT false,
+  is_retryable              BOOLEAN NOT NULL DEFAULT false,
+  cancels_on_full_refund    BOOLEAN NOT NULL DEFAULT false,
+  outranks_partial_shipment BOOLEAN NOT NULL DEFAULT false
+);
+INSERT INTO fulfillment_request_status (code, label, order_fulfillment_status, aggregate_rank, is_shipped, is_closed, is_retryable, cancels_on_full_refund, outranks_partial_shipment) VALUES
+  ('pending',         'Created, not placed yet',            'pending',         50, false, false, true,  true,  false),
+  ('awaiting_manual', 'Emailed for manual placement',       'awaiting_manual', 45, false, false, false, true,  false),
+  ('placed',          'Placed in ShipStation',              'placed',          40, false, false, false, true,  false),
+  ('failed',          'Placement failed (will be retried)', 'needs_attention', 60, false, false, true,  true,  true),
+  ('needs_attention', 'Needs attention',                    'needs_attention', 60, false, false, true,  true,  true),
+  ('shipped',         'Shipped',                            'shipped',         20, true,  true,  false, false, false),
+  ('canceled',        'Canceled',                           'canceled',        10, false, true,  false, false, false)
+ON CONFLICT (code) DO NOTHING;
+
+-- A4. What happens to a request: insert-only history (G2.13).
+CREATE TABLE IF NOT EXISTS fulfillment_event_kind (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT UNIQUE NOT NULL,
+  label TEXT NOT NULL
+);
+INSERT INTO fulfillment_event_kind (code, label) VALUES
+  ('created',           'Request created'),
+  ('placed',            'Placed with the adapter'),
+  ('awaiting_manual',   'Manual email sent'),
+  ('failed',            'Placement failed'),
+  ('needs_attention',   'Needs attention'),
+  ('retried',           'Retry requested'),
+  ('provider_assigned', 'Fulfillment provider assigned in ShipStation'),
+  ('shipped',           'Shipped'),
+  ('rejected',          'Rejected by the fulfillment provider'),
+  ('postage_recorded',  'Postage recorded on the shipment'),
+  ('canceled',          'Canceled'),
+  ('cancel_refused',    'Cancel refused by ShipStation (contact the roaster)'),
+  ('stale_alerted',     'Placed long ago with no shipment: admin alerted')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS fulfillment_event_source (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT UNIQUE NOT NULL,
+  label TEXT NOT NULL
+);
+INSERT INTO fulfillment_event_source (code, label) VALUES
+  ('finalizer', 'Order finalizer (after payment)'),
+  ('webhook',   'Incoming webhook (ShipStation or Stripe)'),
+  ('admin',     'Admin portal'),
+  ('cron',      'Daily cron (retry and reconcile)')
+ON CONFLICT (code) DO NOTHING;
+
+-- A5. Per-roaster fulfillment config, superseded on change (never updated in
+-- place). One current row per roaster. shipstation_tag is the tag name the
+-- automation rule keys on; the tag id is looked up in ShipStation by name.
+CREATE TABLE IF NOT EXISTS roastery_fulfillment_config (
+  id                       SERIAL PRIMARY KEY,
+  roaster_id               UUID NOT NULL REFERENCES roaster(id),
+  adapter_code             TEXT NOT NULL REFERENCES fulfillment_adapter(code),
+  shipstation_tag          TEXT,
+  shipstation_ship_from_id TEXT,
+  requested_service_code   TEXT,
+  is_active                BOOLEAN NOT NULL DEFAULT true,
+  since                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at            TIMESTAMPTZ,
+  set_by                   TEXT,
+  note                     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS roastery_fulfillment_config_current ON roastery_fulfillment_config (roaster_id) WHERE superseded_at IS NULL;
+
+-- A6. One request per order x roaster (decision 4). roaster_id is NULL only
+-- for lines whose SKU has no roaster (always manual). sequence n gives the
+-- ShipStation orderNumber <short order id>-n and the key ab:<order>:<n>.
+CREATE TABLE IF NOT EXISTS fulfillment_request (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id              UUID NOT NULL REFERENCES "order"(id),
+  roaster_id            UUID REFERENCES roaster(id),
+  sequence              INT NOT NULL,
+  adapter_code          TEXT NOT NULL REFERENCES fulfillment_adapter(code),
+  status                TEXT NOT NULL REFERENCES fulfillment_request_status(code),
+  external_order_id     TEXT,
+  external_order_number TEXT,
+  external_order_key    TEXT UNIQUE NOT NULL,
+  attempts              INT NOT NULL DEFAULT 0,
+  last_error            TEXT,
+  placed_at             TIMESTAMPTZ,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS fulfillment_request_order_roaster ON fulfillment_request (order_id, COALESCE(roaster_id, '00000000-0000-0000-0000-000000000000'::uuid));
+CREATE UNIQUE INDEX IF NOT EXISTS fulfillment_request_order_sequence ON fulfillment_request (order_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_fulfillment_request_status ON fulfillment_request (status, updated_at);
+
+CREATE TABLE IF NOT EXISTS fulfillment_event (
+  id                     SERIAL PRIMARY KEY,
+  fulfillment_request_id UUID NOT NULL REFERENCES fulfillment_request(id),
+  event_kind             TEXT NOT NULL REFERENCES fulfillment_event_kind(code),
+  status                 TEXT REFERENCES fulfillment_request_status(code),
+  external_ref           TEXT,
+  note                   TEXT,
+  source                 TEXT NOT NULL REFERENCES fulfillment_event_source(code),
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_fulfillment_event_request ON fulfillment_event (fulfillment_request_id, created_at, id);
+
+-- A7. The ShipStation webhook ledger (decision 6): one row per delivery, as
+-- received; processed_at / error set once processing ends.
+CREATE TABLE IF NOT EXISTS fulfillment_shipstation_event (
+  id            SERIAL PRIMARY KEY,
+  resource_url  TEXT,
+  resource_type TEXT,
+  received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at  TIMESTAMPTZ,
+  error         TEXT,
+  result        JSONB,
+  payload       JSONB NOT NULL
+);
+
+-- A8. Carrier codes from external systems (decision 3), one row per code.
+CREATE TABLE IF NOT EXISTS shipping_carrier_external_code (
+  id              SERIAL PRIMARY KEY,
+  external_system TEXT NOT NULL REFERENCES fulfillment_adapter(code),
+  external_code   TEXT NOT NULL,
+  carrier_code    TEXT NOT NULL REFERENCES shipping_carrier(code),
+  label           TEXT,
+  UNIQUE (external_system, external_code)
+);
+-- Seeded from GET /carriers on our account, 2026-11-18 (CLOSING_REPORT_6 Task 0.1).
+INSERT INTO shipping_carrier_external_code (external_system, external_code, carrier_code, label) VALUES
+  ('shipstation', 'stamps_com',            'usps',  'Stamps.com (USPS), shippingProviderId 1906567'),
+  ('shipstation', 'ups_walleted',          'ups',   'UPS by ShipStation, shippingProviderId 1906568'),
+  ('shipstation', 'fedex_walleted',        'fedex', 'FedEx One Balance, shippingProviderId 1906569'),
+  ('shipstation', 'dhl_express_worldwide', 'dhl',   'DHL Express from ShipStation, shippingProviderId 1906877'),
+  ('shipstation', 'globalpost',            'other', 'GlobalPost, shippingProviderId 1906862'),
+  ('shipstation', 'seko_ltl_walleted',     'other', 'SEKO LTL, shippingProviderId 1906878')
+ON CONFLICT (external_system, external_code) DO NOTHING;
+
+-- A9. The shipment learns where it came from and what it cost.
+ALTER TABLE roastery_shipment_details ADD COLUMN IF NOT EXISTS service_code TEXT;
+ALTER TABLE roastery_shipment_details ADD COLUMN IF NOT EXISTS external_shipment_id TEXT;
+ALTER TABLE roastery_shipment_details ADD COLUMN IF NOT EXISTS label_created_at TIMESTAMPTZ;
+ALTER TABLE roastery_shipment_details ADD COLUMN IF NOT EXISTS fulfillment_request_id UUID REFERENCES fulfillment_request(id);
+ALTER TABLE roastery_shipment_details ALTER COLUMN created_at SET DEFAULT now(); -- G2.9 as amended
+CREATE INDEX IF NOT EXISTS idx_roastery_shipment_request ON roastery_shipment_details (fulfillment_request_id);
+
+-- A10. Parameters (G2.1). shipstation_enabled stays 0 until Dana's go (Part D).
+INSERT INTO commerce_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('shipstation_enabled', 0::numeric, NULL::text, 'ShipStation fulfillment switch: 1 = a roaster whose active fulfillment config says shipstation gets its requests pushed to ShipStation; 0 = every request uses the manual email. Range: integer 0 <= value <= 1.'),
+  ('shipstation_requested_service', NULL, 'usps_ground_advantage', 'The requestedShippingService sent on each ShipStation order when the roaster''s config names none; the automation rule decides the real service. Format: shipstation service code.'),
+  ('shipstation_api_host', NULL, 'ssapi.shipstation.com', 'The ShipStation V1 API host: every API call goes to https://<host>, and a webhook whose resource_url is on another host is refused before anything is fetched. Format: hostname.'),
+  ('packaging_weight_oz', 2, NULL, 'Ounces added to the coffee weight of a ShipStation order for the bag and mailer. Range: 0 <= value <= 16.'),
+  ('shipstation_push_retry_hours', 1, NULL, 'The daily cron retries a failed ShipStation placement once it is at least this many hours old. Range: integer 1 <= value <= 24.'),
+  ('shipstation_needs_attention_after_attempts', 3, NULL, 'Failed ShipStation placements before the request goes to needs_attention and the admin is emailed. Range: integer 1 <= value <= 10.'),
+  ('shipstation_stale_days', 7, NULL, 'Days a placed ShipStation request may wait with no shipment before the daily cron emails the admin (once per request). Range: integer 1 <= value <= 60.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = v.key);
+
+-- A11. Views. The one read path per request.
+CREATE OR REPLACE VIEW v_fulfillment_request_status AS
+SELECT fr.id AS fulfillment_request_id,
+       fr.order_id,
+       fr.roaster_id,
+       r.name AS roaster_name,
+       fr.sequence,
+       fr.adapter_code,
+       a.label AS adapter_label,
+       fr.status,
+       rs.label AS status_label,
+       rs.order_fulfillment_status,
+       rs.is_shipped,
+       rs.is_closed,
+       rs.is_retryable,
+       rs.cancels_on_full_refund,
+       fr.external_order_id,
+       fr.external_order_number,
+       fr.external_order_key,
+       fr.attempts,
+       fr.last_error,
+       fr.placed_at,
+       fr.created_at,
+       fr.updated_at,
+       le.event_kind AS last_event_kind,
+       le.created_at AS last_event_at,
+       le.note AS last_event_note,
+       sh.id AS shipment_id,
+       sh.carrier,
+       sc.label AS carrier_label,
+       sh.tracking_number,
+       sh.service_code,
+       sh.postage_cost,
+       sh.shipped_at,
+       CASE WHEN sc.tracking_url_template IS NOT NULL AND sh.tracking_number IS NOT NULL
+            THEN replace(sc.tracking_url_template, '{tracking}', sh.tracking_number) END AS tracking_url
+FROM fulfillment_request fr
+JOIN fulfillment_request_status rs ON rs.code = fr.status
+JOIN fulfillment_adapter a ON a.code = fr.adapter_code
+LEFT JOIN roaster r ON r.id = fr.roaster_id
+LEFT JOIN LATERAL (
+  SELECT e.event_kind, e.created_at, e.note FROM fulfillment_event e
+  WHERE e.fulfillment_request_id = fr.id
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) le ON true
+LEFT JOIN LATERAL (
+  SELECT d.id, d.carrier, d.tracking_number, d.service_code, d.postage_cost, d.shipped_at FROM roastery_shipment_details d
+  WHERE d.fulfillment_request_id = fr.id
+  ORDER BY d.shipped_at DESC NULLS LAST, d.created_at DESC LIMIT 1
+) sh ON true
+LEFT JOIN shipping_carrier sc ON sc.code = sh.carrier;
+
+CREATE OR REPLACE VIEW v_roastery_fulfillment_config AS
+SELECT c.id AS config_id, c.roaster_id, r.name AS roaster_name, r.is_active AS roaster_is_active,
+       c.adapter_code, a.label AS adapter_label, c.shipstation_tag, c.shipstation_ship_from_id,
+       c.requested_service_code, c.is_active, c.since, c.set_by, c.note
+FROM roastery_fulfillment_config c
+JOIN roaster r ON r.id = c.roaster_id
+JOIN fulfillment_adapter a ON a.code = c.adapter_code
+WHERE c.superseded_at IS NULL;
+
+-- v_order_status, current shape (the Commerce 3 shape is only the fresh-DB
+-- first create). With fulfillment requests, the order's fulfillment status is
+-- derived from them: the mapped status of the highest-ranked request, or the
+-- partial-shipment row when some have shipped and the rest are open (unless
+-- one outranks it). Without requests (orders before Commerce 6): the latest
+-- order_event, as before. Column fulfillment_requests appended.
+CREATE OR REPLACE VIEW v_order_status AS
+SELECT o.id AS order_id,
+       o.user_id,
+       o.created_at,
+       o.paid_at,
+       ps.code AS payment_status,
+       ps.customer_label AS payment_customer_label,
+       fs.code AS fulfillment_status,
+       fs.label AS fulfillment_label,
+       fs.customer_label AS fulfillment_customer_label,
+       fs.is_closed,
+       CASE WHEN ps.code IS NOT NULL AND ps.code <> 'paid' THEN ps.customer_label ELSE fs.customer_label END AS customer_label,
+       COALESCE(rf.amount_refunded_cents, 0) AS amount_refunded_cents,
+       fin.created_at AS finalized_at,
+       fin.note AS order_placed_line,
+       sh.id AS shipment_id,
+       sh.shipped_at,
+       sh.carrier,
+       sc.label AS carrier_label,
+       sh.tracking_number,
+       CASE WHEN sc.tracking_url_template IS NOT NULL AND sh.tracking_number IS NOT NULL
+            THEN replace(sc.tracking_url_template, '{tracking}', sh.tracking_number) END AS tracking_url,
+       COALESCE(rq.n, 0) AS fulfillment_requests
+FROM "order" o
+LEFT JOIN LATERAL (
+  SELECT e.payment_status FROM order_event e
+  WHERE e.order_id = o.id AND e.payment_status IS NOT NULL
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) lp ON true
+LEFT JOIN LATERAL (
+  SELECT e.fulfillment_status FROM order_event e
+  WHERE e.order_id = o.id AND e.fulfillment_status IS NOT NULL
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) lf ON true
+LEFT JOIN LATERAL (
+  SELECT e.amount_refunded_cents FROM order_event e
+  WHERE e.order_id = o.id AND e.amount_refunded_cents IS NOT NULL
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) rf ON true
+LEFT JOIN LATERAL (
+  SELECT e.created_at, e.note FROM order_event e
+  WHERE e.order_id = o.id AND e.event_kind = 'finalized'
+  LIMIT 1
+) fin ON true
+LEFT JOIN LATERAL (
+  SELECT d.id, d.shipped_at, d.carrier, d.tracking_number FROM roastery_shipment_details d
+  WHERE d.order_id = o.id
+  ORDER BY d.shipped_at DESC NULLS LAST, d.created_at DESC LIMIT 1
+) sh ON true
+LEFT JOIN LATERAL (
+  SELECT COUNT(*)::int AS n,
+         CASE WHEN bool_or(rs.is_shipped) AND NOT bool_and(rs.is_closed) AND NOT bool_or(rs.outranks_partial_shipment)
+              THEN (SELECT p.code FROM order_fulfillment_status p WHERE p.is_partial_shipment ORDER BY p.id LIMIT 1)
+              ELSE (array_agg(rs.order_fulfillment_status ORDER BY rs.aggregate_rank DESC, rs.id))[1] END AS derived_status
+  FROM fulfillment_request fr JOIN fulfillment_request_status rs ON rs.code = fr.status
+  WHERE fr.order_id = o.id
+) rq ON true
+LEFT JOIN shipping_carrier sc ON sc.code = sh.carrier
+LEFT JOIN order_payment_status ps ON ps.code = lp.payment_status
+LEFT JOIN order_fulfillment_status fs ON fs.code = COALESCE(rq.derived_status, lf.fulfillment_status, o.fulfillment_status);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END COMMERCE 6 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.
@@ -12943,6 +13297,12 @@ REVOKE UPDATE, DELETE, TRUNCATE ON commerce_parameter FROM ab_app;
 GRANT UPDATE (superseded_at) ON commerce_parameter TO ab_app;
 -- Commerce 2 (2026-10-31): subscription_event is insert-only, like order_event.
 REVOKE UPDATE, DELETE, TRUNCATE ON subscription_event FROM ab_app;
+-- Commerce 6 (2026-11-18): fulfillment_event is insert-only (G2.13); a
+-- roaster's fulfillment config is superseded, never edited or deleted.
+REVOKE UPDATE, DELETE, TRUNCATE ON fulfillment_event FROM ab_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON roastery_fulfillment_config FROM ab_app;
+GRANT UPDATE (superseded_at) ON roastery_fulfillment_config TO ab_app;
+REVOKE DELETE, TRUNCATE ON fulfillment_request, fulfillment_shipstation_event FROM ab_app;
 -- Family Household 1 (2026-11-07): household_event is insert-only (G2.13);
 -- household_parameter is superseded only, like commerce_parameter. No
 -- household_* row is ever deleted (T5): the request pool loses DELETE on all.

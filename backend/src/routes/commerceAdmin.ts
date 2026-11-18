@@ -18,6 +18,7 @@ import { requestRefund, RefundError } from '../services/checkoutService.js';
 import { retryFulfillment, FulfillmentRetryError } from '../services/fulfillment/index.js';
 import { markShipped, ShipmentError } from '../services/shipmentService.js';
 import { cancel, SelfServiceError } from '../services/subscriptionService.js';
+import { retry as retryRequest, cancel as cancelRequest, listRoasterConfigs, setRoasterConfig, FulfillmentRequestError } from '../services/fulfillmentService.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -42,6 +43,22 @@ router.put('/parameters/:key', async (req: AuthRequest, res) => {
   }
 });
 
+// Commerce 6: per-roaster fulfillment config (superseded on every save).
+const RoasterConfigBody = z.object({
+  adapterCode: z.string().min(1).max(40), shipstationTag: z.string().max(80).nullish(), shipstationShipFromId: z.string().max(20).nullish(),
+  requestedServiceCode: z.string().max(60).nullish(), isActive: z.boolean().optional(), note: z.string().max(500).nullish(),
+});
+router.get('/fulfillment-config', async (_req, res) => {
+  try { res.json(await listRoasterConfigs()); } catch (err) { fail(res, err, 'fulfillment config'); }
+});
+router.put('/fulfillment-config/:roasterId', async (req: AuthRequest, res) => {
+  try {
+    const body = RoasterConfigBody.safeParse(req.body ?? {});
+    if (!body.success) { res.status(400).json({ error: 'invalid_request', message: 'Choose an adapter; the other fields are optional.' }); return; }
+    res.json(await setRoasterConfig({ roasterId: req.params.roasterId, ...body.data }, req.uid ?? null));
+  } catch (err) { fail(res, err, 'fulfillment config save'); }
+});
+
 router.get('/lookups', async (_req, res) => {
   try { res.json(await getCommerceLookups()); } catch (err) { fail(res, err, 'lookups'); }
 });
@@ -50,7 +67,7 @@ export default router;
 
 /** A service's own error answers its status and message; anything else is a 500. */
 function fail(res: Response, err: unknown, where: string): void {
-  if (err instanceof RefundError || err instanceof ShipmentError || err instanceof FulfillmentRetryError || err instanceof SelfServiceError) {
+  if (err instanceof RefundError || err instanceof ShipmentError || err instanceof FulfillmentRetryError || err instanceof SelfServiceError || err instanceof FulfillmentRequestError) {
     res.status(err.status).json({ error: err.code, message: err.message });
     return;
   }
@@ -70,7 +87,8 @@ const ListQuery = z.object({
   stripeMode: z.string().max(20).optional(),
 });
 const RefundBody = z.object({ amountCents: z.coerce.number().int().positive().nullish(), reason: z.string().min(1).max(40) });
-const ShippedBody = z.object({ carrier: z.string().min(1).max(40), trackingNumber: z.string().trim().min(1).max(64) });
+const ShippedBody = z.object({ carrier: z.string().min(1).max(40), trackingNumber: z.string().trim().min(1).max(64), fulfillmentRequestId: z.string().uuid().nullish() });
+const CancelRequestBody = z.object({ reason: z.string().trim().min(1).max(200) });
 
 adminOrdersRouter.get('/', async (req, res) => {
   try {
@@ -98,6 +116,18 @@ adminOrdersRouter.post('/:id/refund', async (req: AuthRequest, res) => {
 
 adminOrdersRouter.post('/:id/fulfillment/retry', async (req, res) => {
   try { res.json(await retryFulfillment(req.params.id)); } catch (err) { fail(res, err, 'fulfillment retry'); }
+});
+
+// Commerce 6: one roaster's request on an order.
+adminOrdersRouter.post('/:id/fulfillment-requests/:requestId/retry', async (req, res) => {
+  try { res.json(await retryRequest(req.params.requestId, 'admin', req.params.id)); } catch (err) { fail(res, err, 'fulfillment request retry'); }
+});
+adminOrdersRouter.post('/:id/fulfillment-requests/:requestId/cancel', async (req, res) => {
+  try {
+    const body = CancelRequestBody.safeParse(req.body ?? {});
+    if (!body.success) { res.status(400).json({ error: 'invalid_request', message: 'Say why it is canceled.' }); return; }
+    res.json(await cancelRequest(req.params.requestId, body.data.reason, 'admin', req.params.id));
+  } catch (err) { fail(res, err, 'fulfillment request cancel'); }
 });
 
 adminOrdersRouter.post('/:id/shipped', async (req, res) => {

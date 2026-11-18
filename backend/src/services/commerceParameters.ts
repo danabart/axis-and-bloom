@@ -18,7 +18,7 @@ export class CommerceParameterError extends Error {
 }
 const invalid = (message: string) => new CommerceParameterError(400, 'COMMERCE_PARAMETER_INVALID', message);
 
-const FORMAT = /Format:\s*(email or empty|email|integer list|stripe tax code|dial slot|iana time zone)\b/i;
+const FORMAT = /Format:\s*(email or empty|email|integer list|stripe tax code|dial slot|iana time zone|shipstation service code|hostname)\b/i;
 const FORMAT_CHECKS: Record<string, (v: string) => boolean> = {
   'email': v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
   // Commerce 4 Part D: live_gate_override_email, empty = the gate is off.
@@ -30,6 +30,10 @@ const FORMAT_CHECKS: Record<string, (v: string) => boolean> = {
   'dial slot': v => /^[a-z_]+:\d+$/.test(v),
   // Commerce 5 (2026-11-18): business_time_zone, a zone this runtime knows ('UTC' is valid but not in the list).
   'iana time zone': v => v === 'UTC' || Intl.supportedValuesOf('timeZone').includes(v),
+  // Commerce 6 (2026-11-18): shipstation_requested_service (a V1 service code, e.g. usps_ground_advantage).
+  'shipstation service code': v => /^[a-z0-9_]{2,60}$/.test(v),
+  // Commerce 6: shipstation_api_host, a bare host name (no scheme, path or port).
+  'hostname': v => /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v),
 };
 
 /** The text format a parameter's note declares, or null when it declares none. */
