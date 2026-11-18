@@ -22,7 +22,9 @@
 --
 -- Production: run only after Dana's go at the Part C STOP. Run record:
 --   test DB:    see CLOSING_REPORT_5.md (commerceBackfill.test.ts, inside a rolled-back transaction, twice)
---   production: (not yet run)
+--   production: 2026-11-18 14:39:53 UTC, Dana's go, as axisbloom via the proxy (tmp/commerce5_backfill_run.ts):
+--               pre 6 orders all NULL, none newer than the cutover except 0b6ac7e9; post live 1, test 5;
+--               live_gate event inserted; stripe_mode NOT NULL.
 
 BEGIN;
 

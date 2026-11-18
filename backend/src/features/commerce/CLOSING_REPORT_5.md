@@ -218,14 +218,17 @@ See `WHAT_WE_BUILT.md` #276. In short:
 - **`CATALOG.md`:** regenerated from prod (218 tables, 113 views, catalog-hash `143f9462…`).
 - **Not checked:** `/admin/commerce` in a signed-in browser.
 
-## Acceptance (to be confirmed on prod after the backfill)
+## Acceptance (confirmed on prod, 2026-11-18)
 
 Five test orders plus the refunded live one, zero reportable.
 
-## Backfill — STOP
+## Backfill — run on prod (Dana's go, 2026-11-18)
 
-The prod run of `commerce_2026_11_17_stripe_mode.sql` waits for Dana's go. After it runs:
-- check that no order is reportable and the `live_gate` event exists;
-- run the fee sync (expect 33 cents on 0b6ac7e9);
-- check that vba holds no test bags for `+checkout1` or Dana;
-- fill in the run record.
+1. **Migration:** run at 14:39:53 UTC (`tmp/commerce5_backfill_run.ts`). The pre-check found 6 orders, all with no mode, and none newer than the cutover other than 0b6ac7e9. Result: 5 test, 1 live. `stripe_mode` is now NOT NULL.
+2. **Reportable:** `v_order_reportable` has 6 rows, **0 reportable**: the five test orders plus the refunded live one. `v_orders_weekly` is empty.
+3. **`live_gate` event:** on 0b6ac7e9, "Commerce 4 $1 gate purchase", source admin.
+4. **Fee sync:** run with the live key, `{mode: live, checked 1, recorded 1, pending 0, errors 0}`. 0b6ac7e9 has `fee_recorded` 33 cents (`txn_3Ucxrr25hnyYIAkS1mEjVqWu`, source cron), and `transaction_fee_cents` = 33. Sandbox order 94b31a71 keeps its at-insert fee of 135 cents and stays unreportable.
+5. **Bags:** `v_customer_bag_attribution` has 0 rows. The two `+checkout1` / Dana profiles have 0 bags. The 6 test-order lines stay in `order_line_item`, so nothing was deleted.
+6. **Boot warning:** with no NULL left, the `[commerce-integrity]` warning stops at the next boot.
+
+Read-only checks: `tmp/commerce5_checks_ro.ts`, `tmp/commerce5_checks2_ro.ts`. Commerce 5 is done.
