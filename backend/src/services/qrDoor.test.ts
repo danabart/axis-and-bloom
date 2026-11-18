@@ -110,7 +110,7 @@ describe('Universal QR resolve path stays independent of roastery/coffee active 
         `INSERT INTO user_profile (firebase_uid) VALUES ('vitest-qr-fixture-uid') RETURNING id`
       )).rows[0];
       order = (await db.query(
-        `INSERT INTO "order" (user_id, fulfillment_status) VALUES ($1, 'delivered') RETURNING id`,
+        `INSERT INTO "order" (user_id, fulfillment_status, stripe_mode) VALUES ($1, 'delivered', 'test') RETURNING id`,
         [profile!.id]
       )).rows[0];
       lineItem = (await db.query(

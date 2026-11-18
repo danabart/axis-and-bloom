@@ -94,7 +94,8 @@ async function checkout(uid: string, items: any[], subscription: { frequencyWeek
   const r = await createCheckoutSession({ uid, email: `${uid}@example.com`, items, shippingAddressId: null, subscription });
   const cs = (await db.query(`SELECT id, stripe_checkout_session_id, subtotal_cents, handover_offer_event_id FROM checkout_session WHERE id = $1`, [r.checkoutSessionId])).rows[0];
   const done = await completeCheckoutSession({
-    id: cs.stripe_checkout_session_id, payment_intent: `pi_${cs.id}`, metadata: { checkout_session_id: cs.id },
+    // Commerce 5: a live session, so the order is reportable and its bags count (v_customer_bag_attribution).
+    id: cs.stripe_checkout_session_id, payment_intent: `pi_${cs.id}`, metadata: { checkout_session_id: cs.id }, livemode: true,
     amount_total: cs.subtotal_cents, total_details: { amount_shipping: 0, amount_tax: 0 }, currency: 'usd',
   } as any);
   return { ...done, checkoutSession: cs };
@@ -330,7 +331,8 @@ describe('Build the house box (B7) and the numbers (D19)', () => {
       const direct = (await c.query(
         `SELECT (SELECT COUNT(*)::int FROM household WHERE dissolved_at IS NULL) AS households,
                 (SELECT COUNT(*)::int FROM quiz_session WHERE taken_by_user_id IS NOT NULL) AS proxy_quizzes,
-                (SELECT COUNT(DISTINCT o.id)::int FROM "order" o JOIN order_line_item oli ON oli.order_id = o.id WHERE o.household_id IS NOT NULL) AS house_orders`
+                (SELECT COUNT(DISTINCT o.id)::int FROM "order" o JOIN order_line_item oli ON oli.order_id = o.id
+                   JOIN v_order_reportable r ON r.order_id = o.id AND r.is_reportable WHERE o.household_id IS NOT NULL) AS house_orders`
       )).rows[0];
       expect({ households: v.households, proxy_quizzes: v.proxy_quizzes, house_orders: v.house_orders }).toEqual(direct);
       expect(v.house_orders).toBeGreaterThan(0);

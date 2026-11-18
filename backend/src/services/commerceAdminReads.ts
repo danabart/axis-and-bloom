@@ -20,32 +20,35 @@ function dashboardUrl(kind: 'payments' | 'invoices' | 'customers', id: string | 
   return `https://dashboard.stripe.com/${stripeMode() === 'live' ? '' : 'test/'}${kind}/${id}`;
 }
 
-export interface AdminOrderFilters { paymentStatus?: string; fulfillmentStatus?: string; q?: string; page?: number }
+// Commerce 5 (2026-11-18): stripeMode filters by "order".stripe_mode (the page defaults to live; empty = every mode).
+export interface AdminOrderFilters { paymentStatus?: string; fulfillmentStatus?: string; q?: string; page?: number; stripeMode?: string }
 const PAGE_SIZE = 50;
 
 export async function listOrders(f: AdminOrderFilters): Promise<{ orders: AdminOrderRow[]; page: number; pageSize: number; total: number }> {
   const page = Math.max(1, Math.floor(Number(f.page) || 1));
   const q = (f.q ?? '').trim();
-  const params: unknown[] = [f.paymentStatus || null, f.fulfillmentStatus || null, q || null, PAGE_SIZE, (page - 1) * PAGE_SIZE];
+  const params: unknown[] = [f.paymentStatus || null, f.fulfillmentStatus || null, q || null, f.stripeMode || null, PAGE_SIZE, (page - 1) * PAGE_SIZE];
   const where = `($1::text IS NULL OR s.payment_status = $1)
      AND ($2::text IS NULL OR s.fulfillment_status = $2)
      AND ($3::text IS NULL OR o.id::text ILIKE $3 || '%' OR ue.email_address ILIKE '%' || $3 || '%'
-          OR CONCAT_WS(' ', up.first_name, up.last_name) ILIKE '%' || $3 || '%')`;
+          OR CONCAT_WS(' ', up.first_name, up.last_name) ILIKE '%' || $3 || '%')
+     AND ($4::text IS NULL OR o.stripe_mode = $4)`;
   const from = `FROM "order" o
      JOIN v_order_status s ON s.order_id = o.id
      JOIN user_profile up ON up.id = o.user_id
-     LEFT JOIN LATERAL (SELECT email_address FROM user_email WHERE user_id = o.user_id AND is_primary ORDER BY created_at LIMIT 1) ue ON true`;
+     LEFT JOIN LATERAL (SELECT email_address FROM user_email WHERE user_id = o.user_id AND is_primary ORDER BY created_at LIMIT 1) ue ON true
+     LEFT JOIN commerce_stripe_mode sm ON sm.code = o.stripe_mode`;
   const rows = (await db.query(
     `SELECT o.id, COALESCE(o.paid_at, o.created_at) AS paid_at, o.total_amount_paid, o.is_subscription, o.subscription_id,
             up.first_name, up.last_name, ue.email_address,
             s.payment_status, s.payment_customer_label, s.fulfillment_status, s.fulfillment_label, s.amount_refunded_cents,
-            s.tracking_number, s.carrier_label,
+            s.tracking_number, s.carrier_label, o.stripe_mode, sm.label AS stripe_mode_label,
             (SELECT COALESCE(SUM(quantity), 0) FROM order_line_item WHERE order_id = o.id) AS bags
      ${from} WHERE ${where}
      ORDER BY COALESCE(o.paid_at, o.created_at) DESC, o.id
-     LIMIT $4 OFFSET $5`, params
+     LIMIT $5 OFFSET $6`, params
   )).rows;
-  const total = Number((await db.query(`SELECT count(*) AS n ${from} WHERE ${where}`, params.slice(0, 3))).rows[0].n);
+  const total = Number((await db.query(`SELECT count(*) AS n ${from} WHERE ${where}`, params.slice(0, 4))).rows[0].n);
   return {
     page, pageSize: PAGE_SIZE, total,
     orders: rows.map(r => ({
@@ -56,6 +59,7 @@ export async function listOrders(f: AdminOrderFilters): Promise<{ orders: AdminO
       fulfillmentStatus: r.fulfillment_status, fulfillmentLabel: r.fulfillment_label,
       amountRefundedCents: Number(r.amount_refunded_cents ?? 0),
       tracking: r.tracking_number ? `${r.carrier_label ?? ''} ${r.tracking_number}`.trim() : null,
+      stripeMode: r.stripe_mode ?? null, stripeModeLabel: r.stripe_mode_label ?? null,
     })),
   };
 }
@@ -64,7 +68,7 @@ export interface AdminOrderRow {
   orderId: string; paidAt: string; totalCents: number; bags: number; isSubscription: boolean; subscriptionId: string | null;
   customer: { name: string | null; email: string | null };
   paymentStatus: string | null; paymentLabel: string | null; fulfillmentStatus: string | null; fulfillmentLabel: string | null;
-  amountRefundedCents: number; tracking: string | null;
+  amountRefundedCents: number; tracking: string | null; stripeMode: string | null; stripeModeLabel: string | null;
 }
 
 /** One order for the drawer: lines (house name + internal roaster coffee), customer, ships-to, shipments, the event trail, Stripe links. */
@@ -154,16 +158,17 @@ export async function listSubscriptions(status?: string) {
 
 /** The admin forms' options (G2.1: nothing typed into the UI). */
 export async function getCommerceLookups() {
-  const [carriers, reasons, payment, fulfillment, subStatus] = await Promise.all([
+  const [carriers, reasons, payment, fulfillment, subStatus, modes] = await Promise.all([
     db.query(`SELECT code, label, (tracking_url_template IS NOT NULL) AS has_tracking_link FROM shipping_carrier WHERE is_active ORDER BY id`),
     db.query(`SELECT code, label FROM order_refund_reason ORDER BY id`),
     db.query(`SELECT code, label FROM order_payment_status ORDER BY id`),
     db.query(`SELECT code, label FROM order_fulfillment_status ORDER BY id`),
     db.query(`SELECT code, label FROM subscription_status ORDER BY id`),
+    db.query(`SELECT code, label, is_reportable FROM commerce_stripe_mode ORDER BY id`),
   ]);
   return {
     carriers: carriers.rows, refundReasons: reasons.rows, paymentStatuses: payment.rows,
-    fulfillmentStatuses: fulfillment.rows, subscriptionStatuses: subStatus.rows,
+    fulfillmentStatuses: fulfillment.rows, subscriptionStatuses: subStatus.rows, stripeModes: modes.rows,
     refundWindowDays: await commerceParam('refund_window_days'),
   };
 }

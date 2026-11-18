@@ -80,7 +80,7 @@ describe('charge attempt claim (one attempt per cycle)', () => {
   // The claim compares the attempt's real time with the cycle date, so this
   // runs on the real "today" (the cron always passes it).
   it('a due cycle is claimed once; a second claim the same day gets nothing; a released claim can be taken again', () => withRollback(async tx => {
-    const today = svc.todayEastern();
+    const today = await svc.todayBusiness();
     const s = await paidSub(tx.client, { next_delivery_date: today });
     const first = await svc.recordChargeAttempt(s.id, today, tx.client);
     expect(first).toMatchObject({ cycleDate: today, previousAttemptAt: null });
@@ -110,14 +110,14 @@ describe('renewal outcomes', () => {
 
   it('charged once per invoice: back to active, attempts reset, next date from the cycle; late → from the paid date', () => withRollback(async tx => {
     const s = await paidSub(tx.client, { status: 'past_due', failed_attempts: 2, next_delivery_date: '2026-11-14' });
-    const orderId = (await tx.client.query<{ id: string }>(`INSERT INTO "order" (user_id) VALUES ($1) RETURNING id`, [s.userId])).rows[0].id;
+    const orderId = (await tx.client.query<{ id: string }>(`INSERT INTO "order" (user_id, stripe_mode) VALUES ($1, 'test') RETURNING id`, [s.userId])).rows[0].id;
     const charge = () => svc.markRenewalCharged(tx.client, { subscriptionId: s.id, orderId, invoiceId: 'in_v2', amountCents: 3350, cycleDate: '2026-11-14', paidDate: '2026-11-19' });
     expect(await charge()).toBe(true);
     expect(await charge()).toBe(false);
     expect(await row(tx.client, s.id)).toMatchObject({ status: 'active', failed_attempts: 0, last_order_id: orderId, next: '2026-12-03' }); // 11-19 + 14
 
     const onTime = await paidSub(tx.client);
-    const o2 = (await tx.client.query<{ id: string }>(`INSERT INTO "order" (user_id) VALUES ($1) RETURNING id`, [onTime.userId])).rows[0].id;
+    const o2 = (await tx.client.query<{ id: string }>(`INSERT INTO "order" (user_id, stripe_mode) VALUES ($1, 'test') RETURNING id`, [onTime.userId])).rows[0].id;
     await svc.markRenewalCharged(tx.client, { subscriptionId: onTime.id, orderId: o2, invoiceId: 'in_v3', amountCents: 3350, cycleDate: '2026-11-14', paidDate: '2026-11-14' });
     expect((await row(tx.client, onTime.id)).next).toBe('2026-11-28');
   }));

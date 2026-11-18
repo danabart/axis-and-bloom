@@ -27,6 +27,8 @@ The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXI
 
 `coffees` stays `coffees`; `archetype_enum` (a type, not a table) is unchanged.
 
+> **As of 2026-11-18 (Commerce 5, `WHAT_WE_BUILT.md` #276)**: new lookup `commerce_stripe_mode` (test, live, `is_reportable`); new columns `"order".stripe_mode` (FK, written once at insert from Stripe's `livemode`, NOT NULL after `migrations/commerce_2026_11_17_stripe_mode.sql`), `order_payment_status.counts_as_revenue`, `order_event.amount_cents` (the fee on the new kind `fee_recorded`, one per order, index `order_event_one_fee`); new kinds `fee_recorded`, `live_gate`; parameters `business_time_zone`, `order_bonus_tokens`. New view `v_order_reportable`, the one read path for revenue and bags; `v_orders_weekly`, `v_customer_bag_attribution` and `v_household_numbers` re-pointed to it in the Commerce 5 block at the end of `schema.sql` (the earlier definitions stay for a fresh database). `"order".transaction_fee` is now the at-insert value only.
+
 > **As of 2026-11-05 (Website 4, `WHAT_WE_BUILT.md` #254)**: new column `coffee_category_assignment.customer_name` (OT-70: a category coffee's customer-facing name lives on its category role; one writer `catalogService.setCategoryCustomerName`). Description in `CATALOG.md`.
 
 > **As of 2026-11-05 (Website 5, `WHAT_WE_BUILT.md` #255)**: new `evidence_parameter` row `comfort_zone_edge_delta` (3, 0 to 15 scale; The Bloom's comfort-zone pill, applied by `compatibilityReads.compareCoffee`, kept between `dimension_delta_slight` and `dimension_delta_significant`). No table or column change. Description in `CATALOG.md` (the `evidence_parameter` comment).

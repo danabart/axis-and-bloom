@@ -20,6 +20,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { resolveSlot, ownSortOrder, savePosition, DIAL_EVENT_TRIGGERS } from '../services/dialPositionService.js';
 import { memberDialPosition, turnDialFor, HouseholdError } from '../services/householdService.js';
 import { profileIdForUid } from '../services/householdReads.js';
+import { businessTimeZone } from '../services/commerceParameters.js';
 
 const router = Router();
 
@@ -71,7 +72,8 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
     const profileResult = await db.query(
       `INSERT INTO user_profile (firebase_uid)
        VALUES ($1)
-       ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = NOW()
+       -- Commerce 5 (2026-11-18): a read leaves updated_at alone (the no-op SET keeps RETURNING).
+       ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = user_profile.updated_at
        RETURNING id, first_name, last_name, date_of_birth`,
       [req.uid]
     );
@@ -195,6 +197,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       syncedAt:       FieldValue.serverTimestamp(),
     }, { merge: true }).catch((err: unknown) => console.error('[users/firestore-sync]', err));
 
+    const businessZone = await businessTimeZone();
     res.json({
       email:       emailResult.rows[0]?.email_address ?? req.email ?? null,
       firstName:   profileRow.first_name ?? null,
@@ -218,7 +221,8 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
         paymentStatus: o.payment_status,
         fulfillmentStatus: o.fulfillment_status,
         total:         `${Number(o.total_amount_paid ?? 0).toFixed(2)}`,
-        date:          new Date(o.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        // Commerce 5 (2026-11-18): the date in the business time zone, not the server's UTC.
+        date:          new Date(o.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: businessZone }),
         blendName:     o.display_name ?? null,
         trackingUrl:   o.tracking_url ?? null,
         tracking:      o.tracking_number ? `${o.carrier_label ?? ''} ${o.tracking_number}`.trim() : null,

@@ -222,11 +222,12 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       }
     }
 
-    // Upsert user_profile (the taker's own; a proxy quiz writes to the member's profile instead)
+    // Upsert user_profile (the taker's own; a proxy quiz writes to the member's profile instead).
+    // Commerce 5 (2026-11-18): the quiz is written elsewhere, so updated_at is left alone (the no-op SET keeps RETURNING).
     const profileId = proxy ? proxy.target.userId : (await db.query(
       `INSERT INTO user_profile (firebase_uid)
        VALUES ($1)
-       ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = NOW()
+       ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = user_profile.updated_at
        RETURNING id`,
       [req.uid]
     )).rows[0].id;

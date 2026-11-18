@@ -121,6 +121,19 @@ Live since 2026-11-17 (rev `00869-6z8`). Full record: `backend/src/features/comm
 - [ ] **Apple Pay / Google Pay**: the payment method domain `www.axisandbloomcoffee.com` (`pmd_1UcyX925hnyYIAkSYRFkPcBK`) shows active for both in the live Dashboard.
 - [ ] **Live webhook**: `stripe_event` rows have `payload->>'livemode'` = `true`, processed and with no error. A refund from `/admin/orders` arrives as `charge.refunded` and shows "Refunded · Canceled" on an unshipped order.
 
+
+## Commerce — reporting and bookkeeping (Commerce 5, 2026-11-18)
+
+Full record: `backend/src/features/commerce/CLOSING_REPORT_5.md`. Unit cases: `commerce5Reporting.test.ts`, `commerceBackfill.test.ts`, `users.profileUpdatedAt.test.ts`, `orderFinalizer.test.ts`.
+
+- [ ] **A refunded order leaves revenue and bags**: refund an order in full → `v_order_reportable.is_reportable` false, and it disappears from `v_orders_weekly`, from `v_customer_bag_attribution` (so from the timeline and every palate view) and from `v_household_numbers`. A partial refund keeps it, at net revenue, with its bags.
+- [ ] **Test-mode orders count nowhere**: an order paid in the sandbox has `stripe_mode` `test` and is in no report; `/admin/orders` hides it by default (mode filter on live) and shows its pill under "Any mode".
+- [ ] **Mode at insert**: a new order's `stripe_mode` is the delivered Stripe object's `livemode`; `"order".stripe_mode` is NOT NULL on prod; the boot log shows no `[commerce-integrity]` line.
+- [ ] **Business dates**: a Sunday 21:00 Eastern order lands in that week of `v_orders_weekly`, not the next one; the Profile order date is the Eastern date; change `business_time_zone` on `/admin/commerce` → `todayBusiness()` follows within 60 s; an unknown zone is refused.
+- [ ] **Fee recorded**: after the daily job, every live order has `transaction_fee_cents` on `v_order_reportable` (a `fee_recorded` event); `"order".transaction_fee` is never updated; a second run records nothing.
+- [ ] **Order bonus from the parameter**: a paid order grants `order_bonus_tokens` (10); Admin → Sommelier Config has no order bonus field.
+- [ ] **Profile reads leave `updated_at` alone**: GET `/api/users/profile` does not move `user_profile.updated_at`.
+
 ## Website chrome — header, Menu overlay, footer (Website 1, 2026-11-04)
 
 Full record: `backend/src/features/website_handoff/CLOSING_REPORT_1.md`. Unit cases: `frontend/src/app/components/chrome/chrome.test.tsx` (`cd frontend && npm test`).

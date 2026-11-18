@@ -21,7 +21,10 @@ router.post('/sync', requireAuth, async (req: AuthRequest, res) => {
        ON CONFLICT (firebase_uid) DO UPDATE SET
          first_name = COALESCE($2, user_profile.first_name),
          last_name  = COALESCE($3, user_profile.last_name),
-         updated_at = NOW()
+         -- Commerce 5 (2026-11-18): updated_at moves only when a name actually changes.
+         updated_at = CASE WHEN COALESCE($2, user_profile.first_name) IS DISTINCT FROM user_profile.first_name
+                             OR COALESCE($3, user_profile.last_name) IS DISTINCT FROM user_profile.last_name
+                           THEN NOW() ELSE user_profile.updated_at END
        RETURNING id`,
       [req.uid, firstName || null, lastName || null]
     );

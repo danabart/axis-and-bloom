@@ -32,7 +32,7 @@ import { applySubscriptionPricing } from './subscriptionShipment.js';
 import { activeHouseholdOf, openHandoverOffer } from './householdReads.js';
 import { recordHandoverRedeemed } from './householdService.js';
 import {
-  createPaidSubscriptionFromCheckout, recordSubscriptionStarted, markRenewalCharged, todayEastern, type SubscriptionIntent,
+  createPaidSubscriptionFromCheckout, recordSubscriptionStarted, markRenewalCharged, todayBusiness, type SubscriptionIntent,
 } from './subscriptionService.js';
 
 export class CheckoutError extends Error {
@@ -320,21 +320,37 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
 
 // ── complete / expire (the webhook) ──────────────────────────────────────────
 
-/** The charge's Stripe fee (cents) and the PaymentMethod it used (saved off-session on a subscription checkout). */
-async function paymentDetails(paymentIntentId: string | null): Promise<{ feeCents: number | null; paymentMethodId: string | null }> {
-  if (!paymentIntentId) return { feeCents: null, paymentMethodId: null };
+/**
+ * The charge's Stripe fee (cents), its balance transaction, and the
+ * PaymentMethod it used (saved off-session on a subscription checkout). At
+ * checkout.session.completed the balance transaction is usually not attached
+ * yet (Commerce 5 Task 0.4: Stripe attaches it about a minute later), so the
+ * fee is null there and stripeFeeSync records it later through recordFee.
+ */
+export async function paymentDetails(paymentIntentId: string | null): Promise<{ feeCents: number | null; balanceTransactionId: string | null; paymentMethodId: string | null }> {
+  if (!paymentIntentId) return { feeCents: null, balanceTransactionId: null, paymentMethodId: null };
   try {
     const pi = await stripe().paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] });
     const charge = pi.latest_charge as Stripe.Charge | null;
     const bt = charge?.balance_transaction as Stripe.BalanceTransaction | null | undefined;
-    return { feeCents: bt && typeof bt === 'object' ? bt.fee : null, paymentMethodId: idOf(pi.payment_method as string | Stripe.PaymentMethod | null) };
+    const settled = bt && typeof bt === 'object' ? bt : null;
+    return { feeCents: settled ? settled.fee : null, balanceTransactionId: settled?.id ?? null, paymentMethodId: idOf(pi.payment_method as string | Stripe.PaymentMethod | null) };
   } catch (err) {
     console.warn('[checkout] payment intent not retrievable', paymentIntentId, err instanceof Error ? err.message : err);
-    return { feeCents: null, paymentMethodId: null };
+    return { feeCents: null, balanceTransactionId: null, paymentMethodId: null };
   }
 }
 
 const idOf = (v: string | { id: string } | null | undefined) => (v == null ? null : typeof v === 'string' ? v : v.id);
+
+/**
+ * Commerce 5 (Dana, 2026-11-18, decision 6): the order's mode is the
+ * livemode of the Stripe object the webhook delivered (the fact Stripe sent
+ * us), a commerce_stripe_mode code; written once at insert (D11).
+ */
+export function stripeModeOf(obj: { livemode: boolean }): 'live' | 'test' {
+  return obj.livemode ? 'live' : 'test';
+}
 
 /**
  * A completed Stripe session this database never created: the account's
@@ -388,14 +404,15 @@ export async function completeCheckoutSession(session: Stripe.Checkout.Session):
          (user_id, fulfillment_status, subtotal, shipping_fee_charged, taxes_collected, transaction_fee, total_amount_paid,
           currency, shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_address_id,
           checkout_session_id, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, fulfillment_roaster_id,
-          is_subscription, subscription_id, household_id)
-       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), NULL, $17, $18, $19)
+          is_subscription, subscription_id, household_id, stripe_mode)
+       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), NULL, $17, $18, $19, $20)
        ON CONFLICT (stripe_checkout_session_id) DO NOTHING
        RETURNING id`,
       [cs.user_id, toDollars(cs.subtotal_cents), toDollars(session.total_details?.amount_shipping ?? cs.shipping_cents),
        toDollars(session.total_details?.amount_tax), feeCents === null ? null : toDollars(feeCents), toDollars(session.amount_total),
        (session.currency ?? 'usd').toUpperCase(), cs.shipping_street, cs.shipping_city, cs.shipping_state, cs.shipping_postal_code,
-       cs.shipping_country, cs.shipping_address_id, cs.id, session.id, paymentIntentId, subscriptionId !== null, subscriptionId, householdId]
+       cs.shipping_country, cs.shipping_address_id, cs.id, session.id, paymentIntentId, subscriptionId !== null, subscriptionId, householdId,
+       stripeModeOf(session)]
     );
     if (!inserted.rows[0]) {
       // Lost a race to a concurrent delivery of the same event. With a
@@ -488,7 +505,8 @@ export async function createSubscriptionOrder(invoice: Stripe.Invoice): Promise<
   const shippingCents = items.filter(i => i.metadata?.kind === 'shipping').reduce((s, i) => s + i.amount, 0);
   const taxCents = (full.total_taxes ?? []).reduce((s, t) => s + t.amount, 0);
   const paidAt = full.status_transitions?.paid_at ? new Date(full.status_transitions.paid_at * 1000) : new Date();
-  const cycleDate = full.metadata?.cycle_date ?? todayEastern(paidAt);
+  const paidDate = await todayBusiness(paidAt);
+  const cycleDate = full.metadata?.cycle_date ?? paidDate;
 
   return withTransaction(async tx => {
     const existing = await tx.query<{ id: string }>(`SELECT id FROM "order" WHERE stripe_invoice_id = $1`, [invoiceId]);
@@ -514,14 +532,14 @@ export async function createSubscriptionOrder(invoice: Stripe.Invoice): Promise<
       `INSERT INTO "order"
          (user_id, fulfillment_status, subtotal, shipping_fee_charged, taxes_collected, transaction_fee, total_amount_paid,
           currency, shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_address_id,
-          stripe_payment_intent_id, paid_at, fulfillment_roaster_id, is_subscription, subscription_id, stripe_invoice_id, household_id)
-       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULL, true, $16, $17, $18)
+          stripe_payment_intent_id, paid_at, fulfillment_roaster_id, is_subscription, subscription_id, stripe_invoice_id, household_id, stripe_mode)
+       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULL, true, $16, $17, $18, $19)
        ON CONFLICT (stripe_invoice_id) DO NOTHING
        RETURNING id`,
       [sub.user_id, toDollars(subtotalCents), toDollars(shippingCents), toDollars(taxCents),
        feeCents === null ? null : toDollars(feeCents), toDollars(full.amount_paid), (full.currency ?? 'usd').toUpperCase(),
        shipTo?.street ?? null, shipTo?.city ?? null, shipTo?.state ?? null, shipTo?.postal_code ?? null, shipTo?.country ?? null,
-       shipTo?.id ?? null, paymentIntentId, paidAt, subscriptionId, invoiceId, householdId]
+       shipTo?.id ?? null, paymentIntentId, paidAt, subscriptionId, invoiceId, householdId, stripeModeOf(full)]
     );
     if (!inserted.rows[0]) {
       const again = await tx.query<{ id: string }>(`SELECT id FROM "order" WHERE stripe_invoice_id = $1`, [invoiceId]);
@@ -541,7 +559,7 @@ export async function createSubscriptionOrder(invoice: Stripe.Invoice): Promise<
       orderId, kind: 'paid', paymentStatus: 'paid', fulfillmentStatus: 'awaiting_manual', stripeRef: paymentIntentId ?? invoiceId, source: 'webhook',
     }, tx);
     await markRenewalCharged(tx, {
-      subscriptionId, orderId, invoiceId, amountCents: full.amount_paid, cycleDate, paidDate: todayEastern(paidAt),
+      subscriptionId, orderId, invoiceId, amountCents: full.amount_paid, cycleDate, paidDate,
     });
     return { orderId, created: true, subscriptionId };
   });
@@ -581,6 +599,29 @@ export async function recordOrderEvent(e: OrderEventInput, runner: Runner = db):
      RETURNING id`,
     [e.orderId, e.kind, e.paymentStatus ?? null, e.fulfillmentStatus ?? null, e.amountRefundedCents ?? null,
      e.stripeRef ?? null, e.note ?? null, e.source]
+  );
+  return r.rows[0]?.id ?? null;
+}
+
+/**
+ * Commerce 5 (Dana, 2026-11-18, decision 3): the Stripe fee of an order, as
+ * one fee_recorded order_event with the cents in amount_cents and the balance
+ * transaction id in stripe_ref. "order" stays immutable (D11);
+ * v_order_reportable.transaction_fee_cents reads this event, falling back to
+ * the at-insert "order".transaction_fee. At most one per order (the
+ * order_event_one_fee index): a second call is a no-op and returns null.
+ */
+export async function recordFee(
+  e: { orderId: string; feeCents: number; balanceTransactionId: string | null; source: 'cron' | 'admin' | 'webhook' },
+  runner: Runner = db
+): Promise<number | null> {
+  if (!Number.isInteger(e.feeCents) || e.feeCents < 0) throw new Error(`recordFee: fee must be whole cents >= 0, got ${e.feeCents}`);
+  const r = await runner.query<{ id: number }>(
+    `INSERT INTO order_event (order_id, event_kind, amount_cents, stripe_ref, note, source)
+     VALUES ($1, 'fee_recorded', $2, $3, $4, $5)
+     ON CONFLICT (order_id) WHERE event_kind = 'fee_recorded' DO NOTHING
+     RETURNING id`,
+    [e.orderId, e.feeCents, e.balanceTransactionId, `Stripe fee ${e.feeCents} cents`, e.source]
   );
   return r.rows[0]?.id ?? null;
 }

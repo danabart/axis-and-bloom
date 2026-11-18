@@ -65,7 +65,7 @@ const {
   createCheckoutSession, completeCheckoutSession, expireCheckoutSession, recordRefund, getSessionStatus, CheckoutError,
   createSubscriptionOrder, quoteCart, UnknownSubscriptionError,
 } = await import('./checkoutService.js');
-const { todayEastern } = await import('./subscriptionService.js');
+const { todayBusiness } = await import('./subscriptionService.js');
 
 const ACTOR = { actor: 'vitest' };
 const UID = 'vitest-checkout-uid';
@@ -308,7 +308,7 @@ describe('subscription checkout (Commerce 2)', () => {
        FROM subscription WHERE user_id = $1`, [userId]
     )).rows;
     expect(subs).toHaveLength(1);
-    const today = todayEastern();
+    const today = await todayBusiness();
     const expectedNext = (await db.query<{ d: string }>(`SELECT ($1::date + 14)::text AS d`, [today])).rows[0].d;
     expect(subs[0]).toMatchObject({ id: o.subscription_id, kind: 'paid', status: 'active', frequency_weeks: 2, frequency_days: 14,
       archetype: null, stripe_payment_method_id: 'pm_vitest_saved', last_order_id: first.orderId, origin_checkout_session_id: subscriptionCheckoutId, next: expectedNext });
@@ -347,7 +347,7 @@ describe('subscription checkout (Commerce 2)', () => {
     const ev = (await db.query(`SELECT event_kind FROM subscription_event WHERE subscription_id = $1 ORDER BY id`, [renewalSubscriptionId])).rows.map(r => r.event_kind);
     expect(ev).toEqual(['started', 'renewal_charged']);
     const sub = (await db.query(`SELECT last_order_id, next_delivery_date::text AS next FROM subscription WHERE id = $1`, [renewalSubscriptionId])).rows[0];
-    const today = todayEastern();
+    const today = await todayBusiness();
     const expectedNext = (await db.query<{ d: string }>(`SELECT (GREATEST($1::date, '2026-11-14'::date) + 14)::text AS d`, [today])).rows[0].d;
     expect(sub).toEqual({ last_order_id: first.orderId, next: expectedNext });
   });

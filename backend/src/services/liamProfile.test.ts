@@ -225,9 +225,11 @@ async function loadFixtures(client: Tx): Promise<void> {
   for (const line of uniqueLines) {
     const buyerCid = line.ownerCids.find(c => c !== line.drinker) ?? line.ownerCids[0];
     const orderResult = await client.query<{ id: string }>(
-      `INSERT INTO "order" (user_id, household_id, created_at) VALUES ($1, $2, $3) RETURNING id`,
+      // Commerce 5: a reportable order (live mode, a paid event): test-mode or unpaid bags are no customer's bags.
+      `INSERT INTO "order" (user_id, household_id, created_at, paid_at, stripe_mode) VALUES ($1, $2, $3, $3, 'live') RETURNING id`,
       [profileIdByCid[buyerCid], line.household_id ? householdId.value : null, line.order_at]
     );
+    await client.query(`INSERT INTO order_event (order_id, event_kind, payment_status, source) VALUES ($1, 'paid', 'paid', 'webhook')`, [orderResult.rows[0].id]);
     const skuResult = await client.query<{ id: string }>(`SELECT id FROM coffee_sku WHERE coffee_id = $1`, [coffeeIdByKey[line.coffee]]);
     const oli = await client.query<{ id: string }>(
       `INSERT INTO order_line_item (order_id, blend_id, order_kind) VALUES ($1, $2, $3) RETURNING id`,

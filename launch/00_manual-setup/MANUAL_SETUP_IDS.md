@@ -84,6 +84,11 @@ $env:CLOUDSDK_PYTHON = "C:\Python313\python.exe"; $s = (gcloud secrets versions 
 ```
 Check: `gcloud scheduler jobs run subscription-daily --location=us-central1 --project=axis-and-bloom-prod`. The Cloud Run log should then show `[cron/subscription-daily]` with counts and a 200. The job is safe to run twice a day: a cycle already attempted is skipped.
 
+**Time zone (Commerce 5, 2026-11-18):**
+- **The two settings that must match:** the job's `--time-zone="America/New_York"` (06:00, checked through `gcloud` on 2026-11-18) and the `commerce_parameter` row `business_time_zone`. Every business date is read in that row: subscription cycles, Profile order dates, `v_orders_weekly` weeks. Change both together. The scheduler setting is deploy-side and not read by the app.
+- **`subscription_charge_hour_local` (6) is not read by the app either.** It is the documented hour of this job, and stays.
+- **The job also records Stripe fees** (`stripeFeeSync`): every order of the running key's mode that has no fee gets a `fee_recorded` order event. The log line is `[cron/subscription-daily] fees (live): checked …, recorded …, pending …`.
+
 Stripe Invoicing fee, confirmed on this account (Dana, 2026-10-31): Starter, 0.4% per paid one-time invoice, no cap. Each renewal also pays the card fee (renewal `in_1UWgMi0QYxZQN6jD3b3e7vlF`, $33.50: $1.27), and the Stripe Tax fee only while `tax_collection_enabled` = 1 (all fees: Stripe section above).
 
 Note (Task 0, 2026-10-31): `sponsored-subscription-check` and `expire-company-gift-codes` still have no scheduler jobs (OT-13). `gcloud scheduler jobs list` shows only `purge-stale-anonymous-guests`, `liam-gate-offline` and `coffee-content-backfill`.

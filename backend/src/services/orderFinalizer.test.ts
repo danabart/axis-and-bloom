@@ -30,7 +30,13 @@ const steps = {
   dispatchFulfillment: vi.fn(async () => ({ ok: true })),
   sendOrderConfirmationEmail: vi.fn(async () => ({ status: 'sent' })),
 };
-vi.mock('./sommelierConfig.js', () => ({ getSommelierConfig: () => ({ tokenEconomy: { orderBonus: 15 } }) }));
+// Commerce 5: the bonus is commerce_parameter order_bonus_tokens (15 here); config/sommelier's
+// tokenEconomy.orderBonus (99 here) is read no more.
+vi.mock('./sommelierConfig.js', () => ({ getSommelierConfig: () => ({ tokenEconomy: { orderBonus: 99 } }) }));
+vi.mock('./commerceParameters.js', async importOriginal => {
+  const real = await importOriginal<typeof import('./commerceParameters.js')>();
+  return { ...real, commerceParam: async (key: string) => key === 'order_bonus_tokens' ? 15 : real.commerceParam(key) };
+});
 vi.mock('./tokenService.js', () => ({ grantTokens: (...a: unknown[]) => steps.grantTokens(...(a as [])) }));
 vi.mock('./outcomeTracker.js', () => ({ updateOrderOutcomes: (...a: unknown[]) => steps.updateOrderOutcomes(...(a as [])) }));
 vi.mock('./userLifecycle.js', () => ({ refreshLifecycleState: (...a: unknown[]) => steps.refreshLifecycleState(...(a as [])) }));

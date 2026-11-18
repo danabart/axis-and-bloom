@@ -67,6 +67,7 @@ adminOrdersRouter.use(requireAdmin);
 const ListQuery = z.object({
   paymentStatus: z.string().max(40).optional(), fulfillmentStatus: z.string().max(40).optional(),
   q: z.string().max(120).optional(), page: z.coerce.number().int().positive().optional(),
+  stripeMode: z.string().max(20).optional(),
 });
 const RefundBody = z.object({ amountCents: z.coerce.number().int().positive().nullish(), reason: z.string().min(1).max(40) });
 const ShippedBody = z.object({ carrier: z.string().min(1).max(40), trackingNumber: z.string().trim().min(1).max(64) });

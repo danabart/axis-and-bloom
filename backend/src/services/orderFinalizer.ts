@@ -11,7 +11,7 @@
 // the next, and each failure is logged with the order id. A paid order is
 // never lost: payment_status stays paid whatever a step does.
 import { withTransaction } from '../db/client.js';
-import { getSommelierConfig } from './sommelierConfig.js';
+import { commerceParam } from './commerceParameters.js';
 import { grantTokens } from './tokenService.js';
 import { updateOrderOutcomes } from './outcomeTracker.js';
 import { refreshLifecycleState } from './userLifecycle.js';
@@ -67,9 +67,11 @@ export async function finalizePaidOrder(orderId: string): Promise<FinalizeResult
 
   // Order bonus tokens (+ the Firestore users/{uid}.tokenBalance sync, which
   // grantTokens does) — was inline SQL on user_tokens/token_events in orders.ts.
+  // Commerce 5 (Dana, 2026-11-18): the number is commerce_parameter
+  // order_bonus_tokens; config/sommelier tokenEconomy.orderBonus is read no more.
   await step('order_bonus_tokens', async () => {
-    const orderBonus = getSommelierConfig()?.tokenEconomy?.orderBonus ?? 10;
-    await grantTokens(uid, orderBonus, 'order_bonus', String(orderId));
+    const orderBonus = await commerceParam('order_bonus_tokens');
+    if (orderBonus > 0) await grantTokens(uid, orderBonus, 'order_bonus', String(orderId));
   });
 
   // Update sommelier outcome: orderedWithin7Days / orderedWithin30Days

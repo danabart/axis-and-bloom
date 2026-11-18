@@ -4686,6 +4686,8 @@ CREATE VIEW v_archetype_distribution AS
 
 -- Weekly orders/revenue. Empty "order" table pre-launch returns zero rows,
 -- not an error — no special-casing needed.
+-- Commerce 5 (2026-11-18): REDEFINED in the COMMERCE 5 block over v_order_reportable
+-- (reportable orders, business-zone weeks); this one exists for the grant below on a fresh database.
 DROP VIEW IF EXISTS v_orders_weekly;
 CREATE VIEW v_orders_weekly AS
   WITH first_orders AS (
@@ -6573,6 +6575,8 @@ LEFT JOIN v_household_membership vm ON vm.member_id = e.member_id;
 -- the buyer branch. Flagged in the C3 closing report as a judgment call, not
 -- a verified behavior.
 
+-- Commerce 5 (2026-11-18): REPLACED in the COMMERCE 5 block (same columns, reportable orders only);
+-- this definition lets the views below be created on a fresh database.
 DROP VIEW IF EXISTS v_customer_bag_attribution CASCADE;
 CREATE VIEW v_customer_bag_attribution AS
 SELECT
@@ -10272,7 +10276,8 @@ LEFT JOIN LATERAL (
   WHERE hm.household_id = h.id
 ) mc ON true;
 
--- D19: the admin numbers card, one row.
+-- D19: the admin numbers card, one row. Commerce 5 (2026-11-18): REPLACED in the COMMERCE 5 block
+-- (house orders = reportable orders).
 DROP VIEW IF EXISTS v_household_numbers CASCADE;
 CREATE VIEW v_household_numbers AS
 WITH open_h AS (SELECT id FROM household WHERE dissolved_at IS NULL),
@@ -12605,6 +12610,213 @@ LEFT JOIN LATERAL (
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END ELLA'S BLOOM MAP 7 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- COMMERCE 5 block (2026-11-18) — reporting and bookkeeping.
+-- backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_5_REPORTING_AND_BOOKKEEPING.md
+-- One read path for every revenue, order count and "bags this customer has":
+-- v_order_reportable (live mode, revenue status, refunds netted, the business
+-- date). Test and refunded orders stay in "order"; the lookups decide what
+-- counts (G2.1: no status list in a view body). Placed after v_order_status
+-- and before the grant blocks: the views it replaces are defined earlier in
+-- this file, before "order" / order_event exist on a fresh database, so they
+-- are re-pointed here (v_customer_bag_attribution with CREATE OR REPLACE,
+-- same columns, so its eight dependents survive).
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- A1. Which Stripe account an order was paid in (G2.7 lookup). is_reportable
+-- is the rule (decision 3): only live orders count in reports.
+CREATE TABLE IF NOT EXISTS commerce_stripe_mode (
+  id            SERIAL PRIMARY KEY,
+  code          TEXT UNIQUE NOT NULL,
+  label         TEXT NOT NULL,
+  is_reportable BOOLEAN NOT NULL DEFAULT false
+);
+INSERT INTO commerce_stripe_mode (code, label, is_reportable) VALUES
+  ('test', 'Test mode (Stripe sandbox)', false),
+  ('live', 'Live mode',                  true)
+ON CONFLICT (code) DO NOTHING;
+
+-- Set at insert from the livemode of the Stripe object the webhook delivers
+-- (Dana, 2026-11-18, decision 6), never updated (D11). Backfilled once by
+-- migrations/commerce_2026_11_17_stripe_mode.sql; NOT NULL only after that
+-- (the DO block below takes effect on the first boot with no NULL left;
+-- index.ts reports [commerce-integrity] until then).
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS stripe_mode TEXT REFERENCES commerce_stripe_mode(code);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM "order" WHERE stripe_mode IS NULL) THEN
+    ALTER TABLE "order" ALTER COLUMN stripe_mode SET NOT NULL;
+  END IF;
+END $$;
+
+-- A2. Which payment states count as revenue (decision 3): paid and partly
+-- refunded count (net); fully refunded does not. Filled once for the three
+-- seeded codes; a later code states it at insert.
+ALTER TABLE order_payment_status ADD COLUMN IF NOT EXISTS counts_as_revenue BOOLEAN;
+UPDATE order_payment_status SET counts_as_revenue = (code IN ('paid', 'partially_refunded')) WHERE counts_as_revenue IS NULL;
+ALTER TABLE order_payment_status ALTER COLUMN counts_as_revenue SET DEFAULT false;
+ALTER TABLE order_payment_status ALTER COLUMN counts_as_revenue SET NOT NULL;
+
+-- A3. The fee is an event, not an UPDATE of "order" (Dana, 2026-11-18,
+-- decision 3): fee_recorded carries the cents in amount_cents, one per order.
+-- live_gate marks the Commerce 4 $1 gate purchase (written by the backfill).
+ALTER TABLE order_event ADD COLUMN IF NOT EXISTS amount_cents INT;
+INSERT INTO order_event_kind (code, label) VALUES
+  ('fee_recorded', 'Stripe fee recorded'),
+  ('live_gate',    'Live-cutover gate purchase')
+ON CONFLICT (code) DO NOTHING;
+CREATE UNIQUE INDEX IF NOT EXISTS order_event_one_fee ON order_event (order_id) WHERE event_kind = 'fee_recorded';
+
+-- A4. Parameters (G2.1). business_time_zone: the zone every business date is
+-- read in (code through commerceParameters.businessTimeZone, the views
+-- below inline). order_bonus_tokens: Liam tokens granted per paid order,
+-- read by orderFinalizer (was config/sommelier tokenEconomy.orderBonus).
+INSERT INTO commerce_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('business_time_zone', NULL::numeric, 'America/New_York'::text, 'The business time zone: business dates (subscription cycles, order dates on Profile, weekly reports) are read in it. The Cloud Scheduler job subscription-daily runs at 06:00 in its own --time-zone, which must match (MANUAL_SETUP_IDS.md). Format: iana time zone.'),
+  ('order_bonus_tokens', 10, NULL, 'Liam tokens granted to the buyer per paid order (orderFinalizer). Range: integer 0 <= value <= 100.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = v.key);
+
+-- A5. The one read path for reports: one row per order.
+CREATE OR REPLACE VIEW v_order_reportable AS
+WITH zone AS (
+  SELECT value_text AS tz FROM commerce_parameter WHERE key = 'business_time_zone' AND superseded_at IS NULL
+),
+fee AS (
+  SELECT DISTINCT ON (e.order_id) e.order_id, e.amount_cents
+  FROM order_event e WHERE e.event_kind = 'fee_recorded'
+  ORDER BY e.order_id, e.created_at DESC, e.id DESC
+),
+bags AS (
+  SELECT oli.order_id, SUM(oli.quantity)::int AS bag_count FROM order_line_item oli GROUP BY oli.order_id
+)
+SELECT o.id AS order_id,
+       o.user_id,
+       o.household_id,
+       o.stripe_mode,
+       o.paid_at,
+       (o.paid_at AT TIME ZONE zone.tz)::date AS paid_on_business_date,
+       ROUND(COALESCE(o.total_amount_paid, 0) * 100)::int AS gross_cents,
+       ROUND(COALESCE(o.shipping_fee_charged, 0) * 100)::int AS shipping_cents,
+       ROUND(COALESCE(o.taxes_collected, 0) * 100)::int AS tax_cents,
+       s.amount_refunded_cents AS refunded_cents,
+       ROUND(COALESCE(o.total_amount_paid, 0) * 100)::int - s.amount_refunded_cents AS net_cents,
+       COALESCE(fee.amount_cents, ROUND(o.transaction_fee * 100)::int) AS transaction_fee_cents,
+       COALESCE(bags.bag_count, 0) AS bag_count,
+       COALESCE(o.is_subscription, false) AS is_subscription,
+       s.payment_status,
+       COALESCE(m.is_reportable AND ps.counts_as_revenue, false) AS is_reportable
+FROM "order" o
+JOIN v_order_status s ON s.order_id = o.id
+LEFT JOIN zone ON true
+LEFT JOIN fee ON fee.order_id = o.id
+LEFT JOIN bags ON bags.order_id = o.id
+LEFT JOIN commerce_stripe_mode m ON m.code = o.stripe_mode
+LEFT JOIN order_payment_status ps ON ps.code = s.payment_status;
+
+-- A6. Weekly orders and revenue for Looker (reporting_ro), reportable
+-- orders only, weeks starting Monday in the business zone. Kept names:
+-- week, orders, new_customers, revenue_cents (now net: gross minus
+-- refunds). Added: gross_cents, refunded_cents, net_cents, fee_cents,
+-- subscription_orders.
+DROP VIEW IF EXISTS v_orders_weekly;
+CREATE VIEW v_orders_weekly AS
+WITH r AS (SELECT * FROM v_order_reportable WHERE is_reportable),
+first_orders AS (
+  SELECT user_id, MIN(paid_on_business_date) AS first_date FROM r WHERE user_id IS NOT NULL GROUP BY user_id
+)
+SELECT date_trunc('week', r.paid_on_business_date::timestamp)::date AS week,
+       COUNT(*) AS orders,
+       COUNT(DISTINCT fo.user_id) FILTER (
+         WHERE date_trunc('week', fo.first_date::timestamp) = date_trunc('week', r.paid_on_business_date::timestamp)
+       ) AS new_customers,
+       SUM(r.net_cents)::bigint AS revenue_cents,
+       SUM(r.gross_cents)::bigint AS gross_cents,
+       SUM(r.refunded_cents)::bigint AS refunded_cents,
+       SUM(r.net_cents)::bigint AS net_cents,
+       SUM(r.transaction_fee_cents)::bigint AS fee_cents,
+       COUNT(*) FILTER (WHERE r.is_subscription) AS subscription_orders
+FROM r
+LEFT JOIN first_orders fo ON fo.user_id = r.user_id
+GROUP BY 1
+ORDER BY 1 DESC;
+GRANT SELECT ON v_orders_weekly TO reporting_ro;
+
+-- A7. Bags (decision 5: filter once). Same columns as the definition above
+-- (Family Household 3, D24), plus the reportable join: a test-mode or fully
+-- refunded order's bags are not the customer's bags; a partly refunded
+-- order keeps them. The eight bag views (timeline, palate, calibration)
+-- read through this one, so they follow.
+CREATE OR REPLACE VIEW v_customer_bag_attribution AS
+SELECT
+  oli.id AS order_line_item_id,
+  o.id AS order_id,
+  rb.coffee_id,
+  COALESCE(oli.order_kind, 'manual') AS order_kind,
+  CASE
+    WHEN claim.user_id IS NOT NULL THEN claim.user_id
+    WHEN oli.intended_for_user_id IS NOT NULL THEN oli.intended_for_user_id
+    WHEN o.household_id IS NULL AND buyer.company_gift_id IS NULL THEN o.user_id
+    ELSE NULL
+  END AS drinker_user_id,
+  CASE
+    WHEN claim.user_id IS NOT NULL THEN 'claim'
+    WHEN oli.intended_for_user_id IS NOT NULL AND oli.intended_for_user_id <> o.user_id THEN 'intended'
+    WHEN oli.intended_for_user_id = o.user_id THEN 'buyer'
+    WHEN o.household_id IS NULL AND buyer.company_gift_id IS NULL THEN 'buyer'
+    ELSE 'unattributed'
+  END AS attribution
+FROM order_line_item oli
+JOIN "order" o ON o.id = oli.order_id
+JOIN v_order_reportable vor ON vor.order_id = o.id AND vor.is_reportable
+JOIN coffee_sku rb ON rb.id = oli.blend_id
+LEFT JOIN user_profile buyer ON buyer.id = o.user_id
+LEFT JOIN LATERAL (
+  SELECT cbc.user_id
+  FROM customer_bag_claim cbc
+  WHERE cbc.coffee_id = rb.coffee_id
+    AND o.household_id IS NOT NULL
+    AND EXISTS (SELECT 1 FROM v_household_membership vm
+                WHERE vm.user_id = cbc.user_id AND vm.household_id = o.household_id AND vm.status_code = 'active')
+  ORDER BY cbc.occurred_at ASC
+  LIMIT 1
+) claim ON true;
+
+-- A8. The admin Households numbers: house orders are reportable orders only.
+-- Same columns as the Family Household 3 definition.
+CREATE OR REPLACE VIEW v_household_numbers AS
+WITH open_h AS (SELECT id FROM household WHERE dissolved_at IS NULL),
+     active AS (
+       SELECT hm.household_id FROM household_member hm
+       JOIN household_member_status s ON s.id = hm.status_id AND s.code = 'active'
+       JOIN open_h ON open_h.id = hm.household_id
+     ),
+     house_orders AS (
+       SELECT o.id, SUM(oli.quantity) AS bags
+       FROM "order" o
+       JOIN v_order_reportable vor ON vor.order_id = o.id AND vor.is_reportable
+       JOIN order_line_item oli ON oli.order_id = o.id
+       WHERE o.household_id IS NOT NULL
+       GROUP BY o.id
+     )
+SELECT
+  (SELECT COUNT(*)::int FROM open_h) AS households,
+  (SELECT COUNT(*)::int FROM active) AS active_members,
+  (SELECT ROUND(COUNT(*)::numeric / NULLIF((SELECT COUNT(*) FROM open_h), 0), 2) FROM active) AS avg_members_per_household,
+  (SELECT COUNT(*)::int FROM quiz_session WHERE taken_by_user_id IS NOT NULL) AS proxy_quizzes,
+  (SELECT COUNT(*)::int FROM user_profile up JOIN user_type ut ON ut.id = up.user_type_id AND ut.name = 'household_managed') AS managed_profiles,
+  (SELECT COUNT(*)::int FROM customer_identity_link cil
+    WHERE cil.how = 'household_claim' AND NOT EXISTS (SELECT 1 FROM customer_identity_unlink u WHERE u.link_id = cil.id)) AS claims,
+  (SELECT ROUND((SELECT COUNT(*) FROM customer_identity_link cil
+                  WHERE cil.how = 'household_claim' AND NOT EXISTS (SELECT 1 FROM customer_identity_unlink u WHERE u.link_id = cil.id))::numeric
+                / NULLIF((SELECT COUNT(*) FROM user_profile up JOIN user_type ut ON ut.id = up.user_type_id AND ut.name = 'household_managed'), 0), 2)) AS claim_rate,
+  (SELECT COUNT(*)::int FROM house_orders) AS house_orders,
+  (SELECT ROUND(AVG(bags), 2) FROM house_orders) AS bags_per_house_order;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END COMMERCE 5 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its

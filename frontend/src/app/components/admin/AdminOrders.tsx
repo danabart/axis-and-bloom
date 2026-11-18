@@ -16,11 +16,13 @@ interface Lookup { code: string; label: string }
 interface Lookups {
   carriers: Array<Lookup & { has_tracking_link: boolean }>; refundReasons: Lookup[];
   paymentStatuses: Lookup[]; fulfillmentStatuses: Lookup[]; refundWindowDays: number;
+  stripeModes: Array<Lookup & { is_reportable: boolean }>;
 }
 interface OrderRow {
   orderId: string; paidAt: string; totalCents: number; bags: number; isSubscription: boolean;
   customer: { name: string | null; email: string | null };
   paymentLabel: string | null; fulfillmentStatus: string | null; fulfillmentLabel: string | null; amountRefundedCents: number; tracking: string | null;
+  stripeMode: string | null; stripeModeLabel: string | null;
 }
 interface OrderDetail {
   orderId: string; createdAt: string; paidAt: string | null;
@@ -51,7 +53,8 @@ export default function AdminOrders() {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState({ paymentStatus: '', fulfillmentStatus: '', q: '' });
+  // Commerce 5: stripeMode starts unset and defaults to the reportable mode (live) once the lookups arrive; '' = every mode.
+  const [filters, setFilters] = useState<{ paymentStatus: string; fulfillmentStatus: string; q: string; stripeMode: string | null }>({ paymentStatus: '', fulfillmentStatus: '', q: '', stripeMode: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -63,16 +66,22 @@ export default function AdminOrders() {
   }, [user]);
 
   const load = useCallback(async () => {
+    if (filters.stripeMode === null) return;
     setLoading(true);
     try {
-      const qs = new URLSearchParams({ page: String(page), ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)) });
+      const qs = new URLSearchParams({ page: String(page), ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v) as [string, string][]) });
       const data = await authed(`/api/admin/orders?${qs}`);
       setRows(data.orders); setTotal(data.total); setError('');
     } catch (err) { reportError('[AdminOrders/load]', err); setError(err instanceof Error ? err.message : 'Failed to load orders'); }
     finally { setLoading(false); }
   }, [authed, page, filters]);
 
-  useEffect(() => { if (user) authed('/api/admin/commerce/lookups').then(setLookups).catch(err => reportError('[AdminOrders/lookups]', err)); }, [user, authed]);
+  useEffect(() => {
+    if (user) authed('/api/admin/commerce/lookups').then((l: Lookups) => {
+      setLookups(l);
+      setFilters(f => f.stripeMode === null ? { ...f, stripeMode: l.stripeModes.find(m => m.is_reportable)?.code ?? '' } : f);
+    }).catch(err => reportError('[AdminOrders/lookups]', err));
+  }, [user, authed]);
   useEffect(() => { if (user) load(); }, [user, load]);
 
   return (
@@ -89,6 +98,11 @@ export default function AdminOrders() {
           <option value="">Any fulfillment</option>
           {lookups?.fulfillmentStatuses.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
         </select>
+        <select className={input} value={filters.stripeMode ?? ''} data-testid="orders-mode"
+          onChange={e => { setPage(1); setFilters(f => ({ ...f, stripeMode: e.target.value })); }}>
+          <option value="">Any mode</option>
+          {lookups?.stripeModes.map(m => <option key={m.code} value={m.code}>{m.label}</option>)}
+        </select>
         <span className="text-xs text-stone-500 ml-auto">{total} order{total === 1 ? '' : 's'}</span>
       </div>
       {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
@@ -99,7 +113,7 @@ export default function AdminOrders() {
               <th className="text-left px-3 py-2 font-normal">Paid</th><th className="text-left px-3 py-2 font-normal">Customer</th>
               <th className="text-right px-3 py-2 font-normal">Total</th><th className="text-left px-3 py-2 font-normal">Payment</th>
               <th className="text-left px-3 py-2 font-normal">Fulfillment</th><th className="text-left px-3 py-2 font-normal">Sub</th>
-              <th className="text-left px-3 py-2 font-normal">Tracking</th>
+              <th className="text-left px-3 py-2 font-normal">Tracking</th><th className="text-left px-3 py-2 font-normal">Mode</th>
             </tr>
           </thead>
           <tbody>
@@ -113,9 +127,14 @@ export default function AdminOrders() {
                 <td className="px-3 py-2 text-stone-600">{r.fulfillmentLabel ?? '—'}</td>
                 <td className="px-3 py-2 text-stone-600">{r.isSubscription ? 'Yes' : ''}</td>
                 <td className="px-3 py-2 text-xs text-stone-500">{r.tracking ?? ''}</td>
+                <td className="px-3 py-2">{r.stripeMode && (
+                  <span data-testid="order-mode-pill" title={r.stripeModeLabel ?? undefined}
+                    className={`text-xs px-2 py-0.5 rounded-full ${lookups?.stripeModes.find(m => m.code === r.stripeMode)?.is_reportable ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-500'}`}>
+                    {r.stripeMode}
+                  </span>)}</td>
               </tr>
             ))}
-            {!loading && rows.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-stone-400">No orders match.</td></tr>}
+            {!loading && rows.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-stone-400">No orders match.</td></tr>}
           </tbody>
         </table>
       </div>

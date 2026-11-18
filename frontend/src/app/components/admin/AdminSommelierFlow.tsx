@@ -8,7 +8,7 @@ interface SommelierConfig {
   confidenceWeights: Record<string, number>;
   confidenceThresholds: { medium: number; high: number };
   sessionLimits: { maxTurns: number };
-  tokenEconomy: { signupBonus: number; orderBonus: number; costPerTurn: number };
+  tokenEconomy: { signupBonus: number; costPerTurn: number };
   evaluatorRulePriority: string[];
   intents: Record<string, { active: boolean; label: string; ragFocus: string }>;
   confidenceComponents: Record<string, { label: string }>;
@@ -307,7 +307,7 @@ export default function AdminSommelierFlow() {
               <p className={STAT_BIG}>{stats.tokenStats.totalTokensIssued.toLocaleString()}</p>
               {showValues && (
                 <p className="text-xs text-stone-400 mt-1">
-                  Signup: +{config.tokenEconomy.signupBonus} · Order: +{config.tokenEconomy.orderBonus}
+                  Signup: +{config.tokenEconomy.signupBonus} · Order bonus on Commerce
                 </p>
               )}
             </div>

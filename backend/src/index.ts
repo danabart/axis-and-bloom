@@ -306,6 +306,18 @@ async function start() {
     console.error('Catalog Blueprint brief 5a NOT NULL check error (non-fatal):', err);
   }
 
+  // Commerce 5 (2026-11-18): "order".stripe_mode becomes NOT NULL on the first
+  // boot after migrations/commerce_2026_11_17_stripe_mode.sql leaves no NULL
+  // (schema.sql DO block). Reported, never blocking (G2.18).
+  try {
+    const nullMode = await db.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM "order" WHERE stripe_mode IS NULL`);
+    if (nullMode.rows[0].n > 0) {
+      console.warn(`[commerce-integrity] "order".stripe_mode is NULL on ${nullMode.rows[0].n} order(s): run migrations/commerce_2026_11_17_stripe_mode.sql; those orders count in no report until then`);
+    }
+  } catch (err) {
+    console.error('Commerce 5 stripe_mode check error (non-fatal):', err);
+  }
+
   try {
     await initSommelierConfig();
   } catch (err) {

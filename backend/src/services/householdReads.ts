@@ -6,7 +6,7 @@ import { db } from '../db/client.js';
 import { householdParam } from './householdParameters.js';
 import { getDialTurnsByOthers } from './customerReads.js';
 import { resolveDrinkerLine } from './subscriptionShipment.js';
-import { commerceParam } from './commerceParameters.js';
+import { commerceParam, businessTimeZone } from './commerceParameters.js';
 
 /** The profile id behind a Firebase uid, or null (no /sync yet). */
 export async function profileIdForUid(uid: string): Promise<string | null> {
@@ -301,7 +301,7 @@ async function houseSubscriptionView(householdId: string, viewerId: string, view
 async function handoverOfferView(userId: string) {
   const offer = await openHandoverOffer(userId);
   if (!offer) return null;
-  const until = new Date(offer.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'America/New_York' });
+  const until = new Date(offer.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: await businessTimeZone() });
   return {
     pct: offer.pct,
     expiresAt: offer.expiresAt,

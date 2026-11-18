@@ -18,7 +18,7 @@ export class CommerceParameterError extends Error {
 }
 const invalid = (message: string) => new CommerceParameterError(400, 'COMMERCE_PARAMETER_INVALID', message);
 
-const FORMAT = /Format:\s*(email or empty|email|integer list|stripe tax code|dial slot)\b/i;
+const FORMAT = /Format:\s*(email or empty|email|integer list|stripe tax code|dial slot|iana time zone)\b/i;
 const FORMAT_CHECKS: Record<string, (v: string) => boolean> = {
   'email': v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
   // Commerce 4 Part D: live_gate_override_email, empty = the gate is off.
@@ -28,6 +28,8 @@ const FORMAT_CHECKS: Record<string, (v: string) => boolean> = {
   // Website 2 (2026-11-04): home_featured_slot, archetype_code:sort_order
   // (homeContentReads.parseDialSlot reads it; an unknown slot shows no featured coffee).
   'dial slot': v => /^[a-z_]+:\d+$/.test(v),
+  // Commerce 5 (2026-11-18): business_time_zone, a zone this runtime knows ('UTC' is valid but not in the list).
+  'iana time zone': v => v === 'UTC' || Intl.supportedValuesOf('timeZone').includes(v),
 };
 
 /** The text format a parameter's note declares, or null when it declares none. */
@@ -65,6 +67,16 @@ export async function commerceParamText(key: string): Promise<string> {
   const row = (await currentRows()).get(key);
   if (!row || row.value_text === null) throw new Error(`commerce_parameter '${key}' has no current text value`);
   return row.value_text;
+}
+
+/** The business time zone (IANA), the `business_time_zone` row (Commerce 5). Every business date is read in it. */
+export async function businessTimeZone(): Promise<string> {
+  return (await commerceParamText('business_time_zone')).trim();
+}
+
+/** A moment's date (YYYY-MM-DD) in the business time zone. */
+export async function businessDate(at: Date = new Date()): Promise<string> {
+  return at.toLocaleDateString('en-CA', { timeZone: await businessTimeZone() });
 }
 
 export interface CommerceParameterRow {

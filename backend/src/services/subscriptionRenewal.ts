@@ -31,7 +31,7 @@ import { commerceParam, commerceParamText } from './commerceParameters.js';
 import { stripe, STRIPE_ENABLED, getOrCreateStripeCustomer } from './stripe.js';
 import { resolveSubscriptionShipment, type ShipmentLine } from './subscriptionShipment.js';
 import {
-  todayEastern, lapseIfOverdue, resumeDuePauses, coveredBy, skipCoveredCycle, recordChargeAttempt, releaseChargeAttempt,
+  todayBusiness, lapseIfOverdue, resumeDuePauses, coveredBy, skipCoveredCycle, recordChargeAttempt, releaseChargeAttempt,
   markRenewalFailed, recordSubscriptionEvent, type ChargeClaim,
 } from './subscriptionService.js';
 import { sendSubscriptionUpcomingEmail, sendPaymentTroubleEmail, sendAdminSubscriptionAttentionEmail } from './subscriptionEmails.js';
@@ -253,7 +253,8 @@ async function sendUpcomingNotices(today: string): Promise<number> {
   return sent;
 }
 
-export async function runSubscriptionDaily(today: string = todayEastern()): Promise<DailyResult> {
+export async function runSubscriptionDaily(todayIn?: string): Promise<DailyResult> {
+  const today = todayIn ?? await todayBusiness();
   const resumed = await resumeDuePauses(today);
   const lapsed = await lapseIfOverdue(today);
   const upcomingSent = await sendUpcomingNotices(today);

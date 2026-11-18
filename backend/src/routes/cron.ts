@@ -18,6 +18,7 @@ import { runEvals, addCustomerPhrasings, evalConfig } from '../services/sommelie
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { lapseSponsoredSubscription } from '../services/subscriptionService.js';
 import { runSubscriptionDaily } from '../services/subscriptionRenewal.js';
+import { syncStripeFees } from '../services/stripeFeeSync.js';
 import { surfaceIsMap } from '../services/dialReads.js';
 import { moves as mapMoves } from '../services/matchService.js';
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -626,7 +627,10 @@ router.get('/subscription-daily', requireCronSecret, async (_req, res) => {
     const result = await runSubscriptionDaily();
     const count = (o: string) => result.charges.filter(c => c.outcome === o).length;
     console.log(`[cron/subscription-daily] ${result.today}: resumed ${result.resumed.length}, lapsed ${result.lapsed.length}, upcoming ${result.upcomingSent}, charged ${count('charged')}, declined ${count('declined')}, unresolved ${count('unresolved')}, skipped ${count('skipped_paused') + count('skipped_skip')}, already ${count('already_attempted')}, errors ${count('error')}`);
-    res.json(result);
+    // Commerce 5 (2026-11-18): Stripe fees on orders that have none yet (stripeFeeSync).
+    const fees = await syncStripeFees();
+    console.log(`[cron/subscription-daily] fees (${fees.mode}): checked ${fees.checked}, recorded ${fees.recorded}, pending ${fees.pending}, errors ${fees.errors}`);
+    res.json({ ...result, fees });
   } catch (err) {
     console.error('[cron/subscription-daily]', err);
     res.status(500).json({ error: 'Cron job failed' });

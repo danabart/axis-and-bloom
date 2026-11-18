@@ -15,6 +15,7 @@ import { sendOnce, type SendOnceResult } from './transactionalEmail.js';
 import { directDisplay } from './cartResolver.js';
 import { archetypeLabel } from './catalogReads.js';
 import { MANAGED_UID_PREFIX } from './householdManaged.js';
+import { businessTimeZone } from './commerceParameters.js';
 
 const IMAGE_BASE = 'https://storage.googleapis.com/axis-bloom-assets/raw/email/archetype-card';
 const FRONTEND_URL = () => (process.env.FRONTEND_URL ?? 'http://localhost:5173').replace(/\/$/, '');
@@ -123,7 +124,7 @@ export async function sendHandoverEmail(input: {
 }): Promise<SendOnceResult | null> {
   const to = await signInEmail(input.firebaseUid);
   if (!to) return null;
-  const until = new Date(input.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'America/New_York' });
+  const until = new Date(input.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: await businessTimeZone() });
   const headline = input.firstName ? `${input.firstName}, keep the household box coming.` : 'Keep the household box coming.';
   const body = [
     `${input.householdName ?? 'Your household'}'s box can continue on your side.`,

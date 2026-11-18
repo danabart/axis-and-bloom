@@ -17,7 +17,7 @@
 // Every write stamps subscription.updated_at, so Liam's customer block
 // (customerReads watermark) rebuilds when a subscription changes.
 import { db, withTransaction, type Tx } from '../db/client.js';
-import { commerceParam, commerceParamText } from './commerceParameters.js';
+import { commerceParam, commerceParamText, businessDate, businessTimeZone } from './commerceParameters.js';
 import { refreshLifecycleState } from './userLifecycle.js';
 import { stripe, STRIPE_ENABLED, getOrCreateStripeCustomer } from './stripe.js';
 import { resolveSubscriptionShipment, subscriptionDiscountPct } from './subscriptionShipment.js';
@@ -25,10 +25,9 @@ import { sendSelfServiceEmail, type SelfServiceEmailKind, type SelfServiceFacts 
 
 type Runner = Pick<Tx, 'query'>;
 
-export const BUSINESS_TZ = 'America/New_York';
-/** Today's calendar date in US Eastern, YYYY-MM-DD. */
-export function todayEastern(now: Date = new Date()): string {
-  return now.toLocaleDateString('en-CA', { timeZone: BUSINESS_TZ });
+/** Today's calendar date in the business time zone (commerce_parameter business_time_zone), YYYY-MM-DD. Commerce 5: was todayEastern() over a BUSINESS_TZ constant (G2.1). */
+export async function todayBusiness(now: Date = new Date()): Promise<string> {
+  return businessDate(now);
 }
 
 export type SubscriptionStatus = 'pending' | 'active' | 'past_due' | 'paused' | 'canceled' | 'lapsed';
@@ -141,7 +140,7 @@ export async function createPaidSubscriptionFromCheckout(
 ): Promise<string> {
   const weeks = cs.subscription_intent?.frequencyWeeks;
   if (!weeks) throw new Error(`checkout_session ${cs.id} has no subscription intent`);
-  const today = paid.today ?? todayEastern();
+  const today = paid.today ?? await todayBusiness();
   // Family Household 3 (T2): a bag for another member stores no archetype; it follows that member.
   const forOther = (l: CheckoutLineRow) => Boolean(l.intended_for_user_id && l.intended_for_user_id !== cs.user_id);
   const archetype = lines.find(l => !forOther(l) && l.archetype && l.source !== 'direct')?.archetype ?? null;
@@ -253,10 +252,10 @@ export async function recordChargeAttempt(subscriptionId: string, today: string,
      FROM old
      WHERE s.id = old.id AND s.kind = 'paid' AND s.status = 'active'
        AND s.next_delivery_date <= $2::date
-       AND (s.last_charge_attempt_at IS NULL OR (s.last_charge_attempt_at AT TIME ZONE '${BUSINESS_TZ}')::date < s.next_delivery_date)
+       AND (s.last_charge_attempt_at IS NULL OR (s.last_charge_attempt_at AT TIME ZONE $3)::date < s.next_delivery_date)
      RETURNING s.next_delivery_date::text AS cycle_date, old.last_charge_attempt_at::text AS previous_attempt_at,
                (EXTRACT(EPOCH FROM s.last_charge_attempt_at) * 1000)::bigint::text AS attempt_ms`,
-    [subscriptionId, today]
+    [subscriptionId, today, await businessTimeZone()]
   );
   const row = r.rows[0];
   return row ? { cycleDate: row.cycle_date, previousAttemptAt: row.previous_attempt_at, attemptAt: Number(row.attempt_ms) } : null;
@@ -351,7 +350,8 @@ async function firebaseUidOf(subscriptionId: string, runner: Runner): Promise<st
  * retries can never charge a lapsed customer; Task 0 finding 5), and a
  * lifecycle refresh. Returns the subscriptions lapsed.
  */
-export async function lapseIfOverdue(today: string = todayEastern()): Promise<string[]> {
+export async function lapseIfOverdue(todayIn?: string): Promise<string[]> {
+  const today = todayIn ?? await todayBusiness();
   const days = await commerceParam('subscription_past_due_lapse_days');
   const due = (await db.query<{ id: string }>(
     `SELECT id FROM subscription
@@ -528,7 +528,8 @@ export async function skipNext(subscriptionId: string, source: SubscriptionEvent
  * resumeOn (resumeDuePauses), or the customer does earlier. A paused
  * subscription can move its resume date; a past_due one updates its card first.
  */
-export async function pause(subscriptionId: string, resumeOn: string, source: SubscriptionEventSource = 'customer', today: string = todayEastern()): Promise<SelfServiceResult> {
+export async function pause(subscriptionId: string, resumeOn: string, source: SubscriptionEventSource = 'customer', todayIn?: string): Promise<SelfServiceResult> {
+  const today = todayIn ?? await todayBusiness();
   const bounds = await pauseBounds(today);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(resumeOn) || resumeOn < bounds.earliest || resumeOn > bounds.latest) {
     throw new SelfServiceError(422, 'invalid_resume_date', `Pick a resume date between ${bounds.earliest} and ${bounds.latest}.`);
@@ -550,7 +551,8 @@ export async function pause(subscriptionId: string, resumeOn: string, source: Su
  * tomorrow moves to tomorrow (the job runs once in the morning), a later one
  * stays.
  */
-export async function resume(subscriptionId: string, source: SubscriptionEventSource = 'customer', today: string = todayEastern()): Promise<SelfServiceResult> {
+export async function resume(subscriptionId: string, source: SubscriptionEventSource = 'customer', todayIn?: string): Promise<SelfServiceResult> {
+  const today = todayIn ?? await todayBusiness();
   return selfService(subscriptionId, async (tx, row) => {
     requireOpen(row);
     if (row.status !== 'paused') return { changed: false, eventId: null };
@@ -566,7 +568,8 @@ export async function resume(subscriptionId: string, source: SubscriptionEventSo
 }
 
 /** Daily job step 0 (Dana, 2026-10-31): every pause whose resume date has come resumes through resume(), source cron. */
-export async function resumeDuePauses(today: string = todayEastern()): Promise<string[]> {
+export async function resumeDuePauses(todayIn?: string): Promise<string[]> {
+  const today = todayIn ?? await todayBusiness();
   const due = (await db.query<{ id: string }>(
     `SELECT id FROM subscription WHERE kind = 'paid' AND status = 'paused' AND paused_until < $1::date ORDER BY paused_until, id`, [today]
   )).rows;
@@ -588,7 +591,8 @@ export async function resumeDuePauses(today: string = todayEastern()): Promise<s
  * Status canceled, cancel_at today, the event, the lifecycle refresh (Liam
  * access ends with counts_as_subscriber). A paid bag already ordered still ships.
  */
-export async function cancel(subscriptionId: string, source: SubscriptionEventSource = 'customer', today: string = todayEastern(), reason?: string): Promise<SelfServiceResult> {
+export async function cancel(subscriptionId: string, source: SubscriptionEventSource = 'customer', todayIn?: string, reason?: string): Promise<SelfServiceResult> {
+  const today = todayIn ?? await todayBusiness();
   const pre = (await db.query<{ status: SubscriptionStatus; kind: string }>(`SELECT status, kind FROM subscription WHERE id = $1`,
     [/^[0-9a-f-]{36}$/i.test(subscriptionId) ? subscriptionId : '00000000-0000-0000-0000-000000000000'])).rows[0];
   if (pre && pre.kind === 'paid' && !ENDED.includes(pre.status)) await voidOpenRenewalInvoices(subscriptionId);
@@ -685,7 +689,8 @@ export async function allowedFrequencies(): Promise<number[]> {
 }
 
 /** The resume dates a pause may pick: tomorrow through subscription_pause_max_weeks from today. */
-export async function pauseBounds(today: string = todayEastern()): Promise<{ earliest: string; latest: string; maxWeeks: number }> {
+export async function pauseBounds(todayIn?: string): Promise<{ earliest: string; latest: string; maxWeeks: number }> {
+  const today = todayIn ?? await todayBusiness();
   const maxWeeks = await commerceParam('subscription_pause_max_weeks');
   const r = (await db.query<{ earliest: string; latest: string }>(
     `SELECT ($1::date + 1)::text AS earliest, ($1::date + $2::int * 7)::text AS latest`, [today, maxWeeks]

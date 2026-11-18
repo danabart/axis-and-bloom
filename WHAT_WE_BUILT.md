@@ -6936,3 +6936,34 @@ Brief: `backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_1_CAPTUR
   - OT-150: a profile read bumps `updated_at`.
   - OT-151: the `?? 10` order-bonus fallback.
   - OT-145: an admin filter for test rows.
+
+### 276. Commerce 5: reporting and bookkeeping (2026-11-18)
+
+`backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_5_REPORTING_AND_BOOKKEEPING.md` · `CLOSING_REPORT_5.md`. Closes OT-145 to OT-151. Revenue now counts only live, paid orders, and dates follow the business time zone.
+
+- **Test vs live:**
+  - New lookup `commerce_stripe_mode` (test / live, `is_reportable`) and `"order".stripe_mode`.
+  - Set from Stripe's `livemode` on the session or invoice received (`checkoutService.stripeModeOf`), not from the running key.
+  - Backfill: `migrations/commerce_2026_11_17_stripe_mode.sql`, run by hand.
+  - The boot log warns `[commerce-integrity]` while any order has no mode.
+- **What counts:**
+  - `order_payment_status.counts_as_revenue` (paid, partially_refunded).
+  - New view `v_order_reportable`: one row per order with gross / refunded / net cents, `transaction_fee_cents`, bags, the business date and `is_reportable`.
+  - `v_orders_weekly` is rebuilt over it, with business-zone weeks and gross / refunded / net / fee columns. `revenue_cents` = net.
+  - `v_customer_bag_attribution` and `v_household_numbers` count only reportable orders, so the palate views and Liam stop seeing test bags.
+- **Fee:**
+  - `"order"` stays insert-only.
+  - `stripeFeeSync` runs after the subscription daily cron. It records the Stripe fee once per order as an `order_event` `fee_recorded`, using the new `amount_cents` column and a unique index.
+  - It only picks orders in the running key's mode.
+- **Time zone:**
+  - Parameter `business_time_zone` (America/New_York, new format `iana time zone`).
+  - `businessTimeZone()` / `businessDate()` / `todayBusiness()` replace the `BUSINESS_TZ` constant in subscriptions, renewals, household emails and reads, and the Profile order dates.
+- **Order bonus:** parameter `order_bonus_tokens` (10). It is removed from Admin → Sommelier Config, and the Firestore `orderBonus` is retired.
+- **`updated_at`:**
+  - The profile GET, the quiz upsert and the auth sync only bump `updated_at` on a real change.
+  - G2.9 amended to plain `now()` (Dana).
+- **Admin:** a Mode filter and pill on `/admin/orders`, defaulting to the reportable mode.
+- **Tests:**
+  - New: `commerce5Reporting.test.ts`, `users.profileUpdatedAt.test.ts` and `commerceBackfill.test.ts` (the rehearsal runs in a rollback).
+  - Fixtures updated in palate, household, qrDoor, subscription and finalizer tests.
+- **Open:** OT-152 (the rest of `tokenEconomy` in Firestore) and OT-153 (admin Stripe links use the key's mode).

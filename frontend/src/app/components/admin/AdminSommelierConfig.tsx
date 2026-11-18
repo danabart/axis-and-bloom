@@ -39,7 +39,7 @@ interface SommelierConfig {
     phraseModel: string; phraseMaxTokens: number; phrasePrompt: string; maxMessageChars: number;
     offline?: { enabled: boolean; model: string; missShareThreshold: number };
   };
-  tokenEconomy: { signupBonus: number; orderBonus: number; costPerTurn: number; purchaseEnabled: boolean };
+  tokenEconomy: { signupBonus: number; costPerTurn: number; purchaseEnabled: boolean };
   ragLimits: { maxCoffees: number };
   timeWindows: Record<string, number>;
   evaluatorRulePriority: string[];
@@ -418,9 +418,9 @@ export default function AdminSommelierConfig() {
       <section className="mb-8">
         <h2 className="text-sm font-normal tracking-widest uppercase text-stone-400 mb-4">Token Economy</h2>
         <div className="border border-stone-200 rounded-lg p-4 space-y-4">
+          {/* Commerce 5 (2026-11-18): the order bonus is the commerce parameter order_bonus_tokens (/admin/commerce). */}
           {[
             { key: 'signupBonus', label: 'Signup bonus tokens' },
-            { key: 'orderBonus', label: 'Order bonus tokens' },
           ].map(({ key, label }) => (
             <label key={key} className="flex items-center justify-between gap-4">
               <span className="text-sm text-stone-700">{label}</span>
@@ -428,11 +428,14 @@ export default function AdminSommelierConfig() {
                 type="number"
                 min="0"
                 className="w-24 border border-stone-200 rounded px-3 py-1.5 text-sm text-right"
-                value={config.tokenEconomy[key as 'signupBonus' | 'orderBonus']}
+                value={config.tokenEconomy[key as 'signupBonus']}
                 onChange={(e) => updateConfig(['tokenEconomy', key], parseInt(e.target.value) || 0)}
               />
             </label>
           ))}
+          <p className="text-xs text-stone-400">
+            Order bonus tokens are set on <a href="/admin/commerce" className="underline">Commerce</a> (order_bonus_tokens).
+          </p>
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm text-stone-700">Tokens per turn</p>
