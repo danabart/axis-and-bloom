@@ -220,7 +220,8 @@ export const DIAL_SEED_CODES: Record<string, string[]> = {
 export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_available', 'choose_this', 'see_whole_map', 'trail_title', 'trail_start', 'moved_to', 'email_map_intro',
   // Ella map 7 (2026-11-17): the /map page
   'map_eyebrow', 'map_title_first', 'map_title_after', 'map_intro', 'first_bag_title', 'here_title', 'why_this_one',
-  'steps_title', 'steps_hint', 'see_it', 'make_next_bag', 'closing_line'];
+  'steps_title', 'steps_hint', 'see_it', 'make_next_bag', 'closing_line',
+  'add_first_bag', 'added_to_cart'];
 export const DIAL_PARAMETER_KEYS = [
   'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
   'dial_w_ring', 'dial_w_body', 'dial_w_sweet', 'dial_w_lane', 'dial_cap_different',

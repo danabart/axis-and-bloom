@@ -158,8 +158,14 @@ export interface RoasterFacts {
   dimensions: Array<{ dimension_id: number; label: string; low_label: string; high_label: string; value: number }>;
   notes: Array<{ rank: number; roaster_words: string; cupping_note_id: string | null }>;
 }
+/** Ella map 8 (C4): a coffee's buyability at the anchor size (v_dial_coffee_availability). */
+export interface CoffeeAvailability {
+  coffee_id: number; is_sellable: boolean; size_label: string | null; price_cents: number | null;
+  has_sku: boolean; has_price: boolean; map_name: string;
+}
 export interface DecidedMap {
   version: { id: number; label: string; reason: string | null; cut_at: string; activated_at: string } | null;
+  availability: CoffeeAvailability[];
   placements: DecidedPlacement[];
   activeSteps: StepRow[];
   steps: StepRow[];

@@ -163,11 +163,15 @@ export interface ResolvedCoffeeBlend {
 // resolveBlendForSlot — quantity_available is never checked (drop-ship model).
 // Not moved onto a view — this reads coffees/roaster_blend directly by coffee_id,
 // which isn't a slot/placement question at all (D2: an owned-coffee lookup).
+// Ella map 8 (2026-11-18): the size must be switched on (coffee_size.is_active),
+// the same rule the dial path gets from v_coffee_sellable_candidate, so a
+// direct line at a switched-off size is refused as "unavailable".
 export async function resolveCoffeeBlend(coffeeId: number, weightOz: number): Promise<ResolvedCoffeeBlend | null> {
   const result = await db.query(
     `SELECT rb.id AS blend_id, rb.roaster_sku, rb.shopify_variant_id
      FROM coffee_sku rb
      JOIN coffees c ON c.id = rb.coffee_id
+     JOIN coffee_size sz ON sz.weight_oz = rb.weight_oz AND sz.is_active = true
      WHERE rb.coffee_id = $1 AND rb.weight_oz = $2 AND rb.is_active = true AND c.is_active = true`,
     [coffeeId, weightOz]
   );

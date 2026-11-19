@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { db, withTransaction, type Tx } from '../db/client.js';
 import { getAvgCuppingScore } from './dialSuggestion.js';
 import { refreshDialSignal } from './cuppingService.js';
-import { getSizes, getAnchorSize } from './catalogReads.js';
+import { getSizes, getAnchorSize, clearSizeCache } from './catalogReads.js';
 import { commerceParamText } from './commerceParameters.js';
 import { getFamilies } from './evidenceReads.js';
 import { record } from './customerFacts.js';
@@ -608,6 +608,8 @@ export interface UpdateCoffeeInput {
   // else here, so it belongs on this verb rather than losing a feature on
   // retirement. `null` clears it; `undefined` leaves it untouched.
   originRegion?: string | null;
+  /** Ella map 8: the short customer name; `null` clears it, `undefined` leaves it. Never a roaster name. */
+  shortName?: string | null;
 }
 // Split the same way createCoffee / createCoffeeInTx are, so a caller that already
 // holds a transaction (the roastery portal's accept, one transaction for create +
@@ -620,6 +622,19 @@ export async function updateCoffeeInTx(
   const before = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
   await fetchCoffeeRow(tx, input.coffeeId);
   const setOriginRegion = input.originRegion !== undefined;
+  if (input.shortName !== undefined) {
+    const next = input.shortName === null ? null : input.shortName.trim();
+    if (next === '') throw new CatalogError(400, 'INVALID_INPUT', 'shortName must not be blank (send null to clear it)');
+    if (next !== null && next.length > 40) throw new CatalogError(400, 'INVALID_INPUT', 'shortName is at most 40 characters');
+    if (next !== null) {
+      const roaster = (await tx.query<{ name: string }>(
+        `SELECT r.name FROM coffees c JOIN roaster r ON r.id = c.roaster_id WHERE c.id = $1`, [input.coffeeId])).rows[0];
+      if (roaster && next.toLowerCase().includes(roaster.name.trim().toLowerCase())) {
+        throw new CatalogError(400, 'INVALID_INPUT', 'shortName must not contain the roaster name');
+      }
+    }
+    await tx.query(`UPDATE coffees SET short_name = $1 WHERE id = $2`, [next, input.coffeeId]);
+  }
   await tx.query(
     `UPDATE coffees SET
        name = COALESCE($1, name), origin = COALESCE($2, origin), blend_or_single = COALESCE($3, blend_or_single),
@@ -1219,14 +1234,42 @@ export async function upsertSku(input: UpsertSkuInput, ctx: Ctx): Promise<Catalo
   });
 }
 
+// ── Sizes (Ella map 8, 2026-11-18, A4) ─────────────────────────────────────
+// coffee_size's one service writer beside seed. A size is switched off, never
+// removed (G2.11); the anchor cannot be switched off (integrity check 14 needs
+// one active anchor). No-op when unchanged.
+export async function setSizeActiveInTx(
+  tx: Tx, input: { weightOz: number; isActive: boolean }, ctx: Ctx
+): Promise<{ weightOz: number; isActive: boolean; unchanged: boolean }> {
+  const before = (await tx.query(`SELECT * FROM coffee_size WHERE weight_oz = $1 FOR UPDATE`, [input.weightOz])).rows[0] ?? null;
+  if (!before) throw new CatalogError(400, 'UNKNOWN_SIZE', `${input.weightOz} oz is not a bag size`);
+  if (before.is_anchor && !input.isActive) throw new CatalogError(409, 'INVALID_INPUT', 'The anchor size cannot be switched off');
+  if (before.is_active === input.isActive) return { weightOz: input.weightOz, isActive: input.isActive, unchanged: true };
+  await tx.query(`UPDATE coffee_size SET is_active = $1, updated_at = now() WHERE weight_oz = $2`, [input.isActive, input.weightOz]);
+  const after = (await tx.query(`SELECT * FROM coffee_size WHERE weight_oz = $1`, [input.weightOz])).rows[0];
+  await logCatalogChange(tx, { entity: 'coffee_size', entityId: String(input.weightOz), action: 'setSizeActive', before, after, changedBy: ctx.actor });
+  clearSizeCache();
+  console.info('[catalog] setSizeActive', { actor: ctx.actor, weightOz: input.weightOz, isActive: input.isActive });
+  return { weightOz: input.weightOz, isActive: input.isActive, unchanged: false };
+}
+
+export async function setSizeActive(
+  input: { weightOz: number; isActive: boolean }, ctx: Ctx
+): Promise<CatalogWriteResult<{ weightOz: number; isActive: boolean; unchanged: boolean }>> {
+  const result = await withTransaction(tx => setSizeActiveInTx(tx, input, ctx));
+  clearSizeCache(); // again after commit: a read before the commit could have cached the old list
+  return { result, warnings: [], integrity: [] };
+}
+
 // ── Coffee retail price + categories ────────────────────────────────────────
 // Catalog write-door brief (2026-09-30): the last two catalog tables that were
 // written inline from routes/admin.ts. Same verb shape as everything above.
 
-export async function setCoffeeRetailPrice(
-  input: { coffeeId: number; weightOz: number; retailPriceCents: number }, ctx: Ctx
-): Promise<CatalogWriteResult<{ coffee_id: number; weight_oz: string; retail_price_cents: number }>> {
-  return withTransaction(async (tx) => {
+// Split like upsertSku (Ella map 8): the InTx half validates, writes and logs;
+// the wrapper adds the transaction and the scoped integrity report.
+export async function setCoffeeRetailPriceInTx(
+  tx: Tx, input: { coffeeId: number; weightOz: number; retailPriceCents: number }, ctx: Ctx
+): Promise<{ coffee_id: number; weight_oz: string; retail_price_cents: number }> {
     if (!Number.isInteger(input.coffeeId) || !Number.isFinite(input.weightOz)
       || !Number.isInteger(input.retailPriceCents) || input.retailPriceCents < 0) {
       throw new CatalogError(400, 'INVALID_INPUT', 'coffeeId, weightOz, and a non-negative integer retailPriceCents are required');
@@ -1244,9 +1287,17 @@ export async function setCoffeeRetailPrice(
     );
     const after = (await tx.query(`SELECT * FROM coffee_retail_price WHERE coffee_id = $1 AND weight_oz = $2`, [input.coffeeId, input.weightOz])).rows[0] ?? null;
     await logCatalogChange(tx, { entity: 'coffee_retail_price', entityId: `${input.coffeeId}:${input.weightOz}`, action: 'setCoffeeRetailPrice', before, after, changedBy: ctx.actor });
-    const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId });
     console.info('[catalog] setCoffeeRetailPrice', { actor: ctx.actor, coffeeId: input.coffeeId, weightOz: input.weightOz });
-    return { result: upsert.rows[0], warnings: [], integrity };
+    return upsert.rows[0];
+}
+
+export async function setCoffeeRetailPrice(
+  input: { coffeeId: number; weightOz: number; retailPriceCents: number }, ctx: Ctx
+): Promise<CatalogWriteResult<{ coffee_id: number; weight_oz: string; retail_price_cents: number }>> {
+  return withTransaction(async (tx) => {
+    const result = await setCoffeeRetailPriceInTx(tx, input, ctx);
+    const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId });
+    return { result, warnings: [], integrity };
   });
 }
 

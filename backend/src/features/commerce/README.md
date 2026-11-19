@@ -15,6 +15,7 @@ Decided 2026-10-29 (Dana + CTO session). Four briefs, run in order, each testabl
 
 Standing decisions (Dana, 2026-10-29):
 - Prices come from the admin pricing tables (`coffee_slot_price`, `coffee_retail_price`). Stripe never holds a price.
+  - Ella map 8 (2026-11-18): every map coffee is bought as a direct line (`resolveCart`'s `coffeeId` branch) at `coffee_retail_price`, under the map's name; 12 oz is $29.00, Tiger Stripe and The Village $32.00; 2 lb and 5 lb are switched off (`coffee_size.is_active`) and the direct path refuses a switched-off size. `ella_bloom_map/CLOSING_REPORT_8.md`.
 - Every business number is a `commerce_parameter` row, editable in the admin portal: shipping fee ($5.95 start), free-shipping bag count (2), subscription discounts (5% one bag, 10% two or more bags per delivery), frequencies (2/4/6 weeks), tax switch, alert email.
 - Shipping rule is the same for one-time orders and subscriptions.
 - Tax: the LLC holds an NJ sales tax registration; Stripe Tax computes per charge (packaged coffee is exempt in NJ, so it returns $0 on coffee; other states as nexus is reached).

@@ -375,6 +375,14 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **No slot and no `coffee_hop` in the map code** (`matchService`, `routes/map.ts`, the map pages); no price or add-to-cart on `/map` until prices move to `coffee_retail_price` (brief 4).
 - [ ] **Nothing typed in:** button labels and edge phrases from `dial_hop_phrase`, sentences from `dial_customer_copy`; the customer page names no ring, lane, cell, seam, grade or version.
 
+## Ella's Bloom Map 8: prices, and every map coffee buyable (2026-11-18)
+
+- [ ] **A map coffee is bought as a direct line at `coffee_retail_price`:** `/map` adds `{ coffeeId, weightOz: anchor, priceCents }` through `useCart`; `resolveCart`'s `coffeeId` branch prices it from the pricing table and refuses a stale price (409 `price_changed`); the line, Stripe, the order email and ShipStation carry the map's name (short name, else the coffee's name), never a roaster name or a slot house name.
+- [ ] **The map's sellable rule is coffee, SKU and price:** `v_dial_coffee_availability` (an active coffee, an active SKU at the active anchor size, a `coffee_retail_price` row there); a category (decaf, half-caf) does not exclude a coffee; the match's decaf filter is unchanged.
+- [ ] **No page offers a switched-off size:** `coffee_size.is_active` false leaves `getSizes`, the candidate views and the map; `resolveCoffeeBlend` refuses a direct line at it ("unavailable"); the anchor cannot be switched off.
+- [ ] **A slot price and a retail price for the same coffee agree:** catalog integrity check 15 lists any coffee whose winning slot price (`v_coffee_sellable_slot`) differs from its retail price at the same size.
+
+
 ## Ella's Bloom Map 7: the match rule and the customer page (2026-11-17)
 
 - [ ] **The first bag comes only from `v_dial_start`:** `matchService.firstMatchFor` reads the session's winning `dial_start_rule` row, else the center family's always row; the decision's inputs carry `rule_id`, `family_read`, `scores` and `conditions`. A first bag needs no sellability; in stock, the grade floor and the decaf filter still apply.

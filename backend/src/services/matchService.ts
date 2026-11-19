@@ -23,7 +23,7 @@ import {
 } from './customerReads.js';
 import { getCardPresentations } from './coffeeCardReads.js';
 import { compareCoffee } from './compatibilityReads.js';
-import { getAnchorSize, getSellableSlots } from './catalogReads.js';
+import { archetypeLabel } from './catalogReads.js';
 
 export class MatchError extends Error {
   constructor(public status: 400 | 403 | 404 | 409, public code: string, message: string) {
@@ -392,10 +392,12 @@ export async function me(profileId: string, runner: Runner = db) {
     return phrases.find(p => p.archetype_code === fam && p.move_code === row.move_code)?.button_label
       ?? phrases.find(p => p.move_code === row.move_code)?.button_label ?? null;
   };
+  const names = await dialReads.mapCoffees([...new Set([...trailRows.map(t => t.picked_coffee_id), ...(pos ? [pos.coffeeId] : [])])], runner);
+  const nameOf = (id: number, fallback: string) => names.get(id)?.map_name ?? fallback;
   const trail = trailRows.map((t, i) => ({
     step: t.step, occurredAt: t.occurred_at, move: t.move_code,
     moveWord: moveWord(t, i > 0 ? trailRows[i - 1].picked_coffee_id : null),
-    coffeeId: t.picked_coffee_id, name: t.picked_coffee_name, byOther: t.actor_user_id !== null,
+    coffeeId: t.picked_coffee_id, name: nameOf(t.picked_coffee_id, t.picked_coffee_name), byOther: t.actor_user_id !== null,
     // the customer's own words about this coffee, when they left some (v_customer_feedback_current)
     line: lines.get(t.picked_coffee_id) ?? null,
     // drawn on the active version (R3.9): the face places the dot; no ring, lane or cell goes to the customer
@@ -416,7 +418,7 @@ export async function me(profileId: string, runner: Runner = db) {
   }
   return {
     position: {
-      coffeeId: pos.coffeeId, name: pos.coffeeName, archetypeCode: pos.archetypeCode, isCenter: pos.isCenter === true,
+      coffeeId: pos.coffeeId, name: nameOf(pos.coffeeId, pos.coffeeName), archetypeCode: pos.archetypeCode, isCenter: pos.isCenter === true,
       isInActiveVersion: pos.isInActiveVersion, available, sentence, move: pos.moveCode, occurredAt: pos.occurredAt,
       byOther: pos.actorUserId !== null,
     },
@@ -460,27 +462,46 @@ async function offeredSteps(coffeeId: number, decaf: boolean, runner: Runner) {
   return steps.filter(x => tags.has(x.to_coffee_id) && passesTagFilter(tags.get(x.to_coffee_id), decaf));
 }
 
-/** Per coffee, the anchor-size price where one exists (v_coffee_sellable_slot through catalogReads); none otherwise. */
-async function pricesFor(coffeeIds: number[], runner: Runner): Promise<Map<number, { cents: number; sizeLabel: string }>> {
-  if (!coffeeIds.length) return new Map();
-  const anchor = await getAnchorSize(runner);
-  const rows = await getSellableSlots({ weightOz: anchor.weight_oz }, runner);
-  const out = new Map<number, { cents: number; sizeLabel: string }>();
-  for (const r of rows) {
-    if (coffeeIds.includes(r.coffee_id) && !out.has(r.coffee_id)) out.set(r.coffee_id, { cents: r.retail_price_cents, sizeLabel: r.size_label });
-  }
-  return out;
+/**
+ * Ella map 8 (B1): per coffee on the map, what /map shows and what useCart needs
+ * for a direct line, from v_dial_coffee_availability (coffee, SKU and price at
+ * the anchor size): the map name, the family label, the roaster's words, and a
+ * price only when the coffee is buyable.
+ */
+async function mapFacts(coffeeIds: number[], runner: Runner) {
+  const rows = await dialReads.mapCoffees(coffeeIds, runner);
+  const labels = new Map<string, string>();
+  for (const r of rows.values()) if (r.family_code && !labels.has(r.family_code)) labels.set(r.family_code, await archetypeLabel(r.family_code, runner));
+  return {
+    name: (id: number, fallback: string) => rows.get(id)?.map_name ?? fallback,
+    familyLabel: (id: number) => { const f = rows.get(id)?.family_code; return f ? labels.get(f) ?? null : null; },
+    roasterWords: (id: number) => rows.get(id)?.roaster_words ?? [],
+    price: (id: number): MapPrice | null => {
+      const r = rows.get(id);
+      return r && r.is_sellable && r.price_cents !== null && r.weight_oz !== null
+        ? { cents: r.price_cents, sizeLabel: r.size_label ?? '', weightOz: r.weight_oz } : null;
+    },
+  };
 }
 
+/** A buyable coffee's anchor-size price: what the price chip shows and the cart line carries. */
+export interface MapPrice { cents: number; sizeLabel: string; weightOz: number }
+
 export interface MapStepCard {
-  stepId: number; word: string; coffeeId: number; name: string;
-  /** the step's customer line, or the destination's signature notes when the step has none */
+  stepId: number; word: string; coffeeId: number;
+  /** the map's name (short name, else the coffee's name), the same name the cart line carries */
+  name: string;
+  /** the step's customer line, or the destination's notes when the step has none */
   line: string | null;
+  /** the roaster's own words, else the signature descriptors */
   notes: string[];
-  price: { cents: number; sizeLabel: string } | null;
+  /** null when the coffee is not buyable (the button then records the choice only) */
+  price: MapPrice | null;
+  /** the coffee's family label, the cart line's second line ("Balanced") */
+  familyLabel: string | null;
 }
 export interface MapStepsResult {
-  position: null | { coffeeId: number; name: string; notes: string[]; price: { cents: number; sizeLabel: string } | null; hasBag: boolean };
+  position: null | { coffeeId: number; name: string; notes: string[]; price: MapPrice | null; familyLabel: string | null; hasBag: boolean };
   firstBag: { coffeeId: number; reason: string } | null;
   steps: MapStepCard[];
   copy: Record<string, string>;
@@ -498,15 +519,19 @@ export async function steps(profileId: string, runner: Runner = db): Promise<Map
   const ctx = await customerContext(profileId, null, runner);
   const offered = await offeredSteps(pos.coffeeId, ctx.decaf, runner);
   const ids = [pos.coffeeId, ...offered.map(x => x.to_coffee_id)];
-  const [pres, prices] = await Promise.all([getCardPresentations(ids), pricesFor(ids, runner)]);
-  const notes = (id: number) => pres.get(id)?.signatureNotes ?? [];
+  const [pres, facts] = await Promise.all([getCardPresentations(ids), mapFacts(ids, runner)]);
+  // Ella map 8 (B1, item 8b): the roaster's own words, else today's signature descriptors.
+  const notes = (id: number) => { const w = facts.roasterWords(id); return w.length ? w : pres.get(id)?.signatureNotes ?? []; };
   return {
-    position: { coffeeId: pos.coffeeId, name: pos.coffeeName, notes: notes(pos.coffeeId), price: prices.get(pos.coffeeId) ?? null, hasBag: pos.moveCode !== 'quiz_result' },
+    position: {
+      coffeeId: pos.coffeeId, name: facts.name(pos.coffeeId, pos.coffeeName), notes: notes(pos.coffeeId),
+      price: facts.price(pos.coffeeId), familyLabel: facts.familyLabel(pos.coffeeId), hasBag: pos.moveCode !== 'quiz_result',
+    },
     firstBag: await firstBagReason(profileId, pos, runner),
     steps: offered.map(x => ({
-      stepId: x.id, word: x.button_word, coffeeId: x.to_coffee_id, name: x.to_coffee_name,
+      stepId: x.id, word: x.button_word, coffeeId: x.to_coffee_id, name: facts.name(x.to_coffee_id, x.to_coffee_name),
       line: x.customer_line ?? (notes(x.to_coffee_id).length ? notes(x.to_coffee_id).join(', ') : null),
-      notes: notes(x.to_coffee_id), price: prices.get(x.to_coffee_id) ?? null,
+      notes: notes(x.to_coffee_id), price: facts.price(x.to_coffee_id), familyLabel: facts.familyLabel(x.to_coffee_id),
     })),
     copy,
   };
@@ -532,7 +557,10 @@ export async function mapAccess(uid: string, surfaceCodes: string[]): Promise<{ 
 
 /** The face for the customer API: wedges and the sellable, in-stock placements (no grade, no roaster, no seams: the customer face names none). */
 export async function face(runner: Runner = db) {
-  const placements = await dialReads.customerFace(runner);
+  const raw = await dialReads.customerFace(runner);
+  const names = await dialReads.mapCoffees(undefined, runner);
+  // Ella map 8 (C2): the labels read the map's name (short name, else the coffee's name).
+  const placements = raw.map((p: { coffee_id: number; coffee_name: string }) => ({ ...p, coffee_name: names.get(p.coffee_id)?.map_name ?? p.coffee_name }));
   const w = await dialReads.wedges(runner);
   const version = await dialReads.activeVersion(runner);
   return {

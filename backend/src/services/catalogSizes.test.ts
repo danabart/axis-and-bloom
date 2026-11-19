@@ -17,6 +17,7 @@ import { importCatalog, type Manifest } from './catalogImport.js';
 import { computeCollectionOffer, resolveBlendForSlot, resolveCoffeeBlend } from './blendResolver.js';
 import { runCatalogIntegrityChecks } from './catalogIntegrity.js';
 import { freeSlotsInOneArchetype, liveSellableArchetypes, type FreeSlot } from '../test/freeSlots.js';
+import { allSizesOn } from '../test/allSizesOn.js';
 import {
   getSizes, getAnchorSize, getCoffeeVisibility, getSlotVisibility, getNotSellable, getSellableSlots, clearSizeCache,
 } from './catalogReads.js';
@@ -40,8 +41,10 @@ const slotIds = new Map<string, number>();
 let floralA: FreeSlot;
 let floralB: FreeSlot;
 let collection: FreeSlot[] = [];
+let restoreSizes: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
+  restoreSizes = await allSizesOn(); // Ella map 8: 2 lb and 5 lb are off; this suite tests them
   [floralA, floralB] = await freeSlotsInOneArchetype(2, { archetype: 'floral' });
   collection = await freeSlotsInOneArchetype(3, { notArchetypes: [...await liveSellableArchetypes(), 'floral'] });
   for (const s of [floralA, floralB, ...collection]) slotIds.set(`${s.archetype}/${s.sortOrder}`, s.id);
@@ -69,6 +72,7 @@ afterAll(async () => {
     await db.query(`INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [p.slot_id, p.weight_oz, p.retail_price_cents]);
   }
   await new Promise<void>(resolve => server.close(() => resolve()));
+  await restoreSizes?.();
 });
 
 async function reset() {

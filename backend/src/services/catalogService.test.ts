@@ -11,6 +11,7 @@ import 'dotenv/config';
 import { describe, it, expect, afterAll } from 'vitest';
 import { db } from '../db/client.js';
 import { freeSlotsInOneArchetype } from '../test/freeSlots.js';
+import { allSizesOn } from '../test/allSizesOn.js';
 import {
   CatalogError, createCoffee, placeCoffee, moveCoffee, addGuest, setPriority, setMatchArchetype,
   retireCoffee, restoreCoffee, deactivateRoastery, reactivateRoastery, setHop, upsertSku, setSlotPrice,
@@ -395,6 +396,7 @@ describe('upsertSku roaster SKU codes (Commerce 6, 2026-11-18)', () => {
   it('mints prefix + 4 digits when none is given, keeps a received code, and refuses a change once set', async () => {
     let roaster: { id: string } | undefined;
     let coffeeId: number | undefined;
+    const restoreSizes = await allSizesOn(); // Ella map 8: 5 lb is off; the received-code case writes a 5 lb SKU
     try {
       roaster = await makeRoaster('Vitest Roaster Sku Roastery');
       coffeeId = (await makeCoffee('Vitest Roaster Sku Coffee', roaster.id)).id;
@@ -415,6 +417,7 @@ describe('upsertSku roaster SKU codes (Commerce 6, 2026-11-18)', () => {
       expect(await sku(80)).toBe('VT-5');
     } finally {
       await cleanupRoasterAndCoffees(roaster, coffeeId ? [coffeeId] : []);
+      await restoreSizes();
     }
   });
 });

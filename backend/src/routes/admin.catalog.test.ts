@@ -6,6 +6,7 @@ import 'dotenv/config';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import express from 'express';
 import type { Server } from 'http';
+import { allSizesOn } from '../test/allSizesOn.js';
 
 vi.mock('../middleware/auth.js', () => ({
   requireAdmin: (_req: any, _res: any, next: any) => next(),
@@ -21,8 +22,10 @@ let baseUrl: string;
 
 const ACTOR = { actor: 'vitest' };
 const WEIGHT_OZ = 12;
+let restoreSizes: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
+  restoreSizes = await allSizesOn(); // Ella map 8: 2 lb and 5 lb are off; the slot price read lists every size
   const app = express();
   app.use(express.json());
   // GET /catalog/changes reads api_event — mount the same capture-first
@@ -40,6 +43,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>(resolve => server.close(() => resolve()));
+  await restoreSizes?.();
 });
 
 async function slotId(archetype: string, sortOrder: number): Promise<number> {

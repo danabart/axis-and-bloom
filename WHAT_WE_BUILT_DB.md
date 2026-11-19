@@ -27,6 +27,8 @@ The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXI
 
 `coffees` stays `coffees`; `archetype_enum` (a type, not a table) is unchanged.
 
+> **As of 2026-11-18 (Ella's Bloom Map 8, `WHAT_WE_BUILT.md` #278)**: `v_dial_coffee_availability` at coffee grain (coffee, anchor-size SKU and `coffee_retail_price`; new columns `weight_oz`, `size_label`, `sku_id`, `price_cents`, `has_sku`, `has_price`, `map_name`); column `coffees.short_name` (with `v_coffee.short_name`, check `coffees_short_name_not_blank`); `coffee_size` gains the writer `catalogService.setSizeActive` (2 lb and 5 lb switched off); `dial_customer_copy` rows `add_first_bag`, `added_to_cart`; catalog integrity check 15. Object descriptions in `CATALOG.md`.
+
 > **As of 2026-11-18 (Commerce 6, `WHAT_WE_BUILT.md` #277)**:
 > - **New lookups:** `fulfillment_adapter` (manual, shipstation); `fulfillment_request_status` (the order status each state means, a rank, and rule columns); `fulfillment_event_kind`; `fulfillment_event_source`; `shipping_carrier_external_code` (ShipStation's six carrier codes).
 > - **New tables:**

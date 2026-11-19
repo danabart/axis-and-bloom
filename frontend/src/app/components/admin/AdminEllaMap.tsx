@@ -139,6 +139,7 @@ function CoffeeCard({ d, map, vocab, label, apiFetch, onClose, onChanged, onOpen
   const facts = map.roaster.find(r => r.coffeeId === d.coffee_id) ?? null;
   const published = map.placements.find(p => p.coffee_id === d.coffee_id) ?? null;
   const steps = map.steps.filter(s => s.from_coffee_id === d.coffee_id);
+  const buy = map.availability?.find(a => a.coffee_id === d.coffee_id) ?? null;
   const [lane, setLaneDraft] = useState<string>(d.decided_lane_code ?? '');
   const [ring, setRingDraft] = useState<number | null>(d.decided_ring);
   const [basis, setBasis] = useState('');
@@ -170,6 +171,15 @@ function CoffeeCard({ d, map, vocab, label, apiFetch, onClose, onChanged, onOpen
         <div>
           <p className="font-medium text-stone-900">{d.coffee_name}</p>
           <p className="text-xs text-stone-500">{d.roaster_name}</p>
+          {buy && (
+            <p className="text-xs mt-1" data-testid="card-buyable">
+              {buy.price_cents !== null && <span className="text-stone-800 mr-2">${(buy.price_cents / 100).toFixed(2)} · {buy.size_label}</span>}
+              {buy.is_sellable
+                ? <span className="text-emerald-700">Buyable</span>
+                : <span className="text-amber-700">Not buyable: {!buy.has_sku ? 'no SKU' : !buy.has_price ? 'no price' : 'coffee inactive'}</span>}
+              {buy.map_name !== d.coffee_name && <span className="text-stone-500 ml-2">Shown as {buy.map_name}</span>}
+            </p>
+          )}
         </div>
         <button className="text-xs text-stone-500 hover:underline" onClick={onClose}>Close</button>
       </div>

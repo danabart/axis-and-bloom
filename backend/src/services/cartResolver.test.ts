@@ -23,10 +23,13 @@ vi.mock('./catalogReads.js', () => ({
   getCoffeeRetailPrices: async () => [
     { coffee_id: 77, weight_oz: '12', retail_price_cents: 2100 },
     { coffee_id: 78, weight_oz: '80', retail_price_cents: 9900 },
+    { coffee_id: 79, weight_oz: '12', retail_price_cents: 2900 },
   ],
   getCoffees: async ({ ids }: { ids: number[] }) => ids.map(id => ({ id, name: `Roaster coffee ${id}`, match_archetype: 'earthy' })),
-  getHomeSlot: async (id: number) => (id === 77 ? { slot_name: 'Quiet Ember' } : null),
+  getHomeSlot: async (id: number) => (id === 77 ? { slot_name: 'Quiet Ember' } : id === 79 ? { slot_name: 'Light Floral Edge' } : null),
 }));
+// Ella map 8: a coffee on the active map carries the map's name (79); others keep the house name.
+vi.mock('./dialReads.js', () => ({ mapName: async (id: number) => (id === 79 ? 'La Familia' : null) }));
 const dbQuery = vi.fn();
 vi.mock('../db/client.js', () => ({ db: { query: (...a: unknown[]) => dbQuery(...a) } }));
 
@@ -86,6 +89,12 @@ describe('resolveCart — every kind, server-priced', () => {
     expect(cart.lines[0]).toMatchObject({ coffeeSkuId: 'sku-direct', displayName: 'Quiet Ember', unitPriceCents: 2100, source: 'direct', archetypeLabel: 'Earthy' });
     await expect409(resolveCart([{ coffeeId: 77, weightOz: 12, quantity: 1, priceCents: 1999 }]));
     await expect409(resolveCart([{ coffeeId: 99, weightOz: 12, quantity: 1, priceCents: 2100 }]), 'unavailable'); // unpriced
+  });
+
+  it('direct, Ella map 8: a coffee on the map carries the map name, not its home slot name', async () => {
+    const cart = await resolveCart([{ coffeeId: 79, weightOz: 12, quantity: 1, priceCents: 2900 }]);
+    expect(cart.lines[0]).toMatchObject({ displayName: 'La Familia', unitPriceCents: 2900, source: 'direct' });
+    expect(JSON.stringify(cart)).not.toContain('Light Floral Edge');
   });
 
   it('collection: one line per member, discounted so the members sum to the verified price exactly', async () => {

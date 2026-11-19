@@ -48,8 +48,9 @@ export default function MapTrail() {
           ))}
         </ol>
         <div className="w-full md:w-[320px]">
+          {/* Ella map 8 (C3): no dot is dashed for sellability; the others are quiet dots, as on /map */}
           <EllaMapFace placements={face.placements} wedges={face.wedges} size="full" labelMode="none"
-            highlightCoffeeId={me.position?.coffeeId ?? null} path={me.trail.map(t => t.coffeeId)} />
+            highlightCoffeeId={me.position?.coffeeId ?? null} path={me.trail.map(t => t.coffeeId)} quietOthers />
         </div>
       </div>
     </div>

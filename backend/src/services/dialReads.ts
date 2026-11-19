@@ -337,6 +337,42 @@ export async function customerFace(runner: Runner = db) {
   return r.rows;
 }
 
+// ── Ella's Bloom Map 8 (2026-11-18): coffee-grain availability ───────────────
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_8_PRICES_AND_BUYABLE.md
+
+export interface MapCoffee {
+  coffee_id: number; map_name: string; is_sellable: boolean; in_stock: boolean;
+  weight_oz: number | null; size_label: string | null; price_cents: number | null;
+  has_sku: boolean; has_price: boolean; family_code: string | null;
+  /** the roaster's own bag notes (coffees.flavor_descriptors_roaster), each element split on commas; [] when none */
+  roaster_words: string[];
+}
+
+function wordsOf(raw: unknown): string[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr.flatMap(x => String(x).split(',')).map(w => w.trim()).filter(Boolean);
+}
+
+/** Per coffee on the active map: its map name, availability, anchor size and price (v_dial_coffee_availability). */
+export async function mapCoffees(coffeeIds?: number[], runner: Runner = db): Promise<Map<number, MapCoffee>> {
+  const r = await runner.query(
+    `SELECT av.coffee_id, av.map_name, (c.is_active AND av.is_sellable) AS is_sellable, av.in_stock,
+            av.weight_oz, av.size_label, av.price_cents, av.has_sku, av.has_price, c.match_archetype AS family_code,
+            c.flavor_descriptors_roaster AS roaster_words
+       FROM v_dial_coffee_availability av
+       JOIN v_coffee c ON c.id = av.coffee_id
+      WHERE av.coffee_id IN (SELECT coffee_id FROM v_dial_placement)
+        AND ($1::int[] IS NULL OR av.coffee_id = ANY($1::int[]))`, [coffeeIds ?? null]);
+  return new Map(r.rows.map(x => [x.coffee_id, {
+    ...x, weight_oz: x.weight_oz === null ? null : Number(x.weight_oz), roaster_words: wordsOf(x.roaster_words),
+  }]));
+}
+
+/** The map's name for a coffee on the active map, or null when the coffee is not on it. */
+export async function mapName(coffeeId: number, runner: Runner = db): Promise<string | null> {
+  return (await mapCoffees([coffeeId], runner)).get(coffeeId)?.map_name ?? null;
+}
+
 /** The active version's id and label, or null. */
 export async function activeVersion(runner: Runner = db): Promise<{ id: number; label: string } | null> {
   const r = await runner.query<{ id: number; label: string }>(
@@ -449,8 +485,12 @@ export async function decidedMap(runner: Runner = db) {
             ring_assignment_id, lane_code, decided_lane_code, size, roaster_sweetness, flags
        FROM v_dial_placement_preview ORDER BY archetype_code, coffee_name`)).rows;
   const roaster = await roasterFactsForCoffees(decisions.map(d => d.coffee_id), runner);
+  const av = await runner.query(
+    `SELECT coffee_id, is_sellable, size_label, price_cents, has_sku, has_price, map_name
+       FROM v_dial_coffee_availability WHERE coffee_id = ANY($1::int[])`, [decisions.map(d => d.coffee_id)]);
   return {
     version,
+    availability: av.rows,
     placements,
     activeSteps: await steps('active', runner),
     steps: await steps('current', runner),

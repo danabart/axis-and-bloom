@@ -5201,6 +5201,15 @@ ORDER BY a.sort_order;
 -- `match_archetype`/`match_confidence` is the coffee's current
 -- (non-superseded) archetype_assignments row — its flavor identity (D1) —
 -- never to be confused with placement; see v_coffee_slot below for that.
+-- Ella map 8 (2026-11-18), A2: a short customer name (Dana's Data 2), written
+-- through catalogService.updateCoffee; NULL = the pages use coffees.name. No
+-- roaster name in it.
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS short_name TEXT;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffees_short_name_not_blank') THEN
+    ALTER TABLE coffees ADD CONSTRAINT coffees_short_name_not_blank CHECK (short_name IS NULL OR btrim(short_name) <> '');
+  END IF;
+END $$;
 CREATE OR REPLACE VIEW v_coffee AS
 SELECT
   c.id, c.name, c.origin, c.blend_or_single, c.process, c.roast_level, c.roast_shade,
@@ -5219,7 +5228,8 @@ SELECT
   -- and JSON) for v_evidence_archetype / v_evidence_coverage. Appended last:
   -- this view is CREATE OR REPLACE only (see above).
   aa.notes                        AS match_notes,
-  aa.basis                        AS match_basis
+  aa.basis                        AS match_basis,
+  c.short_name
 FROM coffees c
 LEFT JOIN roaster r              ON r.id = c.roaster_id
 LEFT JOIN coffee_archetype_assignment aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
@@ -10972,17 +10982,25 @@ WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
 
 -- 7. Views ───────────────────────────────────────────────────────────────────
 -- Sellable and in stock at coffee grain, one rule for the preview and the
--- active version. Until the commerce move to coffee grain (README finding
--- 1), is_sellable reads the slot candidate view at the anchor size (Dana
--- 2026-11-10, decision 3); in_stock = an active SKU at the anchor size.
+-- active version. Ella map 8 (2026-11-18), A1: the rule moved to the coffee.
+-- Sellable = an active coffee, an active SKU at the active anchor size and a
+-- coffee_retail_price row at that size; a category (decaf, half-caf) no longer
+-- excludes a coffee. in_stock = an active SKU at the anchor size (unchanged).
+-- The row also carries what a direct cart line needs (size, price, SKU) and
+-- the map's name for the coffee (short name, else the coffee's name).
 CREATE VIEW v_dial_coffee_availability AS
 SELECT c.id AS coffee_id,
-       COALESCE((SELECT bool_or(sc.is_sellable) FROM v_coffee_sellable_candidate sc
-                  JOIN coffee_size z ON z.weight_oz = sc.weight_oz AND z.is_anchor
-                 WHERE sc.coffee_id = c.id), false) AS is_sellable,
-       EXISTS (SELECT 1 FROM coffee_sku k JOIN coffee_size z ON z.weight_oz = k.weight_oz AND z.is_anchor
-                WHERE k.coffee_id = c.id AND k.is_active) AS in_stock
-FROM coffees c;
+       (c.is_active AND k.sku_id IS NOT NULL AND p.retail_price_cents IS NOT NULL) AS is_sellable,
+       (k.sku_id IS NOT NULL) AS in_stock,
+       z.weight_oz, z.label AS size_label, k.sku_id, p.retail_price_cents AS price_cents,
+       (k.sku_id IS NOT NULL) AS has_sku, (p.retail_price_cents IS NOT NULL) AS has_price,
+       COALESCE(NULLIF(btrim(c.short_name), ''), c.name) AS map_name
+FROM coffees c
+LEFT JOIN coffee_size z ON z.is_anchor AND z.is_active
+LEFT JOIN LATERAL (SELECT k.id AS sku_id FROM coffee_sku k
+                    WHERE k.coffee_id = c.id AND k.is_active AND k.weight_oz = z.weight_oz
+                    ORDER BY k.updated_at DESC LIMIT 1) k ON true
+LEFT JOIN coffee_retail_price p ON p.coffee_id = c.id AND p.weight_oz = z.weight_oz;
 
 -- Ella map 7 (2026-11-17), A1: every lane of every wedge, the family the side
 -- leans toward, and whether that side is open (dial_seam.is_open; a side with
@@ -11303,7 +11321,7 @@ SELECT r.coffee_id, r.coffee_name, r.roaster_id, r.roaster_name, r.archetype_cod
          'roast', jsonb_build_object('level', r.roast_level, 'dark', r.is_dark),
          'grade', jsonb_build_object('sessions', r.n_sessions, 'cuppers', r.n_cuppers, 'cupper_weights', r.cupper_weights,
                                      'provisional_notes', to_jsonb(r.provisional_notes)),
-         'sellable', 'v_coffee_sellable_candidate at the anchor size (slot candidate view until the commerce move); in_stock = active anchor-size SKU',
+         'sellable', 'active coffee, active anchor-size SKU and a coffee_retail_price row at the anchor size (Ella map 8); in_stock = active anchor-size SKU',
          'lean', CASE WHEN r.decided_lane_code IS NULL THEN 'no decision: middle used' ELSE 'decision' END,
          'ring', jsonb_build_object('source', CASE WHEN r.decided_ring IS NOT NULL THEN 'decision' ELSE 'calculated' END,
                                     'decided', r.decided_ring, 'calculated', r.calculated_ring, 'ring_assignment_id', r.ring_assignment_id),
@@ -11724,7 +11742,10 @@ FROM (VALUES
   ('steps_hint',          'Tap a step to see it'),
   ('see_it',              'See it'),
   ('make_next_bag',       'Make it my next bag'),
-  ('closing_line',        'Nothing moves until you choose. Your dot moves when you pick a bag.')
+  ('closing_line',        'Nothing moves until you choose. Your dot moves when you pick a bag.'),
+  -- Ella map 8 (2026-11-18): the first-bag button and the cart confirmation
+  ('add_first_bag',       'Add my first bag to the cart'),
+  ('added_to_cart',       'In your cart.')
 ) v(code, text)
 WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = v.code);
 

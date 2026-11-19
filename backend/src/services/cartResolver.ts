@@ -23,6 +23,7 @@ import { db } from '../db/client.js';
 import { resolveBlendForSlot, resolveCoffeeBlend, computeCollectionOffer } from './blendResolver.js';
 import { archetypeLabel, getCoffeeRetailPrices, getCoffees, getHomeSlot } from './catalogReads.js';
 import { commerceParam, commerceParamText } from './commerceParameters.js';
+import { mapName } from './dialReads.js';
 
 export class CartError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -81,9 +82,17 @@ function quantityOf(item: CartItemInput): number {
   return q;
 }
 
-/** A category coffee's house name and match archetype (exported for subscription renewals, Commerce 2). */
+/**
+ * A direct line's name and match archetype (exported for subscription renewals, Commerce 2).
+ * Ella map 8 (Dana 2026-11-18, answer 2a): a coffee on the active map carries
+ * the map's name (short name, else the coffee's name) in the cart, Stripe, the
+ * order email and ShipStation; any other coffee keeps its house name (home slot
+ * name, else the coffee's name).
+ */
 export async function directDisplay(coffeeId: number): Promise<{ displayName: string; archetype: string | null }> {
   const [coffee] = await getCoffees({ ids: [coffeeId] });
+  const onMap = await mapName(coffeeId);
+  if (onMap) return { displayName: onMap, archetype: coffee?.match_archetype ?? null };
   const home = await getHomeSlot(coffeeId);
   return { displayName: home?.slot_name ?? coffee?.name ?? 'Coffee', archetype: coffee?.match_archetype ?? null };
 }

@@ -1,6 +1,6 @@
 import { db } from '../db/client.js';
 import type { Tx } from '../db/client.js';
-import { getNotSellable, getVisibleSlotCounts, getSizeIntegrity } from './catalogReads.js';
+import { getNotSellable, getVisibleSlotCounts, getSizeIntegrity, getPriceMismatches } from './catalogReads.js';
 
 // ── Catalog Blueprint · brief 1 — integrity check service ────────────────────
 // Clone of quizIntegrity.ts's shape. Read-only — this service never writes or
@@ -383,6 +383,28 @@ export async function checkSizes(scope: CheckScope = {}): Promise<CatalogIntegri
   };
 }
 
+// ── 15. A slot price and a retail price for the same coffee agree (report only) ──
+// Ella map 8 (2026-11-18), A3 (G2.14, G2.18): coffee_retail_price is the price
+// of a coffee on the map; a coffee that also wins a slot keeps coffee_slot_price
+// for the old page until brief 4 retires slots, at the same number. Compared
+// against the slot the coffee wins (Dana's answer 1), at every active size.
+export async function checkSlotRetailPriceAgree(scope: CheckScope = {}): Promise<CatalogIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const rows = (await getPriceMismatches(runner)).filter(r => scope.coffeeId === undefined || r.coffee_id === scope.coffeeId);
+  const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+  return {
+    id: 15,
+    name: 'A coffee\'s winning slot price and its retail price agree (report only)',
+    pass: rows.length === 0,
+    expected: 'zero coffees whose winning slot price and retail price differ at the same size',
+    actual: rows.length === 0 ? 'all agree' : `${rows.length} disagreement(s)`,
+    details: rows.length
+      ? rows.map(r => `${r.coffee_name} (coffee ${r.coffee_id}) ${r.size_label}: slot ${r.slot_id} "${r.slot_name}" ${dollars(r.slot_cents)}, retail ${dollars(r.retail_cents)}`)
+      : undefined,
+    severity: 'info',
+  };
+}
+
 const ALL_CHECKS = [
   checkArchetypeIdentity,
   checkDialSlotCounts,
@@ -398,6 +420,7 @@ const ALL_CHECKS = [
   checkSlotIdBackfill,
   checkLegacyRowsForActiveCoffees,
   checkSizes,
+  checkSlotRetailPriceAgree,
 ];
 
 // Optional `tx` (brief 2, Part B) — catalogImport.ts runs the unscoped report

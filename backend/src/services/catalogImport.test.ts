@@ -9,6 +9,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { db } from '../db/client.js';
 import { importCatalog, type Manifest } from './catalogImport.js';
 import { freeSlots, type FreeSlot } from '../test/freeSlots.js';
+import { allSizesOn } from '../test/allSizesOn.js';
 
 // Resolved from process.cwd() (always `backend/`, whether vitest picked up
 // this file from src/ or the compiled dist/ copy), not import.meta.url —
@@ -25,7 +26,9 @@ const ROASTER_NAME = manifest.roaster.name; // "Vitest Import Roastery"
 // of the same archetype (no live placement, no 12 oz price) before the first
 // import, so the cleanup's 12 oz price delete can only touch rows it created.
 const priceSlotIds: number[] = [];
+let restoreSizes: (() => Promise<void>) | undefined;
 beforeAll(async () => {
+  restoreSizes = await allSizesOn(); // Ella map 8: 5 lb is off; the example manifest carries 5 lb SKUs
   const label = (s: FreeSlot) => `${s.archetype}/${s.sortOrder}`;
   const taken = new Set<number>();
   const pick = async (archetype: string) => {
@@ -53,6 +56,7 @@ afterAll(async () => {
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name = $1`, [ROASTER_NAME]);
   if (priceSlotIds.length) await db.query(`DELETE FROM coffee_slot_price WHERE slot_id = ANY($1::int[]) AND weight_oz = 12`, [priceSlotIds]);
+  await restoreSizes?.();
 });
 
 async function countManifestRows() {

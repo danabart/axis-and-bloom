@@ -10,8 +10,18 @@
 // readers); nothing here names a ring, lane, grade, version, basis or roaster.
 // A price shows where one exists (brief 8 makes every coffee buyable).
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_7_MATCH_RULE_AND_CUSTOMER_PAGE.md
+// Ella map 8 (2026-11-18), C1: a buyable coffee shows its price chip, and its
+// button adds one bag at the anchor size to the cart as a direct line (useCart,
+// G4.1) and records the choice as before; a coffee that is not buyable records
+// the choice only. The first bag's button adds it to the cart (the quiz already
+// recorded the position). The cart, checkout and subscribe choice are the
+// existing components.
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_8_PRICES_AND_BUYABLE.md
 import { useCallback, useEffect, useState } from 'react';
 import EllaMapFace from './EllaMapFace';
+import { useCart } from '../../../context/CartContext';
+import { directCartItem } from '../cartItems';
+import type { CartItem } from '../types';
 import {
   getMapFace, getMapSteps, decideMove, useMapFetch,
   type MapFaceData, type MapSteps, type MapStepCard, type MapPrice,
@@ -21,6 +31,13 @@ const INK = 'text-[#3f3a36]';
 const SOFT = 'text-[#6b5a56]';
 const TEAL = '#2f6f68';
 const EYEBROW = 'text-[11px] uppercase tracking-[0.18em] font-semibold';
+
+/** One bag of a buyable map coffee, at its anchor size and price, as a direct line. */
+function mapCartItem(c: { coffeeId: number; name: string; familyLabel: string | null; price: MapPrice | null }): CartItem | null {
+  if (!c.price) return null;
+  return directCartItem({ coffeeId: c.coffeeId, platformName: c.name, archetypeLabel: c.familyLabel }, c.familyLabel ?? '',
+    { weightOz: c.price.weightOz, retailPriceCents: c.price.cents });
+}
 
 function Price({ price }: { price: MapPrice | null }) {
   if (!price) return null;
@@ -72,6 +89,8 @@ export default function MapPage() {
   const [open, setOpen] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [added, setAdded] = useState<number | null>(null);
+  const { addToCart } = useCart();
 
   const load = useCallback(async () => {
     if (!apiFetch) return;
@@ -82,15 +101,21 @@ export default function MapPage() {
   }, [apiFetch]);
   useEffect(() => { void load(); }, [load]);
 
-  const choose = async (coffeeId: number) => {
+  const choose = async (step: MapStepCard) => {
     if (!apiFetch) return;
     setBusy(true);
     try {
-      await decideMove(apiFetch, { move: 'step', coffeeId, requestId: crypto.randomUUID() });
+      await decideMove(apiFetch, { move: 'step', coffeeId: step.coffeeId, requestId: crypto.randomUUID() });
+      const line = mapCartItem(step);
+      if (line) { addToCart(line); setAdded(step.coffeeId); }
       setOpen(null);
       await load();
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
+  };
+  const addFirstBag = (c: Parameters<typeof mapCartItem>[0]) => {
+    const line = mapCartItem(c);
+    if (line) { addToCart(line); setAdded(c.coffeeId); }
   };
 
   if (error && !data) return <main className="max-w-md mx-auto px-4 py-10"><p className={`text-sm ${SOFT}`} data-testid="map-error">{error}</p></main>;
@@ -119,6 +144,15 @@ export default function MapPage() {
           <p className={`text-sm ${SOFT} mt-2`} data-testid="first-bag-reason"><strong className={INK}>{copy.why_this_one}</strong> {first.reason}</p>
         )}
         <Price price={pos.price} />
+        {first && pos.price && (
+          <div>
+            <button type="button" onClick={() => addFirstBag(pos)} data-testid="add-first-bag"
+              className="mt-3 px-4 py-2 rounded-full text-sm font-medium text-white" style={{ background: TEAL }}>
+              {copy.add_first_bag}
+            </button>
+          </div>
+        )}
+        {added === pos.coffeeId && <p className={`text-sm ${SOFT} mt-2`} data-testid="added-to-cart">{copy.added_to_cart}</p>}
       </section>
 
       {data.steps.length > 0 && (
@@ -130,7 +164,7 @@ export default function MapPage() {
           <div className="flex flex-col gap-3">
             {data.steps.map(s => (
               <StepCard key={s.stepId} step={s} copy={copy} open={open === s.stepId} busy={busy}
-                onToggle={() => setOpen(open === s.stepId ? null : s.stepId)} onChoose={() => choose(s.coffeeId)} />
+                onToggle={() => setOpen(open === s.stepId ? null : s.stepId)} onChoose={() => choose(s)} />
             ))}
           </div>
         </section>

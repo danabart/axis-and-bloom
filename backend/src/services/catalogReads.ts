@@ -649,6 +649,23 @@ export async function getVisibleSlotCounts(runner: Runner = db): Promise<Array<{
   return result.rows.map(r => ({ archetype: r.archetype, weight_oz: Number(r.weight_oz), label: r.label, count: Number(r.count) }));
 }
 
+// Ella map 8 (2026-11-18), A3 — integrity check 15's data: a coffee whose
+// winning slot (v_coffee_sellable_slot, at an active size) and retail price
+// (coffee_retail_price, same size) disagree. Dana 2026-11-18, answer 1: the
+// slot a coffee actually wins, not its home slot.
+export async function getPriceMismatches(runner: Runner = db): Promise<Array<{
+  coffee_id: number; coffee_name: string; slot_id: number; slot_name: string; size_label: string; slot_cents: number; retail_cents: number;
+}>> {
+  const r = await runner.query(
+    `SELECT w.coffee_id, w.coffee_name, w.slot_id, w.slot_name, w.size_label,
+            w.retail_price_cents AS slot_cents, r.retail_price_cents AS retail_cents
+       FROM v_coffee_sellable_slot w
+       JOIN coffee_retail_price r ON r.coffee_id = w.coffee_id AND r.weight_oz = w.weight_oz
+      WHERE r.retail_price_cents <> w.retail_price_cents
+      ORDER BY w.coffee_name, w.size_sort_order`);
+  return r.rows;
+}
+
 // Anchor count plus any weight present in the three price/SKU tables but
 // missing from coffee_size — integrity check 14's data.
 export async function getSizeIntegrity(runner: Runner = db): Promise<{ anchorCount: number; orphanWeights: Array<{ table: string; weight_oz: number }> }> {

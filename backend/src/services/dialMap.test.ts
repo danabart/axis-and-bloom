@@ -81,6 +81,8 @@ async function coffee(c: pg.PoolClient, roasterId: string, spec: CoffeeSpec): Pr
     await c.query(`INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, 12, 2900)`, [slot.id]);
     await c.query(`INSERT INTO coffee_sku (coffee_id, roaster_id, blend_name, weight_oz, is_active) VALUES ($1, $2, $3, 12, true)`,
       [coffeeId, roasterId, `Zzz Map ${spec.tag}`]);
+    // Ella map 8: the map's sellable rule is coffee, SKU and coffee_retail_price
+    await c.query(`INSERT INTO coffee_retail_price (coffee_id, weight_oz, retail_price_cents) VALUES ($1, 12, 2900)`, [coffeeId]);
   }
   if (spec.portalWords) {
     const pc = (await c.query<{ id: string }>(

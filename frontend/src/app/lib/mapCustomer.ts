@@ -32,11 +32,16 @@ export interface MapTrailStep {
 }
 /** Ella map 7: the first-bag reason, before any bag */
 export interface MapFirstBag { coffeeId: number; reason: string }
-export interface MapPrice { cents: number; sizeLabel: string }
+/** Ella map 8: a buyable coffee's anchor-size price (null price = not buyable) */
+export interface MapPrice { cents: number; sizeLabel: string; weightOz: number }
 /** Ella map 7: one published step leaving the customer's coffee */
-export interface MapStepCard { stepId: number; word: string; coffeeId: number; name: string; line: string | null; notes: string[]; price: MapPrice | null }
+export interface MapStepCard {
+  stepId: number; word: string; coffeeId: number; name: string; line: string | null; notes: string[]; price: MapPrice | null;
+  /** Ella map 8: the family label the cart line shows */
+  familyLabel: string | null;
+}
 export interface MapSteps {
-  position: null | { coffeeId: number; name: string; notes: string[]; price: MapPrice | null; hasBag: boolean };
+  position: null | { coffeeId: number; name: string; notes: string[]; price: MapPrice | null; familyLabel: string | null; hasBag: boolean };
   firstBag: MapFirstBag | null;
   steps: MapStepCard[];
   copy: Record<string, string>;
