@@ -117,4 +117,6 @@ Read-back (`backend/tmp/em9b_after_prod.txt`):
 
 **Read-back note.** The first read-back through `dialReads.stepsFrom` failed with `column "move_code" does not exist`. The cause is uncommitted edits in the working tree: `dialReads.ts`, `schema.sql` and `comments.sql`, written at 15:13–15:15 local by another session working in the repo during this run (G1.9). Deployed code and the production schema are fine. The apply path did not touch those files (catalogService, dialPlacementService and the evidence reads are unmodified). The steps were read back from `v_dial_step` on prod instead. The other session's files were left untouched and are not in this commit.
 
-Commit: the script, this brief's status line, the README line, `WHAT_WE_BUILT.md` #280 and this report, staged by path.
+Commit **`09f6239`**: the script, this brief's status line, the README line, `WHAT_WE_BUILT.md` #280 and this report, staged by path. All six lints and `tsc --noEmit` were green before the push. Deploy run 44810184146 **green** (backend and frontend) → revision **axis-bloom-backend-00884-b6v**. Startup log: `DB schema verified`; `[data-catalog]` 1 of 11 checks with findings (dead-table candidates, as before); `[evidence-integrity]` #2 = 3, #6 = 3, the same as before; no ERROR.
+
+`/admin/map` was not opened in a browser: another session was working in the repo during this run, and the page needs Dana's signed-in browser. What it renders was read from the same sources on prod: the active version v5 places Brazil in Balanced, and `unpublished()` = 0 ("Nothing to publish").
