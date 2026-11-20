@@ -28,6 +28,7 @@
     "load:cupping-evidence-5": "tsx src/features/cupping_evidence/load/loadCuppingEvidence5.ts",
     "load:cupping-evidence-7": "tsx src/features/cupping_evidence/load/loadCuppingEvidence7.ts",
     "load:cupping-evidence-8": "tsx src/features/cupping_evidence/load/loadCuppingEvidence8.ts",
+    "load:cupping-evidence-10": "tsx src/features/cupping_evidence/load/loadCuppingEvidence10.ts",
     "test": "vitest run",
     "test:db:refresh": "node scripts/refresh-test-db.mjs"
   },

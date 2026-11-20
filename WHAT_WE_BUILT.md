@@ -7019,3 +7019,20 @@ Brief: `backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_1_CAPTUR
 - **Tests:** `dialMap8.test.ts` (8 cases: the availability rule incl. decaf, Data 1 and 2, the direct line with and without a slot and a stale price, the dial line keeps its house name, a switched-off size refused, check 15, the seed twice, short-name rules); `cartResolver.test.ts` map-name case; the size suites (`catalogSizes`, `catalogImport`, `admin.catalog`, `catalogService`'s 5 lb SKU code case) switch the sizes on for their run through `setSizeActive` (`src/test/allSizesOn.ts`); the `dialMap` fixture gains a retail price; `dialMap7` reads map names.
 - **Test DB (2026-11-18):** seed 33 writes, rerun 0; all 18 buyable; edges 306 (production before: 42, 7 coffees). Acceptance in the browser and a stubbed-Stripe checkout (`map8_*.png`).
 - **Production (2026-11-20):** c11907d deployed (rev axis-bloom-backend-00880-6jg, `DB schema verified`); seed `--apply` 30 writes (3 SKUs AB-0016 to AB-0018, 18 retail prices, 7 short names, 2 lb and 5 lb off), rerun 0 writes / 45 unchanged; 18 of 18 map coffees buyable at $29.00 or $32.00; edges 306; `dial_surface` unchanged; `CATALOG.md` regenerated from production.
+
+### 279. Cupping evidence, brief 10: the cupping of 2026-11-20 (2026-11-20)
+
+Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_10_NOV20_CUPPING.md`. Closing report: `CLOSING_REPORT_10.md`. Data only.
+
+**What it is.** Dana and Camila cupped Brazil, Indonesia and D.R. Congo (Joe Bean) and The Daily (Joe Coffee) side by side. It is loaded on prod as **session 43**. This is the first cupping of the three Joe Bean single origins, and the second session for The Daily (after 36).
+- `load/loadCuppingEvidence10.ts` (`npm run load:cupping-evidence-10`): loader 8's shape, copied. The roaster precondition names Joe Bean and Joe Coffee only. It goes through the services only and is idempotent: the second run wrote nothing on test and on prod.
+- It wrote 12 cupper word mappings (light fruits, a bit of fruits, light caramel, light chocolate, raisins, apricot, wood, cedar, leaves, popcorn, nuttella, nutella). The 17 existing mappings were kept.
+- Rows: 4 session coffees with brew rows (78–81), 8 cupper rows and 4 rule merges (scores 171–182). That is 62 numeric values with one span, and 38 descriptors.
+- **Calls:** Dana's flavor-notes line is her call (ruling of 2026-10-23): Brazil balanced_sweet, Indonesia chocolate_nutty, D.R. Congo fruity, The Daily chocolate_nutty. Camila made no call. The uncertain cells (decision 8) were confirmed by Dana, and their readings are in `raw_value`.
+- **Disagreements:** Brazil on Fragrance, Flavor, Body and Finish Length; Indonesia on Fragrance and Finish Length (Aroma and Flavor are Dana's only); D.R. Congo and The Daily none.
+- **Signals:** dial signals 39–42 were recorded by the merges, all with `suggested_slot_id` null (no bands).
+- **`evidence_newer_than_decision`** is true for The Daily. For the three Joe Bean coffees it is null: their assignment has no session basis.
+
+**Integrity:** catalog and evidence integrity were the same before and after, and sessions 35–42 are unchanged (fingerprints match). No schema change, so `CATALOG.md` does not change.
+
+**Not done in this pass:** placements. Dana's calls differ from the catalog on Brazil (C&N in the catalog, she called it Balance) and Indonesia (Earthy in the catalog, she called it C&N); moving them is her workbench pass.
