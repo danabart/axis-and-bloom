@@ -7036,3 +7036,16 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 **Integrity:** catalog and evidence integrity were the same before and after, and sessions 35–42 are unchanged (fingerprints match). No schema change, so `CATALOG.md` does not change.
 
 **Not done in this pass:** placements. Dana's calls differ from the catalog on Brazil (C&N in the catalog, she called it Balance) and Indonesia (Earthy in the catalog, she called it C&N); moving them is her workbench pass.
+
+### 280. Ella's Bloom Map, brief 9: Brazil to Balanced (2026-11-20)
+
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_BRAZIL_TO_BALANCED.md` · `CLOSING_REPORT_9_BRAZIL_TO_BALANCED.md`. Data only, one script, one publish.
+
+- **Decision (Dana, 2026-11-20):** after the cupping of 2026-11-20 (session 43), Brazil (2939) is Balanced ("very round and very sweet").
+- **Stored:** family `balanced_sweet`, confidence medium (read from the session's calls: high needs two cuppers calling it, and Camila made no call), source cupping, session 43, the brief's note, and a basis JSON from `composeBasis` finalized with the note. Lean `side_a` (toward Chocolate & Nutty, like Benchmark and Half Moon); ring 0. Three `catalog_change` rows.
+- **Script:** `backend/src/scripts/ellaMapBrazilBalanced_2026_11_20.ts`, the brief 5 seed's shape. `--dry-run` prints the plan, then rehearses the service calls and the cut in a rolled-back transaction. `--apply` runs `setMatchArchetypeInTx`, `setLeanInTx`, `setRingInTx` and `dialPlacementService.publishInTx` in one transaction, then refreshes the dial signal.
+- **Test DB:** v124 L3 published, 18 placements; the rerun wrote nothing.
+- **Production (2026-11-20):** v5 **"L3 Brazil to Balanced (cupping 2026-11-20)"** published with 18 placements, retiring v3 (L2). The rerun wrote nothing and published nothing; unpublished = 0. Dial signal 43 (balanced_sweet, Acidity 0.5, no band).
+- **Unchanged:** first match (Balanced = Benchmark / Benchmark / La Familia), start rules (9), the four steps through Brazil (all on the active map). Integrity was the same before and after.
+
+**Not done in this pass:** Brazil as Balanced's first bag (Dana is considering it). Brazil's steps all lead to Chocolate & Nutty coffees (Fabricator, Blossom); it has no step to Benchmark or Half Moon. Both were left as they are.
