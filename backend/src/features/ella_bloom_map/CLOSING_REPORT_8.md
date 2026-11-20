@@ -1,6 +1,6 @@
 # Closing report: Ella's Bloom Map 8, prices and every map coffee buyable
 
-**Status 2026-11-18: Parts A to D built and accepted on the test DB. STOPPED at the Part E STOP, before any production write.** Nothing committed, pushed or written to production. The production dry run is below.
+**Status 2026-11-20: DONE on production.** Parts A to D built and accepted on the test DB 2026-11-18; Part E run on production 2026-11-20 after Dana's yes (see "Part E: production run" below).
 
 Guardrails read before Task 0. `DEVELOPMENT_GUARDRAILS.md` changed since brief 7 in one place: G2.9 (amended 2026-11-18, Commerce 5) now sets `created_at`/`updated_at` defaults to `now()`. `coffee_sku` still defaults to `timezone('utc', now())`. This brief creates SKU rows but does not alter that table's defaults.
 
@@ -305,3 +305,19 @@ When the rule moves to "coffee, SKU and price":
 - **(c) The trail dashes:**
   - `MapTrail` draws `EllaMapFace` with the default `dotStyle='sellable'` and without `quietOthers`, so every coffee with `is_sellable` false is drawn dashed.
   - That is 11 of 18 today. `/map` passes `quietOthers`, which is why it shows no dashes.
+
+## Part E: production run (2026-11-20)
+
+1. Committed by path as `c11907d` (41 files; backend `tsc --noEmit` and `lint:lineage` exit 0), pushed after Dana's "push".
+2. Deploy: revision `axis-bloom-backend-00880-6jg`. The startup log says `DB schema verified`. Its findings were already known: quiz-integrity #10, data-catalog #4 (stale `CATALOG.md`, fixed by step 4), #6 dead tables, evidence-integrity #2 and #6, and sommelier-integrity #3.
+3. `ellaMapPrices_2026_11_18.ts --dry-run --expect-db axisandbloom` gave 30 write, 15 unchanged, 0 missing (the same plan as before). `--apply` wrote 30 (2026-11-20T16:22:45Z), and a rerun wrote 0 (45 unchanged).
+   - Read back: 18 of 18 map coffees sellable, at 2900 or 3200 cents.
+   - New SKU codes: Half Moon AB-0016, The Waverly AB-0017, Great Heights AB-0018.
+   - The Village is $32.00 (AB-0006) and Tiger Stripe is $32.00 (AB-0012).
+   - `coffee_size`: 12 oz on (anchor), 2 lb off, 5 lb off.
+   - `v_dial_edge` has 306 rows (42 before; OT-160).
+   - `dial_surface`: all 7 rows unchanged (`model_id` 1, last changed 2026-11-12).
+   - Check 15 is clean.
+4. `npm run catalog:md -- --expect-db axisandbloom`: 227 tables, 115 views, 1937 columns, catalog-hash `f7eafc54…`, which equals the live hash the boot check reported.
+
+Since the apply, any signed-in account can pay live for all 18 map coffees (Task 0 item 6).
