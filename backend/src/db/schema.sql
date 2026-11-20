@@ -2873,6 +2873,9 @@ ALTER TABLE dial_position_signal DROP COLUMN IF EXISTS suggested_vocabulary_id C
 -- before the grants at the end) read v_coffee, the pooled range, the cupping,
 -- portal and evidence views and the sellable candidates; dropped here, before
 -- any of those drop and recreate themselves, and recreated every boot.
+DROP VIEW IF EXISTS v_dial_said_back_fact;    -- Ella map 9: reads v_dial_said_back, quiz content, brew values
+DROP VIEW IF EXISTS v_dial_said_back;         -- Ella map 9
+DROP VIEW IF EXISTS v_dial_quiz_answer;       -- Ella map 9: reads v_customer_quiz_current, quiz_session, quiz content
 DROP VIEW IF EXISTS v_dial_start;             -- Ella map 7: reads v_dial_start_input, v_dial_wedge, coffees
 DROP VIEW IF EXISTS v_dial_start_input;       -- Ella map 7: reads v_customer_quiz_current, v_customer_usual_drink
 DROP VIEW IF EXISTS v_dial_start_rule;        -- Ella map 7
@@ -11899,6 +11902,16 @@ CREATE TABLE IF NOT EXISTS dial_step (
 -- same transaction still reads as after it (v_dial_step compares with cut_at)
 ALTER TABLE dial_step ALTER COLUMN created_at SET DEFAULT clock_timestamp();
 CREATE UNIQUE INDEX IF NOT EXISTS dial_step_one_current ON dial_step (from_coffee_id, to_coffee_id) WHERE superseded_at IS NULL;
+-- Ella map 9 (2026-11-20), A4: the direction a step answers and the opening
+-- clause of its card. Carried by the row like customer_line, so a change is a
+-- supersede and insert and reaches the active map through Publish.
+ALTER TABLE dial_step ADD COLUMN IF NOT EXISTS move_id INT REFERENCES dial_move(id);
+ALTER TABLE dial_step ADD COLUMN IF NOT EXISTS when_line TEXT;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_step_when_line_not_blank') THEN
+    ALTER TABLE dial_step ADD CONSTRAINT dial_step_when_line_not_blank CHECK (when_line IS NULL OR btrim(when_line) <> '');
+  END IF;
+END $$;
 
 -- A6: the one read for steps (G2.5). Every current row, plus every row that
 -- was in force when the active version was cut (publish is the only way a
@@ -11918,11 +11931,14 @@ SELECT s.id, s.from_coffee_id, cf.name AS from_coffee_name, s.to_coffee_id, ct.n
        s.button_word, s.customer_line, b.code AS basis_code, b.label AS basis_label, b.line_style,
        b.sort_order AS basis_sort_order, s.is_shown, s.notes, s.decided_by, s.created_at, s.superseded_at,
        s.is_current, s.is_in_active_version,
+       s.move_id, mv.code AS move_code, s.when_line, -- Ella map 9
+
        (s.is_in_active_version AND s.is_shown
         AND EXISTS (SELECT 1 FROM v_dial_placement p WHERE p.coffee_id = s.from_coffee_id)
         AND EXISTS (SELECT 1 FROM v_dial_placement p WHERE p.coffee_id = s.to_coffee_id)) AS on_active_map
 FROM s
 JOIN dial_step_basis b ON b.id = s.basis_id
+LEFT JOIN dial_move mv ON mv.id = s.move_id
 JOIN coffees cf ON cf.id = s.from_coffee_id
 JOIN coffees ct ON ct.id = s.to_coffee_id
 WHERE s.is_current OR s.is_in_active_version;
@@ -12532,6 +12548,19 @@ CREATE TABLE IF NOT EXISTS dial_start_rule (
   CONSTRAINT dial_start_rule_two_conditions CHECK (also_condition_id IS NULL OR also_condition_id <> condition_id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS dial_start_rule_one_current ON dial_start_rule (family_code, priority) WHERE superseded_at IS NULL;
+-- Ella map 9 (2026-11-20), A3: the first bag's personal text and its lead.
+-- Not versioned, like the rest of the row. setStartRuleInTx checks the lead
+-- is a current shown step from the rule's coffee.
+ALTER TABLE dial_start_rule ADD COLUMN IF NOT EXISTS coffee_line TEXT;
+ALTER TABLE dial_start_rule ADD COLUMN IF NOT EXISTS lead_to_coffee_id INT REFERENCES coffees(id) ON DELETE RESTRICT;
+ALTER TABLE dial_start_rule ADD COLUMN IF NOT EXISTS lead_line TEXT;
+ALTER TABLE dial_start_rule ADD COLUMN IF NOT EXISTS lead_quote_family_code archetype_enum REFERENCES coffee_archetype(code);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_start_rule_lines_not_blank') THEN
+    ALTER TABLE dial_start_rule ADD CONSTRAINT dial_start_rule_lines_not_blank
+      CHECK ((coffee_line IS NULL OR btrim(coffee_line) <> '') AND (lead_line IS NULL OR btrim(lead_line) <> ''));
+  END IF;
+END $$;
 
 -- Every rule row, current and superseded, with its words (the admin table and its history).
 CREATE VIEW v_dial_start_rule AS
@@ -12539,13 +12568,16 @@ SELECT r.id, r.family_code::text AS family_code, fa.name AS family_name, w.angle
        r.priority, c1.code AS condition_code, c1.label AS condition_label,
        c2.code AS also_condition_code, c2.label AS also_condition_label,
        r.coffee_id, c.name AS coffee_name, r.admin_label, r.customer_reason, r.notes, r.decided_by,
-       r.created_at, r.superseded_at, (r.superseded_at IS NULL) AS is_current
+       r.created_at, r.superseded_at, (r.superseded_at IS NULL) AS is_current,
+       -- Ella map 9 (A3)
+       r.coffee_line, r.lead_to_coffee_id, lc.name AS lead_to_coffee_name, r.lead_line, r.lead_quote_family_code::text AS lead_quote_family_code
 FROM dial_start_rule r
 JOIN coffee_archetype fa ON fa.code = r.family_code
 LEFT JOIN dial_wedge w ON w.archetype_code = r.family_code
 JOIN dial_start_condition c1 ON c1.id = r.condition_id
 LEFT JOIN dial_start_condition c2 ON c2.id = r.also_condition_id
-JOIN coffees c ON c.id = r.coffee_id;
+JOIN coffees c ON c.id = r.coffee_id
+LEFT JOIN coffees lc ON lc.id = r.lead_to_coffee_id;
 
 -- A5: one row per completed quiz session with a result: the facts the rule
 -- reads, nothing decided. The stored result is never changed (G2.19, G2.20).
@@ -12628,7 +12660,9 @@ FROM cond;
 CREATE VIEW v_dial_start AS
 SELECT i.quiz_session_id, i.user_id, i.canonical_user_id, i.family_read, i.scores, i.conditions,
        r.id AS rule_id, r.priority, r.condition_code, r.also_condition_code,
-       r.coffee_id, r.coffee_name, r.admin_label, r.customer_reason
+       r.coffee_id, r.coffee_name, r.admin_label, r.customer_reason,
+       -- Ella map 9: the family the quiz branched from, and the rule's lines
+       i.branched_from_code, r.coffee_line, r.lead_to_coffee_id, r.lead_line, r.lead_quote_family_code
 FROM v_dial_start_input i
 LEFT JOIN LATERAL (
   SELECT r.* FROM v_dial_start_rule r
@@ -12641,6 +12675,152 @@ LEFT JOIN LATERAL (
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END ELLA'S BLOOM MAP 7 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN ELLA'S BLOOM MAP 9 block (2026-11-20): the reasons on /map become personal
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
+-- After the map 7 block: v_dial_quiz_answer reads v_customer_quiz_current and
+-- the quiz content; v_dial_said_back_fact reads the brew values. Every view
+-- here is dropped in the Ella drop list near the top of this file. The text is
+-- composed at read (matchService.steps); nothing composed is stored.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- A5: bolder and gentler are opposites. Set once when the column is added; after that it is data.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dial_move' AND column_name = 'opposite_move_id') THEN
+    ALTER TABLE dial_move ADD COLUMN opposite_move_id INT REFERENCES dial_move(id);
+    UPDATE dial_move m SET opposite_move_id = o.id FROM dial_move o
+     WHERE (m.code, o.code) IN (('bolder', 'gentler'), ('gentler', 'bolder'));
+  END IF;
+END $$;
+
+-- A1: where a fact the customer gave us comes from. brew_field_code names the
+-- brew_profile_field whose values are the facts (NULL for quiz answers, whose
+-- facts are quiz_answer.answer_code).
+CREATE TABLE IF NOT EXISTS dial_said_back_source (
+  id              SERIAL PRIMARY KEY,
+  code            TEXT NOT NULL UNIQUE,
+  label           TEXT NOT NULL,
+  brew_field_code TEXT,
+  sort_order      SMALLINT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO dial_said_back_source (code, label, brew_field_code, sort_order) VALUES
+  ('quiz_answer',     'A quiz answer',                 NULL,              1),
+  ('coffee_feeling',  'How they feel about their coffee', 'coffee_feeling', 2),
+  ('cupboard_coffee', 'The coffee in their kitchen',   'cupboard_coffee', 3)
+ON CONFLICT (code) DO NOTHING;
+
+-- A2: what the map says back about one fact. A fact with no current row is
+-- never quoted. Supersede and insert; clearing a phrase supersedes with no
+-- successor (G2.11).
+CREATE TABLE IF NOT EXISTS dial_said_back (
+  id            SERIAL PRIMARY KEY,
+  source_id     INT NOT NULL REFERENCES dial_said_back_source(id),
+  fact_code     TEXT NOT NULL CHECK (btrim(fact_code) <> ''),
+  says_back     TEXT NOT NULL CHECK (btrim(says_back) <> ''),
+  decided_by    TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  superseded_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dial_said_back_one_current ON dial_said_back (source_id, fact_code) WHERE superseded_at IS NULL;
+
+CREATE VIEW v_dial_said_back AS
+SELECT sb.id, s.code AS source_code, s.label AS source_label, sb.fact_code, sb.says_back, sb.decided_by,
+       sb.created_at, sb.superseded_at, (sb.superseded_at IS NULL) AS is_current
+FROM dial_said_back sb
+JOIN dial_said_back_source s ON s.id = sb.source_id;
+
+-- Every fact the map could say back (the admin table and the integrity
+-- checks): the current answers of the active quizzes, and the values of each
+-- source's brew field, with the current phrase when there is one.
+CREATE VIEW v_dial_said_back_fact AS
+SELECT s.code AS source_code, s.sort_order AS source_order, a.answer_code AS fact_code, a.answer_text AS fact_label,
+       qq.q_text AS context, q.version AS context_group, qq.q_number, a.sort_order AS fact_order,
+       (COALESCE(qq.weight, 1) * COALESCE(a.weight, 1)) AS weight,
+       (COALESCE(qq.weight, 1) * COALESCE(a.weight, 1)) > 0 AS is_quotable,
+       sb.id AS said_back_id, sb.says_back
+FROM quiz_answer a
+JOIN quiz_question qq ON qq.id = a.question_id AND qq.is_current
+JOIN quiz q ON q.id = qq.quiz_id AND q.is_active
+JOIN dial_said_back_source s ON s.code = 'quiz_answer'
+LEFT JOIN v_dial_said_back sb ON sb.is_current AND sb.source_code = s.code AND sb.fact_code = a.answer_code
+WHERE a.is_current AND a.answer_code IS NOT NULL
+UNION ALL
+SELECT s.code, s.sort_order, fv.code, fv.label, f.label, f.code, NULL, fv.sort_order, NULL, true,
+       sb.id, sb.says_back
+FROM dial_said_back_source s
+JOIN brew_profile_field f ON f.code = s.brew_field_code
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.is_active
+LEFT JOIN v_dial_said_back sb ON sb.is_current AND sb.source_code = s.code AND sb.fact_code = fv.code;
+
+-- A6 (Task 0 item 1: no view gave this): one row per current quiz session of
+-- a customer x answer picked. Main answers come from context_data.answerIds;
+-- the branch answer from branch_answer_id (it is never in answerIds). A main
+-- answer's family is the family it scored for; the branch answer scores for
+-- none and counts for the session's result family (Dana 2026-11-20, C1).
+CREATE VIEW v_dial_quiz_answer AS
+WITH cur AS (
+  SELECT qc.canonical_user_id, qc.quiz_session_id, (qc.taken_by_user_id IS NULL) AS is_self_taken,
+         qc.archetype_code::text AS result_code, qs.context_data, qs.branch_answer_id
+  FROM v_customer_quiz_current qc
+  JOIN quiz_session qs ON qs.id = qc.quiz_session_id
+),
+picked AS (
+  SELECT c.canonical_user_id, c.quiz_session_id, c.is_self_taken, c.result_code, (e.value #>> '{}')::uuid AS answer_id, false AS is_branch
+  FROM cur c
+  CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(c.context_data -> 'answerIds') = 'array' THEN c.context_data -> 'answerIds' ELSE '[]'::jsonb END) e
+  WHERE jsonb_typeof(e.value) = 'string'
+    AND (e.value #>> '{}') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  UNION ALL
+  SELECT c.canonical_user_id, c.quiz_session_id, c.is_self_taken, c.result_code, c.branch_answer_id, true
+  FROM cur c WHERE c.branch_answer_id IS NOT NULL
+)
+SELECT p.canonical_user_id, p.quiz_session_id, p.is_self_taken, p.answer_id, a.answer_code, p.is_branch, qq.q_number,
+       (COALESCE(qq.weight, 1) * COALESCE(a.weight, 1)) AS weight,
+       CASE WHEN p.is_branch THEN p.result_code ELSE sc.family_code END AS family_code,
+       CASE WHEN p.is_branch THEN NULL ELSE sc.points END AS points
+FROM picked p
+JOIN quiz_answer a ON a.id = p.answer_id
+JOIN quiz_question qq ON qq.id = a.question_id
+LEFT JOIN LATERAL (
+  SELECT ca.code::text AS family_code, s.score AS points
+  FROM quiz_answer_archetype_score s JOIN coffee_archetype ca ON ca.id = s.archetype_id
+  WHERE s.answer_id = a.id AND s.score > 0
+  ORDER BY s.score DESC, ca.code LIMIT 1
+) sc ON true;
+
+-- A7: the sentences the composed text is built from (insert if missing).
+INSERT INTO dial_customer_copy (code, text, decided_by)
+SELECT v.code, v.text, 'seed'
+FROM (VALUES
+  ('founder_pick',  'Founder''s pick'),
+  ('lead_title',    'Where we''d take you next'),
+  ('others_title',  'Or one of these'),
+  ('told_us_two',   'You told us {a}, and {b}.'),
+  ('told_us_one',   'You told us {a}.'),
+  ('also_said',     'You also said {c}.'),
+  ('kitchen',       'You have {brand} in your kitchen.'),
+  ('asked_for',     'You asked for {feeling}.'),
+  ('step_away',     'This moves away from the answers you gave.'),
+  ('step_against',  'This goes the other way from what you asked for.'),
+  ('price_add',     '{price} · Add')
+) v(code, text)
+WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = v.code);
+
+-- B2 (Task 0 item 6): the composition's numbers, not versioned.
+INSERT INTO evidence_parameter (key, value, note)
+SELECT v.key, v.value, v.note FROM (VALUES
+  ('dial_quote_family_answers', 2, 'Ella map 9: how many of the customer''s answers for their own family the first bag quotes ("You told us {a}, and {b}."). Range: integer 0 <= value <= 2.'),
+  ('dial_quote_other_answers',  1, 'Ella map 9: how many answers for another family the first bag quotes ("You also said {c}."). Range: integer 0 <= value <= 2.'),
+  ('dial_away_max_points',      1, 'Ella map 9: a step card says it moves away from the customer''s answers when they gave the destination''s family this many raw quiz points or fewer (Dana 2026-11-20, C3). Range: integer 0 <= value <= 5.')
+) v(key, value, note)
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END ELLA'S BLOOM MAP 9 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -13298,6 +13478,9 @@ GRANT UPDATE (superseded_at) ON coffee_ring_assignment, dial_step TO ab_app;
 -- Ella map 7 (2026-11-17): the start rule is supersede-only too
 REVOKE UPDATE, DELETE, TRUNCATE ON dial_start_rule FROM ab_app;
 GRANT UPDATE (superseded_at) ON dial_start_rule TO ab_app;
+-- Ella map 9 (2026-11-20): what we say back is supersede-only; its source is a lookup
+REVOKE UPDATE, DELETE, TRUNCATE ON dial_said_back, dial_said_back_source FROM ab_app;
+GRANT UPDATE (superseded_at) ON dial_said_back TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
 -- Liam brand answers (2026-10-24): supersede only. The one UPDATE the writer
 -- makes sets superseded_at; nothing is ever deleted (lint:customer rule 8 is

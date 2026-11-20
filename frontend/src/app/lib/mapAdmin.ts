@@ -86,6 +86,9 @@ export interface StartRule {
   condition_code: string; condition_label: string; also_condition_code: string | null; also_condition_label: string | null;
   coffee_id: number; coffee_name: string; admin_label: string; customer_reason: string; notes: string | null;
   decided_by: string | null; created_at: string; superseded_at: string | null; is_current: boolean;
+  /** Ella map 9: the first bag's personal line and its lead */
+  coffee_line: string | null; lead_to_coffee_id: number | null; lead_to_coffee_name: string | null;
+  lead_line: string | null; lead_quote_family_code: string | null;
 }
 export interface LeanHistoryRow {
   id: number; lane_code: string; suggested_lane_code: string | null; notes: string | null; basis: Record<string, unknown> | null;
@@ -114,6 +117,7 @@ export const getStartRules = (f: ApiFetch, history = false) => call<StartRule[]>
 export const setStartRule = (f: ApiFetch, body: {
   family: string; priority: number; condition: string; alsoCondition: string | null; coffeeId: number;
   adminLabel: string; customerReason: string; notes?: string | null;
+  coffeeLine?: string | null; leadToCoffeeId?: number | null; leadLine?: string | null; leadQuoteFamily?: string | null;
 }) => call<{ id: number; unchanged: boolean; supersededId: number | null }>(f, `${B}/start-rules`, json('PUT', body));
 export const setPhrase = (f: ApiFetch, body: { archetype: string | null; move: string; buttonLabel: string; moveLineTemplate?: string | null; edgePhrase?: string | null }) =>
   call<{ id: number; unchanged: boolean }>(f, `${B}/phrases`, json('PUT', body));
@@ -143,6 +147,8 @@ export interface StepRow {
   button_word: string; customer_line: string | null; basis_code: string; basis_label: string; line_style: string;
   basis_sort_order: number; is_shown: boolean; notes: string | null; decided_by: string | null; created_at: string;
   is_current: boolean; is_in_active_version: boolean; on_active_map: boolean;
+  /** Ella map 9: the direction the step answers and its card's opening clause */
+  move_code: string | null; when_line: string | null;
 }
 export interface DecidedPlacement {
   coffee_id: number; coffee_name: string; roaster_name: string; archetype_code: string; is_center: boolean;
@@ -179,8 +185,21 @@ export interface RingHistoryRow {
 }
 export const getDecidedMap = (f: ApiFetch) => call<DecidedMap>(f, `${B}/decided`);
 export const getRingHistory = (f: ApiFetch, coffeeId: number) => call<RingHistoryRow[]>(f, `${B}/ring/${coffeeId}/history`);
-export const setStep = (f: ApiFetch, body: { from: number; to: number; word: string; line: string | null; basis: string; shown: boolean }) =>
+export const setStep = (f: ApiFetch, body: { from: number; to: number; word: string; line: string | null; basis: string; shown: boolean; move?: string | null; whenLine?: string | null }) =>
   call<{ id: number; unchanged: boolean }>(f, `${B}/steps`, json('PUT', body));
+
+// â”€â”€ Ella's Bloom Map 9 (2026-11-20): what we say back, and "Read it as" â”€â”€
+export interface SaidBackFact {
+  source_code: string; fact_code: string; fact_label: string; context: string | null; context_group: string | null;
+  q_number: number | null; weight: string | number | null; is_quotable: boolean; said_back_id: number | null; says_back: string | null;
+}
+export interface MapCustomerHit { profile_id: string; email: string; has_quiz: boolean; has_position: boolean }
+export const getSaidBack = (f: ApiFetch) => call<SaidBackFact[]>(f, `${B}/said-back`);
+export const setSaidBack = (f: ApiFetch, body: { source: string; fact: string; saysBack: string | null }) =>
+  call<{ id: number | null; unchanged: boolean }>(f, `${B}/said-back`, json('PUT', body));
+export const searchMapCustomers = (f: ApiFetch, q: string) => call<MapCustomerHit[]>(f, `${B}/customers?q=${encodeURIComponent(q)}`);
+export const getReasons = (f: ApiFetch, profileId: string) =>
+  call<import('./mapCustomer').MapSteps>(f, `${B}/reasons?profileId=${encodeURIComponent(profileId)}`);
 export const setRing = (f: ApiFetch, coffeeId: number, body: { ring: number; basis: string }) =>
   call<{ result: { coffeeId: number; unchanged: boolean } }>(f, `${B}/ring/${coffeeId}`, json('PATCH', body));
 export const publishMap = (f: ApiFetch, body: { label: string; reason: string }) =>

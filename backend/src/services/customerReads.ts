@@ -853,6 +853,39 @@ export async function getCoffeeFeeling(uid: string, runner: Runner = db): Promis
   } : null;
 }
 
+// Ella's Bloom Map 9 (2026-11-20), C10: the same two reads by profile id (matchService has a profile, not a uid).
+export async function getCupboardCoffeeByProfile(profileId: string, runner: Runner = db): Promise<{ code: string; label: string } | null> {
+  const canonical = await canonicalOfProfile(profileId, runner);
+  if (!canonical) return null;
+  const x = (await runner.query<{ code: string; label: string }>(
+    `SELECT code, label FROM v_customer_cupboard_coffee WHERE canonical_user_id = $1`, [canonical])).rows[0];
+  return x ?? null;
+}
+export async function getCoffeeFeelingByProfile(profileId: string, runner: Runner = db): Promise<{ code: string; moveCode: string } | null> {
+  const canonical = await canonicalOfProfile(profileId, runner);
+  if (!canonical) return null;
+  const x = (await runner.query<{ code: string; move_code: string }>(
+    `SELECT code, move_code FROM v_customer_coffee_feeling WHERE canonical_user_id = $1`, [canonical])).rows[0];
+  return x ? { code: x.code, moveCode: x.move_code } : null;
+}
+
+/**
+ * Ella map 9 (C2, "Read it as"): customers whose email contains the text, one
+ * row per canonical customer, with whether they have a current quiz and a map
+ * position. Admin only (the route checks the role); at most 20 rows.
+ */
+export async function searchCustomersForMap(text: string, runner: Runner = db) {
+  const r = await runner.query<{ profile_id: string; email: string; has_quiz: boolean; has_position: boolean }>(
+    `SELECT vci.canonical_user_id AS profile_id, min(lower(e.email_address)) AS email,
+            EXISTS (SELECT 1 FROM v_customer_quiz_current q WHERE q.canonical_user_id = vci.canonical_user_id) AS has_quiz,
+            EXISTS (SELECT 1 FROM v_customer_match_current m WHERE m.canonical_user_id = vci.canonical_user_id) AS has_position
+       FROM user_email e JOIN v_customer_identity vci ON vci.user_id = e.user_id
+      WHERE e.email_address ILIKE '%' || $1 || '%'
+      GROUP BY vci.canonical_user_id
+      ORDER BY 2 LIMIT 20`, [text]);
+  return r.rows;
+}
+
 export interface BrewProfileFieldCounts {
   /** per field: customers with a value; declined rows and customers; coverage over quiz-sourced rows (set / (set + declined)) */
   fields: Array<{ field: string; customersWithValue: number; declinedRows: number; declinedCustomers: number; quizSet: number; quizDeclined: number; coverage: number | null }>;

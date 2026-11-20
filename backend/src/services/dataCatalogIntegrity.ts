@@ -17,6 +17,7 @@ import type pg from 'pg';
 import { db } from '../db/client.js';
 import type { CatalogIntegrityCheck, CatalogIntegrityReport } from './catalogIntegrity.js';
 import { getParameters } from './evidenceReads.js';
+import { DIAL_UNSAID_ON_PURPOSE } from './dialSaidBackPolicy.js';
 import { listScales } from './cuppingReads.js';
 import {
   appWriterModules,
@@ -215,13 +216,18 @@ export const DIAL_SEED_CODES: Record<string, string[]> = {
   dial_step_basis: ['roaster_said', 'recipe_or_ratings', 'our_guess'],
   // Ella map 7 (2026-11-17)
   dial_start_condition: ['always', 'fruity_gt_cn', 'fruity_gt_balanced', 'cn_gt_zero', 'espresso_at_home'],
+  // Ella map 9 (2026-11-20)
+  dial_said_back_source: ['quiz_answer', 'coffee_feeling', 'cupboard_coffee'],
 };
 // Ella map 3 (2026-11-12): the dial_customer_copy codes matchService and the pages read
 export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_available', 'choose_this', 'see_whole_map', 'trail_title', 'trail_start', 'moved_to', 'email_map_intro',
   // Ella map 7 (2026-11-17): the /map page
   'map_eyebrow', 'map_title_first', 'map_title_after', 'map_intro', 'first_bag_title', 'here_title', 'why_this_one',
   'steps_title', 'steps_hint', 'see_it', 'make_next_bag', 'closing_line',
-  'add_first_bag', 'added_to_cart'];
+  'add_first_bag', 'added_to_cart',
+  // Ella map 9 (2026-11-20): the personal text
+  'founder_pick', 'lead_title', 'others_title', 'told_us_two', 'told_us_one', 'also_said', 'kitchen', 'asked_for',
+  'step_away', 'step_against', 'price_add'];
 export const DIAL_PARAMETER_KEYS = [
   'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
   'dial_w_ring', 'dial_w_body', 'dial_w_sweet', 'dial_w_lane', 'dial_cap_different',
@@ -232,9 +238,10 @@ export const DIAL_PARAMETER_KEYS = [
   'dial_suggest_threshold', 'dial_delta_min_to_mention',
   'dial_size_roaster_cut_1', 'dial_size_roaster_cut_2', // Ella map 5
   'dial_earthy_branch_reworded_on', // Ella map 7
+  'dial_quote_family_answers', 'dial_quote_other_answers', 'dial_away_max_points', // Ella map 9
 ];
 
-async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIntegrityCheck[]> {
+export async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIntegrityCheck[]> {
   const versions = (await runner.query<{ id: number; label: string; status: string; is_active: boolean }>(
     `SELECT v.id, v.label, s.code AS status, (v.activated_at IS NOT NULL AND v.retired_at IS NULL) AS is_active
        FROM dial_map_version v JOIN dial_map_version_status s ON s.id = v.status_id`)).rows;
@@ -296,7 +303,30 @@ async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIn
   const c11 = check(11, 'Ella map: positions stay on the active map; a map surface has an active version',
     [...(stranded ? [`${stranded} position(s) on a coffee not placed in the active version, decided on another version`] : []), ...surfacesWithoutMap],
     '0 findings', n => `${n} finding(s)`);
-  return [c7, c8, c9, c10, c11];
+
+  // Ella map 9 (A8): what we say back. A phrase for a fact that is no longer
+  // current; a quotable answer of the active quiz with no phrase (it is then
+  // never quoted, unless DIAL_UNSAID_ON_PURPOSE lists it); a start rule whose
+  // lead is not a current shown step from its coffee.
+  const orphan = (await runner.query<{ finding: string }>(
+    `SELECT sb.source_code || ' ' || sb.fact_code AS finding FROM v_dial_said_back sb
+      WHERE sb.is_current AND NOT EXISTS (SELECT 1 FROM v_dial_said_back_fact f WHERE f.source_code = sb.source_code AND f.fact_code = sb.fact_code)
+      ORDER BY 1`)).rows.map(r => r.finding);
+  const c12 = check(12, 'Ella map: every said-back phrase names a current answer or brew value', orphan, '0 orphan phrases', n => `${n} phrase(s) for no current fact`);
+  const unsaid = (await runner.query<{ finding: string }>(
+    `SELECT f.context_group || ' ' || f.fact_code AS finding FROM v_dial_said_back_fact f
+      WHERE f.source_code = 'quiz_answer' AND f.is_quotable AND f.said_back_id IS NULL
+        AND NOT (f.fact_code = ANY($1::text[])) ORDER BY 1`, [[...DIAL_UNSAID_ON_PURPOSE]])).rows.map(r => r.finding);
+  const c13 = check(13, 'Ella map: every quotable answer of the active quiz has a said-back phrase', unsaid,
+    `0 answers without a phrase (left out on purpose: ${DIAL_UNSAID_ON_PURPOSE.join(', ')})`, n => `${n} answer(s) never quoted`);
+  const badLead = (await runner.query<{ finding: string }>(
+    `SELECT r.family_name || ' #' || r.priority || ': ' || r.coffee_name || ' -> ' || r.lead_to_coffee_name AS finding
+       FROM v_dial_start_rule r
+      WHERE r.is_current AND r.lead_to_coffee_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM v_dial_step s WHERE s.is_current AND s.is_shown AND s.from_coffee_id = r.coffee_id AND s.to_coffee_id = r.lead_to_coffee_id)
+      ORDER BY 1`)).rows.map(r => r.finding);
+  const c14 = check(14, "Ella map: every start rule's lead is a current shown step from its first bag", badLead, '0 findings', n => `${n} lead(s) off the steps`);
+  return [c7, c8, c9, c10, c11, c12, c13, c14];
 }
 
 // Boot log lines: one summary line, then one line per check with findings,

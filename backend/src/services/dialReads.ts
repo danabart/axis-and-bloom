@@ -440,7 +440,7 @@ export async function steps(mode: StepMode = 'current', runner: Runner = db) {
   const r = await runner.query(
     `SELECT id, from_coffee_id, from_coffee_name, to_coffee_id, to_coffee_name, button_word, customer_line,
             basis_code, basis_label, line_style, basis_sort_order, is_shown, notes, decided_by, created_at,
-            is_current, is_in_active_version, on_active_map
+            is_current, is_in_active_version, on_active_map, move_code, when_line
        FROM v_dial_step WHERE ${where}
       ORDER BY basis_sort_order, from_coffee_name, to_coffee_name, id`);
   return r.rows;
@@ -508,10 +508,13 @@ export interface StartRuleRow {
   condition_code: string; condition_label: string; also_condition_code: string | null; also_condition_label: string | null;
   coffee_id: number; coffee_name: string; admin_label: string; customer_reason: string; notes: string | null;
   decided_by: string | null; created_at: string; superseded_at: string | null; is_current: boolean;
+  /** Ella map 9 (A3): the first bag's personal line and its lead */
+  coffee_line: string | null; lead_to_coffee_id: number | null; lead_to_coffee_name: string | null;
+  lead_line: string | null; lead_quote_family_code: string | null;
 }
 const START_RULE_COLS = `id, family_code, family_name, family_order, priority, condition_code, condition_label,
   also_condition_code, also_condition_label, coffee_id, coffee_name, admin_label, customer_reason, notes,
-  decided_by, created_at, superseded_at, is_current`;
+  decided_by, created_at, superseded_at, is_current, coffee_line, lead_to_coffee_id, lead_to_coffee_name, lead_line, lead_quote_family_code`;
 
 /** The start rule (v_dial_start_rule): current rows in family then priority order; with history, every row, newest first within a (family, priority). */
 export async function startRules(opts: { history?: boolean } = {}, runner: Runner = db): Promise<StartRuleRow[]> {
@@ -525,7 +528,8 @@ export async function startRules(opts: { history?: boolean } = {}, runner: Runne
 export async function startForSession(quizSessionId: string, runner: Runner = db) {
   const r = await runner.query(
     `SELECT quiz_session_id, family_read, scores, conditions, rule_id, priority, condition_code, also_condition_code,
-            coffee_id, coffee_name, admin_label, customer_reason
+            coffee_id, coffee_name, admin_label, customer_reason,
+            branched_from_code, coffee_line, lead_to_coffee_id, lead_line, lead_quote_family_code
        FROM v_dial_start WHERE quiz_session_id = $1`, [quizSessionId]);
   return r.rows[0] ?? null;
 }
@@ -543,10 +547,10 @@ export async function startFallback(conditionCode: string, runner: Runner = db):
 /** The steps on the active map leaving one coffee (v_dial_step, on_active_map), in basis order then word. */
 export async function stepsFrom(coffeeId: number, runner: Runner = db) {
   const r = await runner.query(
-    `SELECT id, from_coffee_id, to_coffee_id, to_coffee_name, button_word, customer_line, basis_sort_order
+    `SELECT id, from_coffee_id, to_coffee_id, to_coffee_name, button_word, customer_line, basis_sort_order, move_code, when_line
        FROM v_dial_step WHERE on_active_map AND from_coffee_id = $1
       ORDER BY basis_sort_order, button_word, to_coffee_name, id`, [coffeeId]);
-  return r.rows as Array<{ id: number; from_coffee_id: number; to_coffee_id: number; to_coffee_name: string; button_word: string; customer_line: string | null; basis_sort_order: number }>;
+  return r.rows as Array<{ id: number; from_coffee_id: number; to_coffee_id: number; to_coffee_name: string; button_word: string; customer_line: string | null; basis_sort_order: number; move_code: string | null; when_line: string | null }>;
 }
 
 /** Every step on the active map as (from, to) -> word: the trail's words. */
@@ -561,4 +565,52 @@ export async function laneIsOpen(archetypeCode: string, laneCode: string, runner
   const r = await runner.query<{ is_open: boolean }>(
     `SELECT is_open FROM v_dial_wedge_lane WHERE archetype_code::text = $1 AND lane_code = $2`, [archetypeCode, laneCode]);
   return r.rows[0]?.is_open ?? null;
+}
+
+// ── Ella's Bloom Map 9 (2026-11-20), B2 ───────────────────────────────────────
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
+
+export interface SaidBackRow { id: number; source_code: string; fact_code: string; says_back: string }
+
+/** The current phrases (v_dial_said_back), keyed `${source}:${fact}`. A fact with no key is never quoted. */
+export async function saidBack(runner: Runner = db): Promise<Map<string, SaidBackRow>> {
+  const r = await runner.query<SaidBackRow>(
+    `SELECT id, source_code, fact_code, says_back FROM v_dial_said_back WHERE is_current`);
+  return new Map(r.rows.map(x => [`${x.source_code}:${x.fact_code}`, x]));
+}
+
+/** Every fact the map could say back, with its phrase (v_dial_said_back_fact): the admin table. */
+export async function saidBackFacts(runner: Runner = db) {
+  const r = await runner.query(
+    `SELECT source_code, fact_code, fact_label, context, context_group, q_number, weight, is_quotable, said_back_id, says_back
+       FROM v_dial_said_back_fact
+      ORDER BY source_order, context_group, q_number NULLS LAST, fact_order, fact_code`);
+  return r.rows;
+}
+
+/** Every said-back row, current and superseded, newest first (the admin history). */
+export async function saidBackHistory(runner: Runner = db) {
+  return (await runner.query(
+    `SELECT id, source_code, fact_code, says_back, decided_by, created_at, superseded_at, is_current
+       FROM v_dial_said_back ORDER BY source_code, fact_code, created_at DESC, id DESC`)).rows;
+}
+
+export interface QuizAnswerRow {
+  answer_code: string; is_branch: boolean; q_number: number; weight: number; family_code: string | null; is_self_taken: boolean;
+}
+
+/** One quiz session's answers (v_dial_quiz_answer): the branch answer first, then question weight high to low, then question number. */
+export async function quizAnswers(quizSessionId: string, runner: Runner = db): Promise<QuizAnswerRow[]> {
+  const r = await runner.query(
+    `SELECT answer_code, is_branch, q_number, weight, family_code, is_self_taken
+       FROM v_dial_quiz_answer WHERE quiz_session_id = $1
+      ORDER BY is_branch DESC, weight DESC, q_number, answer_code`, [quizSessionId]);
+  return r.rows.map(x => ({ ...x, weight: Number(x.weight) }));
+}
+
+/** dial_move code -> the code of its opposite move (bolder <-> gentler); moves without one are absent. */
+export async function moveOpposites(runner: Runner = db): Promise<Map<string, string>> {
+  const r = await runner.query<{ code: string; opposite: string }>(
+    `SELECT m.code, o.code AS opposite FROM dial_move m JOIN dial_move o ON o.id = m.opposite_move_id`);
+  return new Map(r.rows.map(x => [x.code, x.opposite]));
 }

@@ -209,7 +209,13 @@ export const setFirstMatch = (input: SetFirstMatchInput) => withTransaction(tx =
 export interface SetStartRuleInput {
   familyCode: string; priority: number; conditionCode: string; alsoConditionCode?: string | null;
   coffeeId: number; adminLabel: string; customerReason: string; notes?: string | null; adminUid?: string | null;
+  // Ella map 9 (A3): left out (undefined) = keep the current row's value; null clears it
+  coffeeLine?: string | null; leadToCoffeeId?: number | null; leadLine?: string | null; leadQuoteFamilyCode?: string | null;
 }
+
+/** A trimmed line, null for empty; undefined stays undefined (keep the current value). */
+const lineOf = (v: string | null | undefined): string | null | undefined =>
+  v === undefined ? undefined : v === null || String(v).trim() === '' ? null : String(v).trim();
 
 /**
  * Supersede the current start rule row of (family, priority) and insert the
@@ -238,18 +244,45 @@ export async function setStartRuleInTx(tx: Tx, input: SetStartRuleInput) {
   }
   const conditionId = condId(input.conditionCode)!;
   const alsoId = input.alsoConditionCode ? condId(input.alsoConditionCode)! : null;
-  const cur = (await tx.query<{ id: number; condition_id: number; also_condition_id: number | null; coffee_id: number; admin_label: string; customer_reason: string; notes: string | null }>(
-    `SELECT id, condition_id, also_condition_id, coffee_id, admin_label, customer_reason, notes FROM dial_start_rule
+  const cur = (await tx.query<{ id: number; condition_id: number; also_condition_id: number | null; coffee_id: number; admin_label: string; customer_reason: string; notes: string | null;
+    coffee_line: string | null; lead_to_coffee_id: number | null; lead_line: string | null; lead_quote_family_code: string | null }>(
+    `SELECT id, condition_id, also_condition_id, coffee_id, admin_label, customer_reason, notes,
+            coffee_line, lead_to_coffee_id, lead_line, lead_quote_family_code::text AS lead_quote_family_code FROM dial_start_rule
       WHERE family_code::text = $1 AND priority = $2 AND superseded_at IS NULL FOR UPDATE`, [input.familyCode, input.priority])).rows[0];
+  // Ella map 9 (A3): the personal line and the lead; undefined keeps the current row's value
+  const keep = <T>(given: T | undefined, current: T | null | undefined): T | null => (given === undefined ? (current ?? null) : given);
+  // A lead belongs to its first bag: a new coffee with no lead named drops the old lead (the superseded row keeps it)
+  const sameCoffee = !cur || cur.coffee_id === input.coffeeId;
+  const leadKept = sameCoffee || input.leadToCoffeeId !== undefined;
+  const coffeeLine = keep(lineOf(input.coffeeLine), cur?.coffee_line);
+  const leadLine = keep(lineOf(input.leadLine), leadKept ? cur?.lead_line : null);
+  const leadTo = keep(input.leadToCoffeeId, leadKept ? cur?.lead_to_coffee_id : null);
+  const leadQuote = keep(input.leadQuoteFamilyCode === '' ? null : input.leadQuoteFamilyCode, leadKept ? cur?.lead_quote_family_code : null);
+  if (leadTo !== null) {
+    const step = await tx.query(
+      `SELECT 1 FROM v_dial_step WHERE is_current AND is_shown AND from_coffee_id = $1 AND to_coffee_id = $2`, [input.coffeeId, leadTo]);
+    if (!step.rows[0]) {
+      const name = (await tx.query<{ name: string }>(`SELECT name FROM coffees WHERE id = $1`, [leadTo])).rows[0]?.name;
+      throw new DialMapError(409, 'LEAD_NOT_A_STEP', `${name ?? `Coffee ${leadTo}`} is not a shown step from this rule's first bag, so it cannot be the lead.`);
+    }
+  }
+  if (leadLine !== null && leadTo === null) throw invalid('a lead line needs a lead coffee');
+  if (leadQuote !== null) {
+    const f = await tx.query(`SELECT 1 FROM coffee_archetype WHERE code::text = $1`, [leadQuote]);
+    if (!f.rows[0]) throw invalid(`unknown family ${leadQuote}`);
+  }
   if (cur && cur.condition_id === conditionId && (cur.also_condition_id ?? null) === alsoId && cur.coffee_id === input.coffeeId
-      && cur.admin_label === adminLabel && cur.customer_reason === customerReason && (cur.notes ?? null) === (input.notes ?? null)) {
+      && cur.admin_label === adminLabel && cur.customer_reason === customerReason && (cur.notes ?? null) === (input.notes ?? null)
+      && cur.coffee_line === coffeeLine && cur.lead_to_coffee_id === leadTo && cur.lead_line === leadLine && cur.lead_quote_family_code === leadQuote) {
     return { id: cur.id, unchanged: true, supersededId: null as number | null };
   }
   if (cur) await tx.query(`UPDATE dial_start_rule SET superseded_at = clock_timestamp() WHERE id = $1`, [cur.id]);
   const ins = await tx.query<{ id: number }>(
-    `INSERT INTO dial_start_rule (family_code, condition_id, also_condition_id, priority, coffee_id, admin_label, customer_reason, notes, decided_by)
-     VALUES ($1::text::archetype_enum, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-    [input.familyCode, conditionId, alsoId, input.priority, input.coffeeId, adminLabel, customerReason, input.notes ?? null, input.adminUid ?? null]);
+    `INSERT INTO dial_start_rule (family_code, condition_id, also_condition_id, priority, coffee_id, admin_label, customer_reason, notes, decided_by,
+                                  coffee_line, lead_to_coffee_id, lead_line, lead_quote_family_code)
+     VALUES ($1::text::archetype_enum, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text::archetype_enum) RETURNING id`,
+    [input.familyCode, conditionId, alsoId, input.priority, input.coffeeId, adminLabel, customerReason, input.notes ?? null, input.adminUid ?? null,
+     coffeeLine, leadTo, leadLine, leadQuote]);
   console.info('[ella-map] setStartRule', { familyCode: input.familyCode, priority: input.priority, coffeeId: input.coffeeId, id: ins.rows[0].id, actor: input.adminUid ?? null });
   return { id: ins.rows[0].id, unchanged: false, supersededId: cur?.id ?? null };
 }
@@ -331,6 +364,8 @@ export const setCustomerCopy = (input: SetCustomerCopyInput) => withTransaction(
 export interface SetStepInput {
   fromCoffeeId: number; toCoffeeId: number; buttonWord: string; customerLine?: string | null;
   basisCode: string; isShown?: boolean; notes?: string | null; adminUid?: string | null;
+  // Ella map 9 (A4): left out (undefined) = keep the current row's value; null clears it
+  moveCode?: string | null; whenLine?: string | null;
 }
 
 /**
@@ -351,24 +386,75 @@ export async function setStepInTx(tx: Tx, input: SetStepInput) {
   }
   const shown = input.isShown ?? true;
   const notes = input.notes ?? null;
-  const cur = await tx.query<{ id: number; button_word: string; customer_line: string | null; basis_id: number; is_shown: boolean; notes: string | null }>(
-    `SELECT id, button_word, customer_line, basis_id, is_shown, notes FROM dial_step
+  const cur = await tx.query<{ id: number; button_word: string; customer_line: string | null; basis_id: number; is_shown: boolean; notes: string | null; move_id: number | null; when_line: string | null }>(
+    `SELECT id, button_word, customer_line, basis_id, is_shown, notes, move_id, when_line FROM dial_step
       WHERE from_coffee_id = $1 AND to_coffee_id = $2 AND superseded_at IS NULL FOR UPDATE`,
     [input.fromCoffeeId, input.toCoffeeId]);
   const c = cur.rows[0];
+  // Ella map 9 (A4): the direction the step answers and its card's opening clause; undefined keeps the current value
+  let moveId: number | null = c?.move_id ?? null;
+  if (input.moveCode !== undefined) {
+    if (input.moveCode === null || input.moveCode === '') moveId = null;
+    else {
+      const m = await tx.query<{ id: number }>(`SELECT id FROM dial_move WHERE code = $1 AND is_customer_move`, [input.moveCode]);
+      if (!m.rows[0]) throw invalid(`unknown customer move ${input.moveCode}`);
+      moveId = m.rows[0].id;
+    }
+  }
+  const givenWhen = lineOf(input.whenLine);
+  const whenLine = givenWhen === undefined ? (c?.when_line ?? null) : givenWhen;
   if (c && c.button_word === word && c.customer_line === line && c.basis_id === basis.rows[0].id && c.is_shown === shown
-      && (input.notes === undefined || c.notes === notes)) {
+      && (input.notes === undefined || c.notes === notes) && c.move_id === moveId && c.when_line === whenLine) {
     return { id: c.id, unchanged: true };
   }
   if (c) await tx.query(`UPDATE dial_step SET superseded_at = clock_timestamp() WHERE id = $1`, [c.id]);
   const ins = await tx.query<{ id: number }>(
-    `INSERT INTO dial_step (from_coffee_id, to_coffee_id, button_word, customer_line, basis_id, is_shown, notes, decided_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    `INSERT INTO dial_step (from_coffee_id, to_coffee_id, button_word, customer_line, basis_id, is_shown, notes, decided_by, move_id, when_line)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
     [input.fromCoffeeId, input.toCoffeeId, word, line, basis.rows[0].id, shown,
-     input.notes === undefined ? (c?.notes ?? null) : notes, input.adminUid ?? null]);
+     input.notes === undefined ? (c?.notes ?? null) : notes, input.adminUid ?? null, moveId, whenLine]);
   return { id: ins.rows[0].id, unchanged: false, supersededId: c?.id ?? null };
 }
 export const setStep = (input: SetStepInput) => withTransaction(tx => setStepInTx(tx, input));
+
+// ── Ella's Bloom Map 9 (2026-11-20), B1 ───────────────────────────────────────
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
+
+export interface SetSaidBackInput { sourceCode: string; factCode: string; saysBack: string | null; adminUid?: string | null }
+export interface SetSaidBackResult { id: number | null; unchanged: boolean; supersededId: number | null }
+
+/**
+ * The one writer of dial_said_back. Supersede the current row of (source,
+ * fact) and insert the new phrase; a no-op when it is the same. A null or
+ * empty phrase supersedes with no successor: the fact is no longer quoted
+ * (G2.11, nothing deleted). A new phrase must name a fact v_dial_said_back_fact
+ * lists (a current answer of an active quiz, an active value of the source's
+ * brew field).
+ */
+export async function setSaidBackInTx(tx: Tx, input: SetSaidBackInput): Promise<SetSaidBackResult> {
+  const factCode = String(input.factCode ?? '').trim();
+  const says = input.saysBack === null ? '' : String(input.saysBack ?? '').trim();
+  const src = await tx.query<{ id: number }>(`SELECT id FROM dial_said_back_source WHERE code = $1`, [input.sourceCode]);
+  if (!src.rows[0]) throw invalid(`unknown said-back source ${input.sourceCode}`);
+  if (!factCode) throw invalid('factCode is required');
+  const cur = (await tx.query<{ id: number; says_back: string }>(
+    `SELECT id, says_back FROM dial_said_back WHERE source_id = $1 AND fact_code = $2 AND superseded_at IS NULL FOR UPDATE`,
+    [src.rows[0].id, factCode])).rows[0];
+  if (!says) {
+    if (!cur) return { id: null, unchanged: true, supersededId: null };
+    await tx.query(`UPDATE dial_said_back SET superseded_at = clock_timestamp() WHERE id = $1`, [cur.id]);
+    return { id: null, unchanged: false, supersededId: cur.id };
+  }
+  const known = await tx.query(`SELECT 1 FROM v_dial_said_back_fact WHERE source_code = $1 AND fact_code = $2`, [input.sourceCode, factCode]);
+  if (!known.rows[0]) throw new DialMapError(404, 'FACT_NOT_FOUND', `No current ${input.sourceCode} fact ${factCode}`);
+  if (cur && cur.says_back === says) return { id: cur.id, unchanged: true, supersededId: null };
+  if (cur) await tx.query(`UPDATE dial_said_back SET superseded_at = clock_timestamp() WHERE id = $1`, [cur.id]);
+  const ins = await tx.query<{ id: number }>(
+    `INSERT INTO dial_said_back (source_id, fact_code, says_back, decided_by) VALUES ($1, $2, $3, $4) RETURNING id`,
+    [src.rows[0].id, factCode, says, input.adminUid ?? null]);
+  return { id: ins.rows[0].id, unchanged: false, supersededId: cur?.id ?? null };
+}
+export const setSaidBack = (input: SetSaidBackInput) => withTransaction(tx => setSaidBackInTx(tx, input));
 
 export interface PublishInput { label: string; reason?: string | null; adminUid?: string | null }
 

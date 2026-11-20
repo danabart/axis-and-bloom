@@ -29,15 +29,15 @@ function fail(res: Response, where: string, err: unknown) {
 }
 
 /** The profile this call acts for: the caller's own, or a household member's (forMemberId) with the caller as actor. */
-async function subject(req: AuthRequest, surfaces: string[]): Promise<{ userId: string; actorUserId: string | null }> {
+async function subject(req: AuthRequest, surfaces: string[]): Promise<{ userId: string; actorUserId: string | null; isAdmin: boolean }> {
   const access = await matchService.mapAccess(req.uid!, surfaces);
   if (!access.profileId) throw new MatchError(404, 'profile_not_found', 'Finish setting up your account first.');
   if (!access.open) throw new MatchError(403, 'map_not_open', 'The map is not open yet.');
   const forMemberId = (req.query.forMemberId ?? req.body?.forMemberId) as unknown;
-  if (forMemberId === undefined || forMemberId === null || forMemberId === '') return { userId: access.profileId, actorUserId: null };
+  if (forMemberId === undefined || forMemberId === null || forMemberId === '') return { userId: access.profileId, actorUserId: null, isAdmin: access.isAdmin };
   const memberId = z.string().uuid().parse(forMemberId);
   const target = await assertMayTurnDialFor(access.profileId, memberId);
-  return { userId: target.userId, actorUserId: access.profileId };
+  return { userId: target.userId, actorUserId: access.profileId, isAdmin: access.isAdmin };
 }
 
 router.use(requireAuth);
@@ -66,7 +66,8 @@ router.get('/moves', async (req: AuthRequest, res) => {
 
 // Ella map 7 (B3): the page's read: position, first-bag reason, published steps
 router.get('/steps', async (req: AuthRequest, res) => {
-  try { const s = await subject(req, MOVE_SURFACES); res.json(await matchService.steps(s.userId)); }
+  // Ella map 9 (B2): the rows each text used go to admins only
+  try { const s = await subject(req, MOVE_SURFACES); res.json(await matchService.steps(s.userId, undefined, { withBasis: s.isAdmin })); }
   catch (err) { fail(res, 'steps', err); }
 });
 

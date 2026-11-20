@@ -417,3 +417,13 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **The purge keeps guests with facts:** the empty-guest rule skips a guest with a `customer_brew_profile_change` row; the stale-quiz rule still deletes the Auth record only.
 - [ ] **Unknown funnel events are dropped:** `POST /api/quiz/event` with a code not in `quiz_funnel_event_type` answers ok with `dropped`, writes nothing.
 - [ ] **Nothing reads the three fields for matching:** the quiz result, the first match, the map, the dial and Liam's recommendation are unchanged.
+
+## Ella's Bloom Map 9: the reasons on `/map` become personal (2026-11-20)
+
+- [ ] **Only approved words, composed at read:** every sentence on `/map` is a `dial_customer_copy`, `dial_said_back`, start-rule or step row joined with the customer's own facts in `matchService.steps`; nothing composed is stored and no model or Liam call writes a customer sentence.
+- [ ] **The first bag quotes only self-taken answers that have a said-back row:** a quiz with `taken_by_user_id`, an old session with no stored `answerIds`, or a rule with no `coffee_line` shows the rule's `customer_reason`; the treat question (Q6, weight 0, no row) is never quoted.
+- [ ] **A kitchen brand is quoted only with its own said-back row:** partners (Joe Bean, Joe Coffee, Utopian, Temecula, Path), "Nothing right now", "I don't know", "Something else", pods and "A local roaster not on this list" have none.
+- [ ] **One lead at most:** the feeling's direction when a shown step carries it (a tie goes to the rule's lead, else the first in step order), else the rule's lead before any bag, else none.
+- [ ] **A step card has no "See it":** the coffee's name, its text and the price chip; the chip records the step and adds one bag as "Make it my next bag" did.
+- [ ] **Basis goes to admins only:** `/api/map/steps` returns `basis` only for an admin caller; `GET /api/admin/map/reasons` writes nothing.
+- [ ] **The old Bloom page and every `dial_surface` row are unchanged** (all `lane`).

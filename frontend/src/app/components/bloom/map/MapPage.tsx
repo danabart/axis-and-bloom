@@ -17,6 +17,12 @@
 // recorded the position). The cart, checkout and subscribe choice are the
 // existing components.
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_8_PRICES_AND_BUYABLE.md
+// Ella map 9 (2026-11-20), C1: the first bag carries the "Founder's pick" label
+// and its composed text; the one lead step sits first under its own title, the
+// rest under the next. A step card is the coffee's name, its text and the price
+// chip ("{price} · Add"), which does what "Make it my next bag" did (records the
+// step, adds one bag). No "See it". Every word comes from /api/map/steps.
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
 import { useCallback, useEffect, useState } from 'react';
 import EllaMapFace from './EllaMapFace';
 import { useCart } from '../../../context/CartContext';
@@ -48,36 +54,20 @@ function Price({ price }: { price: MapPrice | null }) {
   );
 }
 
-function StepCard({ step, copy, open, busy, onToggle, onChoose }: {
-  step: MapStepCard; copy: Record<string, string>; open: boolean; busy: boolean; onToggle: () => void; onChoose: () => void;
+const priceWords = (price: MapPrice) => `$${(price.cents / 100).toFixed(2)} · ${price.sizeLabel}`;
+
+/** Ella map 9: the coffee's name, its composed text and the price chip; the chip records the step and adds one bag. */
+export function StepCard({ step, copy, busy, onChoose }: {
+  step: MapStepCard; copy: Record<string, string>; busy: boolean; onChoose: () => void;
 }) {
   return (
-    <div className="rounded-xl bg-white border border-[#e8e4dc] p-4" data-testid="step-card">
-      <div className="flex items-start gap-3">
-        <div className="flex-1">
-          <p className={EYEBROW} style={{ color: TEAL }} data-testid="step-word">{step.word}</p>
-          <h3 className={`text-lg font-semibold ${INK}`} data-testid="step-coffee">{step.name}</h3>
-          {step.line && <p className={`text-sm ${SOFT}`} data-testid="step-line">{step.line}</p>}
-        </div>
-        <button type="button" onClick={onToggle} aria-expanded={open} data-testid="see-it"
-          className="shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold border" style={{ borderColor: TEAL, color: TEAL }}>
-          {copy.see_it}
-        </button>
-      </div>
-      {open && (
-        <div className="mt-3 pt-3 border-t border-[#e8e4dc]" data-testid="step-open">
-          <p className={`text-base font-semibold ${INK}`}>{step.name}</p>
-          {step.notes.length > 0 && <p className={`text-sm ${SOFT}`}>{step.notes.join(', ')}</p>}
-          {step.line && <p className={`text-sm ${SOFT} mt-1`}>{step.line}</p>}
-          <Price price={step.price} />
-          <div>
-            <button type="button" disabled={busy} onClick={onChoose} data-testid="make-next-bag"
-              className="mt-3 px-4 py-2 rounded-full text-sm font-medium text-white disabled:opacity-50" style={{ background: TEAL }}>
-              {copy.make_next_bag}
-            </button>
-          </div>
-        </div>
-      )}
+    <div className={`rounded-xl bg-white border p-4 ${step.isLead ? 'border-[#2f6f68]' : 'border-[#e8e4dc]'}`} data-testid="step-card" data-lead={step.isLead ? '1' : '0'}>
+      <h3 className={`text-lg font-semibold ${INK}`} data-testid="step-coffee">{step.name}</h3>
+      <p className={`text-sm ${SOFT} mt-1`} data-testid="step-text">{step.text}</p>
+      <button type="button" disabled={busy} onClick={onChoose} data-testid="price-add"
+        className="mt-3 px-4 py-1.5 rounded-full text-sm font-semibold border disabled:opacity-50" style={{ borderColor: TEAL, color: TEAL }}>
+        {step.price ? (copy.price_add ?? '{price}').replace('{price}', priceWords(step.price)) : copy.choose_this}
+      </button>
     </div>
   );
 }
@@ -86,7 +76,6 @@ export default function MapPage() {
   const apiFetch = useMapFetch();
   const [face, setFace] = useState<MapFaceData | null>(null);
   const [data, setData] = useState<MapSteps | null>(null);
-  const [open, setOpen] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [added, setAdded] = useState<number | null>(null);
@@ -108,7 +97,6 @@ export default function MapPage() {
       await decideMove(apiFetch, { move: 'step', coffeeId: step.coffeeId, requestId: crypto.randomUUID() });
       const line = mapCartItem(step);
       if (line) { addToCart(line); setAdded(step.coffeeId); }
-      setOpen(null);
       await load();
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
@@ -124,6 +112,8 @@ export default function MapPage() {
   const copy = data.copy;
   if (!pos) return <main className="max-w-md mx-auto px-4 py-10" data-testid="map-empty" />;
   const first = data.firstBag && !pos.hasBag ? data.firstBag : null;
+  const lead = data.steps.find(s => s.isLead) ?? null;
+  const others = data.steps.filter(s => !s.isLead);
 
   return (
     <main className="max-w-md mx-auto px-4 py-6" style={{ fontFamily: 'Lato, sans-serif' }} data-testid="map-page">
@@ -137,11 +127,14 @@ export default function MapPage() {
       </div>
 
       <section className="rounded-xl bg-white border border-[#e8e4dc] p-5 mb-6" data-testid="position-card">
-        <p className={EYEBROW} style={{ color: TEAL }} data-testid="position-title">{first ? copy.first_bag_title : copy.here_title}</p>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className={EYEBROW} style={{ color: TEAL }} data-testid="position-title">{first ? copy.first_bag_title : copy.here_title}</p>
+          {first?.isFounderPick && <p className={`${EYEBROW} ${SOFT}`} data-testid="founder-pick">{copy.founder_pick}</p>}
+        </div>
         <h2 className={`text-2xl font-semibold ${INK} mt-1`} data-testid="position-name">{pos.name}</h2>
-        {pos.notes.length > 0 && <p className={`text-base ${INK} mt-1`}>{pos.notes.join(', ')}</p>}
+        {!first && pos.notes.length > 0 && <p className={`text-base ${INK} mt-1`}>{pos.notes.join(', ')}</p>}
         {first && (
-          <p className={`text-sm ${SOFT} mt-2`} data-testid="first-bag-reason"><strong className={INK}>{copy.why_this_one}</strong> {first.reason}</p>
+          <p className={`text-sm ${SOFT} mt-2`} data-testid="first-bag-reason">{first.text ?? first.reason}</p>
         )}
         <Price price={pos.price} />
         {first && pos.price && (
@@ -155,17 +148,17 @@ export default function MapPage() {
         {added === pos.coffeeId && <p className={`text-sm ${SOFT} mt-2`} data-testid="added-to-cart">{copy.added_to_cart}</p>}
       </section>
 
-      {data.steps.length > 0 && (
+      {lead && (
+        <section className="mb-6" data-testid="lead-step">
+          <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="lead-title">{copy.lead_title}</p>
+          <StepCard step={lead} copy={copy} busy={busy} onChoose={() => choose(lead)} />
+        </section>
+      )}
+      {others.length > 0 && (
         <section data-testid="steps">
-          <div className="flex items-baseline justify-between mb-3">
-            <p className={`${EYEBROW} ${SOFT}`}>{copy.steps_title}</p>
-            <p className={`text-xs ${SOFT}`}>{copy.steps_hint}</p>
-          </div>
+          <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="others-title">{lead ? copy.others_title : copy.steps_title}</p>
           <div className="flex flex-col gap-3">
-            {data.steps.map(s => (
-              <StepCard key={s.stepId} step={s} copy={copy} open={open === s.stepId} busy={busy}
-                onToggle={() => setOpen(open === s.stepId ? null : s.stepId)} onChoose={() => choose(s)} />
-            ))}
+            {others.map(s => <StepCard key={s.stepId} step={s} copy={copy} busy={busy} onChoose={() => choose(s)} />)}
           </div>
         </section>
       )}

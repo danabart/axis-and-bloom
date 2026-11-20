@@ -196,7 +196,7 @@ describe('the page reads (D)', () => {
       const published = (await c.query(`SELECT a.map_name AS to_coffee_name, s.button_word FROM v_dial_step s JOIN v_dial_coffee_availability a ON a.coffee_id = s.to_coffee_id WHERE s.on_active_map AND s.from_coffee_id = $1`, [before.position!.coffeeId])).rows;
       expect(before.steps.map(s => s.name).sort()).toEqual(published.map(x => x.to_coffee_name).sort());
       expect(Object.keys(before)).toEqual(['position', 'firstBag', 'steps', 'copy']);
-      for (const s of before.steps) expect(Object.keys(s).sort()).toEqual(['coffeeId', 'familyLabel', 'line', 'name', 'notes', 'price', 'stepId', 'word']); // Ella map 8: familyLabel
+      for (const s of before.steps) expect(Object.keys(s).sort()).toEqual(['coffeeId', 'familyLabel', 'isLead', 'line', 'name', 'notes', 'price', 'stepId', 'text', 'word']); // Ella map 8: familyLabel; Ella map 9: isLead, text
       // a coffee that is not a step is refused
       const notAStep = (await c.query<{ coffee_id: number }>(
         `SELECT coffee_id FROM v_dial_placement WHERE coffee_id <> ALL($1::int[]) AND coffee_id <> $2 AND category_codes = '{}' LIMIT 1`,

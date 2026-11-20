@@ -30,8 +30,10 @@ export interface MapTrailStep {
   line: string | null;
   onActiveMap: boolean;
 }
-/** Ella map 7: the first-bag reason, before any bag */
-export interface MapFirstBag { coffeeId: number; reason: string }
+/** Ella map 7: the first-bag reason, before any bag; Ella map 9: its composed text and the founder's-pick label */
+export interface MapFirstBag { coffeeId: number; reason: string; text?: string; isFounderPick?: boolean; basis?: MapTextBasis }
+/** Ella map 9 (admins only): the rows and facts a composed text used */
+export interface MapTextBasis { ruleId?: number | null; stepId?: number; copyCodes: string[]; saidBackIds: number[]; factCodes: string[] }
 /** Ella map 8: a buyable coffee's anchor-size price (null price = not buyable) */
 export interface MapPrice { cents: number; sizeLabel: string; weightOz: number }
 /** Ella map 7: one published step leaving the customer's coffee */
@@ -39,12 +41,18 @@ export interface MapStepCard {
   stepId: number; word: string; coffeeId: number; name: string; line: string | null; notes: string[]; price: MapPrice | null;
   /** Ella map 8: the family label the cart line shows */
   familyLabel: string | null;
+  /** Ella map 9: the one step we would take the customer to next, and the card's composed text */
+  isLead: boolean;
+  text: string;
+  basis?: MapTextBasis;
 }
 export interface MapSteps {
   position: null | { coffeeId: number; name: string; notes: string[]; price: MapPrice | null; familyLabel: string | null; hasBag: boolean };
   firstBag: MapFirstBag | null;
   steps: MapStepCard[];
   copy: Record<string, string>;
+  /** Ella map 9: the position was read from the start rule (an admin's "Read it as", no decision yet) */
+  readAs?: 'start_rule';
 }
 export interface MapMe {
   position: null | { coffeeId: number; name: string; archetypeCode: string | null; isCenter: boolean; isInActiveVersion: boolean; available: boolean; sentence: string | null; move: string; byOther: boolean };

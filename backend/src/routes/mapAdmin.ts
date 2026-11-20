@@ -9,8 +9,9 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth.js';
 import * as dialReads from '../services/dialReads.js';
-import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, setStep, publish, setStartRule, DialMapError } from '../services/dialPlacementService.js';
-import { getMatchDecisions } from '../services/customerReads.js';
+import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, setStep, publish, setStartRule, setSaidBack, DialMapError } from '../services/dialPlacementService.js';
+import { getMatchDecisions, searchCustomersForMap } from '../services/customerReads.js';
+import { steps as composedSteps } from '../services/matchService.js';
 import { setLean, setRing, CatalogError } from '../services/catalogService.js';
 
 const router = Router();
@@ -116,6 +117,11 @@ const StartRuleBody = z.object({
   adminLabel: z.string().trim().min(1).max(300),
   customerReason: z.string().trim().min(1).max(600),
   notes: z.string().trim().max(2000).nullable().optional(),
+  // Ella map 9 (A3): left out = unchanged, null or empty = cleared
+  coffeeLine: z.string().trim().max(600).nullable().optional(),
+  leadToCoffeeId: z.number().int().positive().nullable().optional(),
+  leadLine: z.string().trim().max(600).nullable().optional(),
+  leadQuoteFamily: z.string().trim().max(40).nullable().optional(),
 });
 router.put('/start-rules', async (req: AuthRequest, res) => {
   try {
@@ -123,6 +129,7 @@ router.put('/start-rules', async (req: AuthRequest, res) => {
     res.json(await setStartRule({
       familyCode: b.family, priority: b.priority, conditionCode: b.condition, alsoConditionCode: b.alsoCondition ?? null,
       coffeeId: b.coffeeId, adminLabel: b.adminLabel, customerReason: b.customerReason, notes: b.notes ?? null, adminUid: req.uid ?? null,
+      coffeeLine: b.coffeeLine, leadToCoffeeId: b.leadToCoffeeId, leadLine: b.leadLine, leadQuoteFamilyCode: b.leadQuoteFamily,
     }));
   } catch (err) { fail(res, 'set start rule', err); }
 });
@@ -186,12 +193,15 @@ const StepBody = z.object({
   basis: z.string().trim().min(1).max(60),
   shown: z.boolean().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
+  // Ella map 9 (A4): left out = unchanged, null = cleared
+  move: z.string().trim().max(40).nullable().optional(),
+  whenLine: z.string().trim().max(300).nullable().optional(),
 });
 router.put('/steps', async (req: AuthRequest, res) => {
   try {
     const b = StepBody.parse(req.body ?? {});
     res.json(await setStep({ fromCoffeeId: b.from, toCoffeeId: b.to, buttonWord: b.word, customerLine: b.line ?? null,
-      basisCode: b.basis, isShown: b.shown, notes: b.notes, adminUid: req.uid ?? null }));
+      basisCode: b.basis, isShown: b.shown, notes: b.notes, adminUid: req.uid ?? null, moveCode: b.move, whenLine: b.whenLine }));
   } catch (err) { fail(res, 'set step', err); }
 });
 
@@ -217,5 +227,26 @@ router.post('/publish', async (req: AuthRequest, res) => {
     res.status(201).json(await publish({ label: b.label, reason: b.reason, adminUid: req.uid ?? null }));
   } catch (err) { fail(res, 'publish', err); }
 });
+
+// â”€â”€ Ella's Bloom Map 9 (2026-11-20), B1/B3/C2: what we say back, and "Read it as" â”€â”€
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
+router.get('/said-back', read('said back', () => dialReads.saidBackFacts()));
+router.get('/said-back/history', read('said back history', () => dialReads.saidBackHistory()));
+const SaidBackBody = z.object({
+  source: z.string().trim().min(1).max(40),
+  fact: z.string().trim().min(1).max(80),
+  saysBack: z.string().trim().max(300).nullable(),
+});
+router.put('/said-back', async (req: AuthRequest, res) => {
+  try {
+    const b = SaidBackBody.parse(req.body ?? {});
+    res.json(await setSaidBack({ sourceCode: b.source, factCode: b.fact, saysBack: b.saysBack, adminUid: req.uid ?? null }));
+  } catch (err) { fail(res, 'set said back', err); }
+});
+// The picker: customers by email (at least 3 characters)
+router.get('/customers', read('customer search', req => searchCustomersForMap(z.string().trim().min(3).max(120).parse(req.query.q ?? ''))));
+// B3: the composed page for any customer, with the rows each text used; read only (a customer with no decision reads their start rule, C8)
+router.get('/reasons', read('reasons', req =>
+  composedSteps(z.string().uuid().parse(req.query.profileId), undefined, { withBasis: true, readAsRule: true })));
 
 export default router;

@@ -27,6 +27,8 @@ The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXI
 
 `coffees` stays `coffees`; `archetype_enum` (a type, not a table) is unchanged.
 
+> **As of 2026-11-20 (Ella's Bloom Map 9, `WHAT_WE_BUILT.md` #281)**: tables `dial_said_back_source`, `dial_said_back`; views `v_dial_said_back`, `v_dial_said_back_fact`, `v_dial_quiz_answer`; columns `dial_start_rule.coffee_line`, `lead_to_coffee_id`, `lead_line`, `lead_quote_family_code`, `dial_step.move_id`, `when_line`, `dial_move.opposite_move_id`; `v_dial_step`, `v_dial_start_rule`, `v_dial_start` carry them; 11 `dial_customer_copy` rows; three `evidence_parameter` keys; data-catalog integrity checks 12 to 14. Object descriptions in `CATALOG.md`.
+
 > **As of 2026-11-18 (Ella's Bloom Map 8, `WHAT_WE_BUILT.md` #278)**: `v_dial_coffee_availability` at coffee grain (coffee, anchor-size SKU and `coffee_retail_price`; new columns `weight_oz`, `size_label`, `sku_id`, `price_cents`, `has_sku`, `has_price`, `map_name`); column `coffees.short_name` (with `v_coffee.short_name`, check `coffees_short_name_not_blank`); `coffee_size` gains the writer `catalogService.setSizeActive` (2 lb and 5 lb switched off); `dial_customer_copy` rows `add_first_bag`, `added_to_cart`; catalog integrity check 15. Object descriptions in `CATALOG.md`.
 
 > **As of 2026-11-18 (Commerce 6, `WHAT_WE_BUILT.md` #277)**:
