@@ -121,7 +121,7 @@ After (`tmp/b10_after_prod.txt`):
 - Sessions 35–42 are unchanged: scores 102 (md5 477bd570…) and values 902 (md5 483e2477…), the same as before.
 - Integrity after = before (`tmp/b10_integrity_before_prod.txt` = `tmp/b10_integrity_after_prod.txt`).
 
-Commit: loader, npm script, brief status line, `WHAT_WE_BUILT.md` entry 279, README line and status, this report. Pushed to main; the deploy result is below.
+Commit **`20df396`**: loader, npm script, brief status line, `WHAT_WE_BUILT.md` entry 279, README line and status, this report. Pushed to main. Deploy run 44797706680 **green** (backend and frontend) → revision **axis-bloom-backend-00882-grh**. Startup log: `DB schema verified`; `[data-catalog]` report only, 1 of 11 checks with findings (#6 dead-table candidates, as before); `[evidence-integrity]` #2 = 3 and #6 = 3, the same as before the load; no ERROR. Lints (all six) and `tsc --noEmit` were green before the push. The full vitest suite was not run: the change is a standalone loader script that no test imports, and the suite has known baseline failures (OT-117).
 
 ## Workbench
 
