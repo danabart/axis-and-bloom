@@ -420,7 +420,7 @@ export const setStep = (input: SetStepInput) => withTransaction(tx => setStepInT
 // ── Ella's Bloom Map 9 (2026-11-20), B1 ───────────────────────────────────────
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
 
-export interface SetSaidBackInput { sourceCode: string; factCode: string; saysBack: string | null; adminUid?: string | null }
+export interface SetSaidBackInput { sourceCode: string; factCode: string; saysBack: string | null; isQuoted?: boolean; adminUid?: string | null }
 export interface SetSaidBackResult { id: number | null; unchanged: boolean; supersededId: number | null }
 
 /**
@@ -429,7 +429,8 @@ export interface SetSaidBackResult { id: number | null; unchanged: boolean; supe
  * empty phrase supersedes with no successor: the fact is no longer quoted
  * (G2.11, nothing deleted). A new phrase must name a fact v_dial_said_back_fact
  * lists (a current answer of an active quiz, an active value of the source's
- * brew field).
+ * brew field). isQuoted false keeps the phrase but never quotes it, on
+ * purpose; left out, a new row is quoted and an existing row keeps its value.
  */
 export async function setSaidBackInTx(tx: Tx, input: SetSaidBackInput): Promise<SetSaidBackResult> {
   const factCode = String(input.factCode ?? '').trim();
@@ -437,8 +438,8 @@ export async function setSaidBackInTx(tx: Tx, input: SetSaidBackInput): Promise<
   const src = await tx.query<{ id: number }>(`SELECT id FROM dial_said_back_source WHERE code = $1`, [input.sourceCode]);
   if (!src.rows[0]) throw invalid(`unknown said-back source ${input.sourceCode}`);
   if (!factCode) throw invalid('factCode is required');
-  const cur = (await tx.query<{ id: number; says_back: string }>(
-    `SELECT id, says_back FROM dial_said_back WHERE source_id = $1 AND fact_code = $2 AND superseded_at IS NULL FOR UPDATE`,
+  const cur = (await tx.query<{ id: number; says_back: string; is_quoted: boolean }>(
+    `SELECT id, says_back, is_quoted FROM dial_said_back WHERE source_id = $1 AND fact_code = $2 AND superseded_at IS NULL FOR UPDATE`,
     [src.rows[0].id, factCode])).rows[0];
   if (!says) {
     if (!cur) return { id: null, unchanged: true, supersededId: null };
@@ -447,11 +448,12 @@ export async function setSaidBackInTx(tx: Tx, input: SetSaidBackInput): Promise<
   }
   const known = await tx.query(`SELECT 1 FROM v_dial_said_back_fact WHERE source_code = $1 AND fact_code = $2`, [input.sourceCode, factCode]);
   if (!known.rows[0]) throw new DialMapError(404, 'FACT_NOT_FOUND', `No current ${input.sourceCode} fact ${factCode}`);
-  if (cur && cur.says_back === says) return { id: cur.id, unchanged: true, supersededId: null };
+  const quoted = input.isQuoted ?? cur?.is_quoted ?? true;
+  if (cur && cur.says_back === says && cur.is_quoted === quoted) return { id: cur.id, unchanged: true, supersededId: null };
   if (cur) await tx.query(`UPDATE dial_said_back SET superseded_at = clock_timestamp() WHERE id = $1`, [cur.id]);
   const ins = await tx.query<{ id: number }>(
-    `INSERT INTO dial_said_back (source_id, fact_code, says_back, decided_by) VALUES ($1, $2, $3, $4) RETURNING id`,
-    [src.rows[0].id, factCode, says, input.adminUid ?? null]);
+    `INSERT INTO dial_said_back (source_id, fact_code, says_back, is_quoted, decided_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [src.rows[0].id, factCode, says, quoted, input.adminUid ?? null]);
   return { id: ins.rows[0].id, unchanged: false, supersededId: cur?.id ?? null };
 }
 export const setSaidBack = (input: SetSaidBackInput) => withTransaction(tx => setSaidBackInTx(tx, input));

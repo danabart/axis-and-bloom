@@ -17,7 +17,6 @@ import type pg from 'pg';
 import { db } from '../db/client.js';
 import type { CatalogIntegrityCheck, CatalogIntegrityReport } from './catalogIntegrity.js';
 import { getParameters } from './evidenceReads.js';
-import { DIAL_UNSAID_ON_PURPOSE } from './dialSaidBackPolicy.js';
 import { listScales } from './cuppingReads.js';
 import {
   appWriterModules,
@@ -306,8 +305,9 @@ export async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<Ca
 
   // Ella map 9 (A8): what we say back. A phrase for a fact that is no longer
   // current; a quotable answer of the active quiz with no phrase (it is then
-  // never quoted, unless DIAL_UNSAID_ON_PURPOSE lists it); a start rule whose
-  // lead is not a current shown step from its coffee.
+  // never quoted; a current row with is_quoted false counts as covered: never
+  // quoted on purpose); a start rule whose lead is not a current shown step
+  // from its coffee.
   const orphan = (await runner.query<{ finding: string }>(
     `SELECT sb.source_code || ' ' || sb.fact_code AS finding FROM v_dial_said_back sb
       WHERE sb.is_current AND NOT EXISTS (SELECT 1 FROM v_dial_said_back_fact f WHERE f.source_code = sb.source_code AND f.fact_code = sb.fact_code)
@@ -315,10 +315,8 @@ export async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<Ca
   const c12 = check(12, 'Ella map: every said-back phrase names a current answer or brew value', orphan, '0 orphan phrases', n => `${n} phrase(s) for no current fact`);
   const unsaid = (await runner.query<{ finding: string }>(
     `SELECT f.context_group || ' ' || f.fact_code AS finding FROM v_dial_said_back_fact f
-      WHERE f.source_code = 'quiz_answer' AND f.is_quotable AND f.said_back_id IS NULL
-        AND NOT (f.fact_code = ANY($1::text[])) ORDER BY 1`, [[...DIAL_UNSAID_ON_PURPOSE]])).rows.map(r => r.finding);
-  const c13 = check(13, 'Ella map: every quotable answer of the active quiz has a said-back phrase', unsaid,
-    `0 answers without a phrase (left out on purpose: ${DIAL_UNSAID_ON_PURPOSE.join(', ')})`, n => `${n} answer(s) never quoted`);
+      WHERE f.source_code = 'quiz_answer' AND f.is_quotable AND f.said_back_id IS NULL ORDER BY 1`)).rows.map(r => r.finding);
+  const c13 = check(13, 'Ella map: every quotable answer of the active quiz has a said-back row', unsaid, '0 answers without a row', n => `${n} answer(s) never quoted`);
   const badLead = (await runner.query<{ finding: string }>(
     `SELECT r.family_name || ' #' || r.priority || ': ' || r.coffee_name || ' -> ' || r.lead_to_coffee_name AS finding
        FROM v_dial_start_rule r

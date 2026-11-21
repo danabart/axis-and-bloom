@@ -24,13 +24,17 @@
 import 'dotenv/config';
 import { pathToFileURL } from 'node:url';
 import type { Tx } from '../db/client.js';
-import { DIAL_UNSAID_ON_PURPOSE } from '../services/dialSaidBackPolicy.js';
 
 export const ACTOR = 'script:ellaMapReasons_2026_11_20';
 
-/** Data 1: what we say back about a quiz answer or a feeling (Dana 2026-11-20; v7_q5_b changed at the Task 0 STOP). */
-export const DATA_1: Array<{ source: 'quiz_answer' | 'coffee_feeling'; fact: string; says: string }> = [
+/**
+ * Data 1: what we say back about a quiz answer or a feeling (Dana 2026-11-20;
+ * v7_q5_b changed at the Task 0 STOP). quoted false: the phrase is kept but
+ * never quoted, on purpose (v7_q1_b, Dana 2026-11-20/21).
+ */
+export const DATA_1: Array<{ source: 'quiz_answer' | 'coffee_feeling'; fact: string; says: string; quoted?: boolean }> = [
   { source: 'quiz_answer', fact: 'v7_q1_a', says: "coffee is a daily ritual and you're particular about it" },
+  { source: 'quiz_answer', fact: 'v7_q1_b', says: 'coffee is a reliable habit for you', quoted: false },
   { source: 'quiz_answer', fact: 'v7_q1_c', says: "you're still discovering coffee" },
   { source: 'quiz_answer', fact: 'v7_q2_a', says: 'a good cup is strong and satisfying' },
   { source: 'quiz_answer', fact: 'v7_q2_b', says: 'a good cup is smooth and easy the whole way' },
@@ -138,16 +142,19 @@ const has = async (tx: Tx, rel: string) => (await tx.query<{ r: string | null }>
 const hasCol = async (tx: Tx, table: string, col: string) =>
   (await tx.query(`SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`, [table, col])).rows.length > 0;
 const show = (v: string | null | undefined) => (v === null || v === undefined ? '(none)' : `"${v}"`);
+/** A said-back row as the plan compares it: the phrase, marked when it is never quoted. */
+const phrase = (says: string, quoted: boolean) => (quoted ? says : `${says} [never quoted]`);
 
 interface Facts { saidBack: Map<string, string>; facts: Map<string, string>; kitchenLabels: Map<string, string> }
 
 async function readFacts(tx: Tx, schema: boolean): Promise<Facts> {
   const saidBack = new Map<string, string>();
   if (schema) {
-    const r = await tx.query<{ source: string; fact_code: string; says_back: string }>(
-      `SELECT s.code AS source, sb.fact_code, sb.says_back FROM dial_said_back sb JOIN dial_said_back_source s ON s.id = sb.source_id
+    const q = await hasCol(tx, 'dial_said_back', 'is_quoted') ? 'sb.is_quoted' : 'true';
+    const r = await tx.query<{ source: string; fact_code: string; says_back: string; is_quoted: boolean }>(
+      `SELECT s.code AS source, sb.fact_code, sb.says_back, ${q} AS is_quoted FROM dial_said_back sb JOIN dial_said_back_source s ON s.id = sb.source_id
         WHERE sb.superseded_at IS NULL`);
-    for (const x of r.rows) saidBack.set(`${x.source}:${x.fact_code}`, x.says_back);
+    for (const x of r.rows) saidBack.set(`${x.source}:${x.fact_code}`, phrase(x.says_back, x.is_quoted));
   }
   const facts = new Map<string, string>();
   const q = await tx.query<{ answer_code: string; answer_text: string }>(
@@ -168,19 +175,13 @@ async function readFacts(tx: Tx, schema: boolean): Promise<Facts> {
 }
 
 /** Every said-back row this script writes: Data 1 plus one per kitchen brand, its phrase the brand's label. */
-async function wantedSaidBack(tx: Tx, f: Facts) {
+async function wantedSaidBack(tx: Tx, f: Facts): Promise<Array<{ source: string; fact: string; says: string; quoted?: boolean }>> {
   return [
     ...DATA_1,
     ...KITCHEN_BRANDS.map(code => ({ source: 'cupboard_coffee' as const, fact: code, says: f.kitchenLabels.get(code) ?? '' })),
   ];
 }
 
-/**
- * Quiz answers with no phrase on purpose (Dana 2026-11-20, Part E: v7_q1_b).
- * Where one has a current phrase (an earlier run of this script), it is
- * superseded with no successor: the row stays in its history, nothing is deleted.
- */
-const UNSAID: Array<{ source: 'quiz_answer'; fact: string }> = DIAL_UNSAID_ON_PURPOSE.map(fact => ({ source: 'quiz_answer' as const, fact }));
 
 async function coffeeIdByName(tx: Tx): Promise<Map<string, number>> {
   const r = await tx.query<{ id: number; name: string }>(`SELECT c.id, c.name FROM coffees c WHERE c.is_active`);
@@ -203,11 +204,8 @@ export async function planReasons(tx: Tx): Promise<Plan> {
     const subject = `${d.source} ${d.fact}`;
     const now = f.saidBack.get(`${d.source}:${d.fact}`) ?? null;
     if (!f.facts.has(`${d.source}:${d.fact}`) || !d.says) { rows.push({ section: 'said_back', subject, now: show(now), next: show(d.says), action: 'skip', why: 'no current fact with this code' }); continue; }
-    rows.push({ section: 'said_back', subject, now: show(now), next: show(d.says), action: now === d.says ? 'same' : 'write' });
-  }
-  for (const d of UNSAID) {
-    const now = f.saidBack.get(`${d.source}:${d.fact}`) ?? null;
-    rows.push({ section: 'said_back', subject: `${d.source} ${d.fact}`, now: show(now), next: '(none, on purpose)', action: now === null ? 'same' : 'write' });
+    const next = phrase(d.says, d.quoted ?? true);
+    rows.push({ section: 'said_back', subject, now: show(now), next: show(next), action: now === next ? 'same' : 'write' });
   }
 
   const rules = (await tx.query<Record<string, unknown>>(
@@ -264,12 +262,7 @@ export async function applyReasons(tx: Tx, opts: { publishLabel?: string | null 
 
   for (const d of await wantedSaidBack(tx, f)) {
     if (!isWrite('said_back', `${d.source} ${d.fact}`)) continue;
-    const r = await setSaidBackInTx(tx, { sourceCode: d.source, factCode: d.fact, saysBack: d.says, adminUid: ACTOR });
-    if (!r.unchanged) written++;
-  }
-  for (const d of UNSAID) {
-    if (!isWrite('said_back', `${d.source} ${d.fact}`)) continue;
-    const r = await setSaidBackInTx(tx, { sourceCode: d.source, factCode: d.fact, saysBack: null, adminUid: ACTOR });
+    const r = await setSaidBackInTx(tx, { sourceCode: d.source, factCode: d.fact, saysBack: d.says, isQuoted: d.quoted ?? true, adminUid: ACTOR });
     if (!r.unchanged) written++;
   }
   for (const d of DATA_2) {

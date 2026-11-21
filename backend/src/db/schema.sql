@@ -12713,7 +12713,8 @@ INSERT INTO dial_said_back_source (code, label, brew_field_code, sort_order) VAL
   ('cupboard_coffee', 'The coffee in their kitchen',   'cupboard_coffee', 3)
 ON CONFLICT (code) DO NOTHING;
 
--- A2: what the map says back about one fact. A fact with no current row is
+-- A2: what the map says back about one fact. A fact with no current row, or
+-- whose current row has is_quoted = false (never quoted, on purpose), is
 -- never quoted. Supersede and insert; clearing a phrase supersedes with no
 -- successor (G2.11).
 CREATE TABLE IF NOT EXISTS dial_said_back (
@@ -12726,9 +12727,12 @@ CREATE TABLE IF NOT EXISTS dial_said_back (
   superseded_at TIMESTAMPTZ
 );
 CREATE UNIQUE INDEX IF NOT EXISTS dial_said_back_one_current ON dial_said_back (source_id, fact_code) WHERE superseded_at IS NULL;
+-- Ella map 9 correction (Dana 2026-11-21): the phrase is kept, the row says
+-- whether it is quoted. Replaces a hard-coded list of answer codes (G2.1).
+ALTER TABLE dial_said_back ADD COLUMN IF NOT EXISTS is_quoted BOOLEAN NOT NULL DEFAULT true;
 
 CREATE VIEW v_dial_said_back AS
-SELECT sb.id, s.code AS source_code, s.label AS source_label, sb.fact_code, sb.says_back, sb.decided_by,
+SELECT sb.id, s.code AS source_code, s.label AS source_label, sb.fact_code, sb.says_back, sb.is_quoted, sb.decided_by,
        sb.created_at, sb.superseded_at, (sb.superseded_at IS NULL) AS is_current
 FROM dial_said_back sb
 JOIN dial_said_back_source s ON s.id = sb.source_id;
@@ -12741,7 +12745,7 @@ SELECT s.code AS source_code, s.sort_order AS source_order, a.answer_code AS fac
        qq.q_text AS context, q.version AS context_group, qq.q_number, a.sort_order AS fact_order,
        (COALESCE(qq.weight, 1) * COALESCE(a.weight, 1)) AS weight,
        (COALESCE(qq.weight, 1) * COALESCE(a.weight, 1)) > 0 AS is_quotable,
-       sb.id AS said_back_id, sb.says_back
+       sb.id AS said_back_id, sb.says_back, sb.is_quoted
 FROM quiz_answer a
 JOIN quiz_question qq ON qq.id = a.question_id AND qq.is_current
 JOIN quiz q ON q.id = qq.quiz_id AND q.is_active
@@ -12750,7 +12754,7 @@ LEFT JOIN v_dial_said_back sb ON sb.is_current AND sb.source_code = s.code AND s
 WHERE a.is_current AND a.answer_code IS NOT NULL
 UNION ALL
 SELECT s.code, s.sort_order, fv.code, fv.label, f.label, f.code, NULL, fv.sort_order, NULL, true,
-       sb.id, sb.says_back
+       sb.id, sb.says_back, sb.is_quoted
 FROM dial_said_back_source s
 JOIN brew_profile_field f ON f.code = s.brew_field_code
 JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.is_active

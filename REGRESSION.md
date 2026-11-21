@@ -427,3 +427,4 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **A step card has no "See it":** the coffee's name, its text and the price chip; the chip records the step and adds one bag as "Make it my next bag" did.
 - [ ] **Basis goes to admins only:** `/api/map/steps` returns `basis` only for an admin caller; `GET /api/admin/map/reasons` writes nothing.
 - [ ] **The old Bloom page and every `dial_surface` row are unchanged** (all `lane`).
+- [ ] **"Never quote" is data, not code:** a current `dial_said_back` row with `is_quoted` false keeps its phrase, is never quoted on `/map`, and check 13 does not report it (`v7_q1_b`); no answer code is written in the code (G2.1).

@@ -191,11 +191,11 @@ export const setStep = (f: ApiFetch, body: { from: number; to: number; word: str
 // â”€â”€ Ella's Bloom Map 9 (2026-11-20): what we say back, and "Read it as" â”€â”€
 export interface SaidBackFact {
   source_code: string; fact_code: string; fact_label: string; context: string | null; context_group: string | null;
-  q_number: number | null; weight: string | number | null; is_quotable: boolean; said_back_id: number | null; says_back: string | null;
+  q_number: number | null; weight: string | number | null; is_quotable: boolean; said_back_id: number | null; says_back: string | null; is_quoted: boolean | null;
 }
 export interface MapCustomerHit { profile_id: string; email: string; has_quiz: boolean; has_position: boolean }
 export const getSaidBack = (f: ApiFetch) => call<SaidBackFact[]>(f, `${B}/said-back`);
-export const setSaidBack = (f: ApiFetch, body: { source: string; fact: string; saysBack: string | null }) =>
+export const setSaidBack = (f: ApiFetch, body: { source: string; fact: string; saysBack: string | null; isQuoted?: boolean }) =>
   call<{ id: number | null; unchanged: boolean }>(f, `${B}/said-back`, json('PUT', body));
 export const searchMapCustomers = (f: ApiFetch, q: string) => call<MapCustomerHit[]>(f, `${B}/customers?q=${encodeURIComponent(q)}`);
 export const getReasons = (f: ApiFetch, profileId: string) =>

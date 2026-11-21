@@ -236,11 +236,12 @@ const SaidBackBody = z.object({
   source: z.string().trim().min(1).max(40),
   fact: z.string().trim().min(1).max(80),
   saysBack: z.string().trim().max(300).nullable(),
+  isQuoted: z.boolean().optional(),
 });
 router.put('/said-back', async (req: AuthRequest, res) => {
   try {
     const b = SaidBackBody.parse(req.body ?? {});
-    res.json(await setSaidBack({ sourceCode: b.source, factCode: b.fact, saysBack: b.saysBack, adminUid: req.uid ?? null }));
+    res.json(await setSaidBack({ sourceCode: b.source, factCode: b.fact, saysBack: b.saysBack, isQuoted: b.isQuoted, adminUid: req.uid ?? null }));
   } catch (err) { fail(res, 'set said back', err); }
 });
 // The picker: customers by email (at least 3 characters)

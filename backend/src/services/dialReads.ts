@@ -572,17 +572,17 @@ export async function laneIsOpen(archetypeCode: string, laneCode: string, runner
 
 export interface SaidBackRow { id: number; source_code: string; fact_code: string; says_back: string }
 
-/** The current phrases (v_dial_said_back), keyed `${source}:${fact}`. A fact with no key is never quoted. */
+/** The current quoted phrases (v_dial_said_back), keyed `${source}:${fact}`. A fact with no key is never quoted (no row, or is_quoted false). */
 export async function saidBack(runner: Runner = db): Promise<Map<string, SaidBackRow>> {
   const r = await runner.query<SaidBackRow>(
-    `SELECT id, source_code, fact_code, says_back FROM v_dial_said_back WHERE is_current`);
+    `SELECT id, source_code, fact_code, says_back FROM v_dial_said_back WHERE is_current AND is_quoted`);
   return new Map(r.rows.map(x => [`${x.source_code}:${x.fact_code}`, x]));
 }
 
 /** Every fact the map could say back, with its phrase (v_dial_said_back_fact): the admin table. */
 export async function saidBackFacts(runner: Runner = db) {
   const r = await runner.query(
-    `SELECT source_code, fact_code, fact_label, context, context_group, q_number, weight, is_quotable, said_back_id, says_back
+    `SELECT source_code, fact_code, fact_label, context, context_group, q_number, weight, is_quotable, said_back_id, says_back, is_quoted
        FROM v_dial_said_back_fact
       ORDER BY source_order, context_group, q_number NULLS LAST, fact_order, fact_code`);
   return r.rows;

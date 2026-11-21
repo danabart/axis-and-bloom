@@ -225,7 +225,7 @@ Applied on the test DB before production, through the writers:
 
 1. `lead_quote_family_code` is NULL on all nine start rules (nothing is quoted before a lead line). The column stays.
 2. Balanced, fruity above C&N (La Familia -> The Village): `lead_line` is now "A little further the same way: just as light, with more flower and citrus in it."
-3. No said-back row for `v7_q1_b`. The list `DIAL_UNSAID_ON_PURPOSE` (`backend/src/services/dialSaidBackPolicy.ts`) tells check 13 this is on purpose. The test DB's earlier `v7_q1_b` phrase was superseded with no successor (it stays in its history); production never had one.
+3. No said-back row for `v7_q1_b`. The list `DIAL_UNSAID_ON_PURPOSE` (`backend/src/services/dialSaidBackPolicy.ts`) told check 13 this was on purpose (replaced by data on 2026-11-21, see the correction below). The test DB's earlier `v7_q1_b` phrase was superseded with no successor (it stays in its history); production never had one.
 
 Kitchen brands: Utopian, Temecula and Path stay out with the other partners (Dana).
 

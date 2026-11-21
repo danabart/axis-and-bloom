@@ -238,7 +238,7 @@ describe('the lead and the other steps (B2)', () => {
     });
   });
 
-  // v7_q1_b has no phrase on purpose (Dana 2026-11-20, Part E): the next Balanced answer, v7_q3_b, is quoted instead
+  // v7_q1_b is never quoted on purpose (is_quoted false, Dana 2026-11-21): the next Balanced answer, v7_q3_b, is quoted instead
   it('person 81 (Data 4) reads as Dana approved', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
@@ -317,6 +317,25 @@ describe('the writers (B1)', () => {
 });
 
 describe('the integrity checks (A8)', () => {
+  it('a row with is_quoted false is never quoted and is not reported by check 13', async () => {
+    await withRollback(async ({ client: c }) => {
+      await ensureReasons(c);
+      // v7_q2_b is quoted in the first test; switch it to never quote, its phrase kept
+      const phrase = (await said(c, 'quiz_answer', 'v7_q2_b'))!;
+      const w = await setSaidBackInTx(tx(c), { sourceCode: 'quiz_answer', factCode: 'v7_q2_b', saysBack: phrase, isQuoted: false });
+      expect(w.unchanged).toBe(false);
+      expect((await c.query(`SELECT says_back, is_quoted FROM v_dial_said_back WHERE is_current AND fact_code = 'v7_q2_b'`)).rows[0]).toEqual({ says_back: phrase, is_quoted: false });
+      const p = await person(c, { ...BAL, scores: { 'Balanced & Sweet': 9 }, answers: ALL_BALANCED });
+      await quizDecide(c, p);
+      const r = await page(c, p.userId);
+      expect(r.firstBag!.text).not.toContain(phrase);
+      expect(r.firstBag!.basis!.factCodes).not.toContain('v7_q2_b');
+      const c13 = (await dialMapChecks(c)).find(k => k.id === 13)!;
+      expect(c13.pass).toBe(true);
+      expect((c13.details ?? []).some(d => d.endsWith('v7_q2_b') || d.endsWith('v7_q1_b'))).toBe(false);
+    });
+  });
+
   it('report an orphan phrase, a quotable answer with no phrase, and a lead off the steps', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
