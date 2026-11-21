@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-20 from database `axisandbloom` · 229 tables · 118 views · 1957 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `3752c8994577` (full value in the footer).
+Generated 2026-11-21 from database `axisandbloom` · 229 tables · 118 views · 1958 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `7b8b7029db29` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -1083,7 +1083,7 @@ Workbench words for a ring 0 to 3 (the base, one step out, two steps out, the ed
 
 #### `dial_said_back`
 
-What the map says back about one fact the customer gave us (a quiz answer, how they feel about their coffee, the brand in their kitchen): a phrase that completes the matching dial_customer_copy sentence (You told us ...); a fact with no current row is never quoted (the treat question has none). Supersede and insert; clearing a phrase supersedes with no successor
+What the map says back about one fact the customer gave us (a quiz answer, how they feel about their coffee, the brand in their kitchen): a phrase that completes the matching dial_customer_copy sentence (You told us ...); a fact with no current row is never quoted (the treat question has none), and a current row with is_quoted false is never quoted on purpose (its phrase kept). Supersede and insert; clearing a phrase supersedes with no successor
 
 - **Writer:** dialPlacementService.setSaidBackInTx
 - **Readers:** v_dial_said_back
@@ -1098,6 +1098,7 @@ What the map says back about one fact the customer gave us (a quiz answer, how t
 | `decided_by` | text | yes | Admin uid or actor string. |
 | `created_at` | timestamp with time zone | no | UTC wall-clock timestamp the row was written (valid-from). |
 | `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer row replaced this one or the phrase was cleared; NULL marks the current row. The only column the request pool may UPDATE. |
+| `is_quoted` | boolean | no | true (default): the phrase is quoted on /map; false: never quoted, on purpose (Dana's "never quote" switch on /admin/map), and integrity check 13 still counts the fact as covered. Since 2026-11-21 (Ella map 9 correction). |
 
 #### `dial_said_back_source`
 
@@ -5118,7 +5119,7 @@ One row per current quiz session of a customer (v_customer_quiz_current) x answe
 
 #### `v_dial_said_back`
 
-Every dial_said_back row with its source code and label, current and superseded (is_current): the table's one read path
+Every dial_said_back row with its source code and label and is_quoted, current and superseded (is_current): the table's one read path; composition reads only current rows with is_quoted
 
 - **Writer:** none (derived)
 - **Readers:** v_dial_said_back_fact, dialReads.saidBack, dialPlacementService.setSaidBackInTx
@@ -5127,7 +5128,7 @@ Every dial_said_back row with its source code and label, current and superseded 
 
 #### `v_dial_said_back_fact`
 
-Every fact the map could say back, with its current phrase: the current answers of the active quizzes (question, weight, quotable when the weight is above 0) and the active values of each source's brew field; the admin table and the integrity checks. Reads the quiz content and the brew values, never changes them (G2.20)
+Every fact the map could say back, with its current phrase and is_quoted: the current answers of the active quizzes (question, weight, quotable when the weight is above 0) and the active values of each source's brew field; the admin table and the integrity checks. Reads the quiz content and the brew values, never changes them (G2.20)
 
 - **Writer:** none (derived)
 - **Readers:** dialReads.saidBackFacts, dataCatalogIntegrity
@@ -5847,5 +5848,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: 3752c8994577c147c6802c1b9a44ad8a46666e397e437efea6c228551ef8c448
-lineage-hash: 2e2199f8340bccf8d813e862a0887386b94a2323d856ea73a0331cd5677c985f
+catalog-hash: 7b8b7029db29d018a7b30d4d1a868491e6fcf71dc02638669d8c9a563b0c342d
+lineage-hash: a84a41eaf4a7f0f99919b4f4ee1763a240a975b8f92d9c7ca7a1fe405a3f0cec
