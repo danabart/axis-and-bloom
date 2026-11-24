@@ -136,3 +136,5 @@ Brief 9's one-off seed, `backend/src/scripts/ellaMapReasons_2026_11_20.ts`, stil
 ## What the next brief needs
 
 Nothing from this one. The holds on Fabricator, Brazil, Indonesia and D.R. Congo for launch remain a separate decision, not applied here.
+
+**Later the same day (Dana, 2026-11-24):** the lead sentence of `chocolate_nutty` p3 is now "The next step toward fruit: sweeter and lighter, with the chocolate still underneath." It was set through `setStartRuleInTx`, superseding production rule #19 with #20 (test DB: #235 by #240). This script's `leadLine` matches, and a dry run reports it unchanged on both databases.

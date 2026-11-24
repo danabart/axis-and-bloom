@@ -31,7 +31,7 @@ export const RULE = {
   customerReason: 'You asked for a stronger cup and picked one bright answer. This is chocolate first, with a little lift.',
   coffeeLine: 'This one is chocolate first with a little lift, and it holds up however you brew it.',
   lead: 'Geometric Filter Coffee',
-  leadLine: 'More fruit, and sweeter.',
+  leadLine: 'The next step toward fruit: sweeter and lighter, with the chocolate still underneath.',
 };
 export type RuleData = typeof RULE;
 
