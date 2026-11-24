@@ -125,9 +125,26 @@ What this means for the read-back:
   - So the DONE line "Geometric as the lead step" holds on the test DB (brief 9 code, above) and on the data: #19 names Geometric as the lead, and integrity check 14 passes. On production `/map` it will show once brief 10's seed has run. Whoever runs that seed should check this page afterwards.
 - **`/admin/map` table 1** reads `v_dial_start_rule WHERE is_current`. That now returns #19 for `chocolate_nutty` p3. Not checked in a browser: G1.9, a deploy was running on Dana's machine.
 
-### One more risk, left alone
+### Brief 9's seed is now guarded (follow-up, 2026-11-24)
 
-Brief 9's one-off seed, `backend/src/scripts/ellaMapReasons_2026_11_20.ts`, still lists `chocolate_nutty` p3 as Fabricator House Roast in its data block. Run again with `--apply`, it would put Fabricator back through `setStartRuleInTx`. It has already been run on both databases and is not meant to run again. Nobody should rerun it without first changing that line.
+Brief 9's one-off seed, `backend/src/scripts/ellaMapReasons_2026_11_20.ts`, still lists `chocolate_nutty` p3 as Fabricator House Roast in its data block.
+
+**Correction to what I wrote at the close:** a rerun would not have put Fabricator back.
+- The plan already skipped a rule that names another coffee ("the rule names another coffee now").
+- When it does write a rule, it keeps the current row's coffee.
+
+The real gap was different: an edit to a rule that keeps its coffee, made on `/admin/map` or by a later brief, would have been overwritten by a rerun.
+
+**The fix (Dana's ask).** The seed now refuses to write a start rule whose current row was written after the script last ran. This mirrors brief 10's guard on phrases.
+- `lastRunAt` is the latest row the script wrote itself (`decided_by` = its actor) in `v_dial_said_back`, `v_dial_step` or `v_dial_start_rule`.
+- A current rule created after that is skipped: "written since this script last ran (…); kept".
+- On a database where the script has never run, the first run writes as planned.
+
+**Evidence:**
+- Test DB dry run: 0 writes, 93 unchanged, 25 skipped. `chocolate_nutty #3` is skipped as written since, because test rule #240 was written by `script:em10_leadline_2026_11_24` after the seed last ran. The other eight rules are `same`.
+- New test `src/services/dialMap9Guard.test.ts`: an edit after the last run is skipped and survives `applyReasons`, and every other rule keeps its action. It passes together with `dialMap9.test.ts` and `dialMap10.test.ts` (29 of 29).
+- `tsc --noEmit` and the six lints are green.
+- No production data was written.
 
 ## Lints and checks
 

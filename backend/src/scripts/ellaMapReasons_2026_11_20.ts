@@ -18,6 +18,9 @@
 // Idempotent: a second run writes nothing (and --publish is then skipped).
 // Coffees are found by name (ids differ between databases). The start rules
 // are found by (family, priority) and must still name the coffee Data 2 names.
+// A start rule whose current row was written after this script last ran (by
+// Ella map 11 or /admin/map) is skipped and kept (lastRunAt), as Ella map 10
+// keeps a phrase changed since.
 // SAFETY: refuses unless the connected database is exactly --expect-db
 // (default axisandbloom_test), checked from DATABASE_URL before connecting
 // and from current_database() after.
@@ -183,6 +186,21 @@ async function coffeeIdByName(tx: Tx): Promise<Map<string, number>> {
   return m;
 }
 
+/**
+ * When this script last ran on this database: the latest row it wrote itself
+ * (decided_by = ACTOR) in any of the three tables it writes, current or
+ * superseded. Null when it has never run here (the first run writes as
+ * planned).
+ */
+export async function lastRunAt(tx: Tx): Promise<Date | null> {
+  const r = await tx.query<{ t: Date | null }>(
+    `SELECT max(t) AS t FROM (
+       SELECT max(created_at) AS t FROM v_dial_said_back WHERE decided_by = $1
+       UNION ALL SELECT max(created_at) FROM v_dial_step WHERE decided_by = $1
+       UNION ALL SELECT max(created_at) FROM v_dial_start_rule WHERE decided_by = $1) x`, [ACTOR]);
+  return r.rows[0].t ? new Date(r.rows[0].t) : null;
+}
+
 /** Read-only: what --apply would write, row by row. */
 export async function planReasons(tx: Tx): Promise<Plan> {
   const schema = await has(tx, 'dial_said_back') && await hasCol(tx, 'dial_step', 'when_line') && await hasCol(tx, 'dial_start_rule', 'coffee_line');
@@ -206,13 +224,21 @@ export async function planReasons(tx: Tx): Promise<Plan> {
   }
 
   const rules = (await tx.query<Record<string, unknown>>(
-    `SELECT r.family_code AS family, r.priority, r.coffee_name, r.coffee_line, r.lead_to_coffee_id, r.lead_line, r.lead_quote_family_code AS lead_quote
+    `SELECT r.family_code AS family, r.priority, r.coffee_name, r.coffee_line, r.lead_to_coffee_id, r.lead_line, r.lead_quote_family_code AS lead_quote,
+            r.created_at, r.decided_by
        FROM v_dial_start_rule r WHERE r.is_current`)).rows;
+  const lastRun = await lastRunAt(tx);
   for (const d of DATA_2) {
     const subject = `${d.family} #${d.priority} (${d.coffee})`;
     const next = `${show(d.coffeeLine)} / lead ${d.lead}: ${show(d.leadLine)} / quote ${d.quote ?? '(none)'}`;
     const r = rules.find(x => x.family === d.family && Number(x.priority) === d.priority);
     if (!r) { rows.push({ section: 'start_rule', subject, now: '(no current rule)', next, action: 'skip', why: 'no current rule at this family and priority' }); continue; }
+    // Ella map 11 follow-up: a rule written after this script last ran (Ella map 11, /admin/map) is never written back
+    if (lastRun && r.decided_by !== ACTOR && new Date(r.created_at as string).getTime() > lastRun.getTime()) {
+      rows.push({ section: 'start_rule', subject, now: `names ${String(r.coffee_name)}, written ${new Date(r.created_at as string).toISOString()} by ${String(r.decided_by ?? '(unknown)')}`, next, action: 'skip',
+        why: `written since this script last ran (${lastRun.toISOString()}); kept` });
+      continue;
+    }
     if (r.coffee_name !== d.coffee) { rows.push({ section: 'start_rule', subject, now: `names ${String(r.coffee_name)}`, next, action: 'skip', why: 'the rule names another coffee now' }); continue; }
     const leadId = ids.get(d.lead);
     const now = schema
