@@ -358,3 +358,23 @@ The five pages below do not depend on that rule.
 2. On production: dry run, then `--apply --expect-db axisandbloom`. A second run writes nothing.
 3. Read the five pages on production.
 4. `npm run catalog:md -- --expect-db axisandbloom`, then commit `CATALOG.md` and the run record.
+
+## Part E (production, 2026-11-24)
+
+Dana's yes, 2026-11-24.
+
+- **Before the push:** no node process was running, and of the two other Claude sessions listed, one was idle and one had started four days earlier. No repo file had changed since 17:42 UTC. That check missed a session that was about to run: brief 11's production apply landed at 19:21:05 UTC (below).
+- **Commit and deploy:** `06ae2cd`, 37 files by path, including Dana's G3.9 amendment. Deploy run 45469350543 succeeded; revision `axis-bloom-backend-00890-775`.
+- **Startup log:** schema verified; 2,326 comment statements applied; data catalog 16 checks, 3 with findings: #4 (CATALOG.md stale, before the regeneration), #6 (27 dead candidates, known), #16 (18 map coffees with no `map_line`, before the seed). The other findings were already there before this brief: quiz-integrity #10, evidence-integrity #2 and #6, sommelier #3.
+- **Seed:**
+  - Dry run: 48 write, 1 unchanged (the copy row came from the schema).
+  - `--apply --expect-db axisandbloom`: 48 written.
+  - Second dry run: 0 write, 49 unchanged.
+  - Output in `backend/tmp/em10_dry_prod2.md`, `em10_apply_prod.md` and `em10_dry_prod3.md`.
+- **Pages read on production** (`tmp/em10_readas_prod.mts`, read only; output in `tmp/em10_pages_prod.md`): Dana's real account and 81 were read from their decisions; 85, 33 and 23 have no decision, so they were read as the start rule. All five are word for word the pages pinned on the test DB.
+- **Brief 11, run by another session during Part E:**
+  - At 19:21:05 UTC, 24 seconds before this brief's push, `script:ellaMapTigerStart_2026_11_24` superseded start rule `chocolate_nutty` #3 on production (Fabricator → Tiger Stripe).
+  - At 19:28 UTC that session committed `4379750` locally on top of `06ae2cd`. It has not been pushed.
+  - This brief did not touch its rule, its files or its commit. None of the five pages reads rule #3.
+- **Not done:** I regenerated `CATALOG.md` from production (hash `1c817db…`, now matching the live database), but did not commit or push it. With `4379750` on top of the local branch, a push from here would also deploy brief 11's commit. `CATALOG.md` and this record stay uncommitted until Dana decides.
+- **Dana, 2026-11-24:** push `4379750` with this record and `CATALOG.md` on top.
