@@ -115,12 +115,12 @@ describe('three writers, all three fields, the views (Part E 1)', () => {
       expect(latte.quizSessionId).toBe(g1.sessionId);
       expect((await reads.getUsualDrinks(g2.uid, c)).map(d => [d.code, d.baseMethod, d.dilution, d.milk])).toEqual([['americano_milk', 'espresso', 'water', 'cold']]);
       expect((await reads.getUsualDrinks(g3.uid, c)).map(d => d.code)).toEqual(['cold_brew']);
-      expect((await reads.getCupboardCoffee(g1.uid, c))?.brandKind).toBe('specialty');
-      expect((await reads.getCupboardCoffee(g2.uid, c))?.brandKind).toBe('mass_market');
-      expect((await reads.getCupboardCoffee(g3.uid, c))?.brandKind).toBe('chain');
-      expect((await reads.getCoffeeFeeling(g1.uid, c))?.moveCode).toBe(await moveFor(c, 'bolder'));
-      expect((await reads.getCoffeeFeeling(g2.uid, c))?.moveCode).toBe(await moveFor(c, 'happy'));
-      expect((await reads.getCoffeeFeeling(g3.uid, c))?.moveCode).toBe(await moveFor(c, 'gentler'));
+      expect((await reads.getCupboardCoffee({ uid: g1.uid }, c))?.brandKind).toBe('specialty');
+      expect((await reads.getCupboardCoffee({ uid: g2.uid }, c))?.brandKind).toBe('mass_market');
+      expect((await reads.getCupboardCoffee({ uid: g3.uid }, c))?.brandKind).toBe('chain');
+      expect((await reads.getCoffeeFeeling({ uid: g1.uid }, c))?.moveCode).toBe(await moveFor(c, 'bolder'));
+      expect((await reads.getCoffeeFeeling({ uid: g2.uid }, c))?.moveCode).toBe(await moveFor(c, 'happy'));
+      expect((await reads.getCoffeeFeeling({ uid: g3.uid }, c))?.moveCode).toBe(await moveFor(c, 'gentler'));
     });
   });
 });
@@ -154,7 +154,7 @@ describe('the post-result card (B2)', () => {
       await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['coffee_feeling'], answers: [{ field: 'coffee_feeling', value: 'happy' }] }, c);
       await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['coffee_feeling'], answers: [{ field: 'coffee_feeling', value: 'bolder' }] }, c);
       expect((await rows(c, g.userId)).map(x => x.op)).toEqual(['declined', 'set', 'set']);
-      expect((await reads.getCoffeeFeeling(g.uid, c))?.code).toBe('bolder');
+      expect((await reads.getCoffeeFeeling({ uid: g.uid }, c))?.code).toBe('bolder');
     });
   });
 
@@ -168,7 +168,7 @@ describe('the post-result card (B2)', () => {
       const after = (await c.query(`SELECT b.* FROM v_customer_brew_profile b JOIN v_customer_identity vi ON vi.canonical_user_id = b.canonical_user_id WHERE vi.user_id = $1`, [g.userId])).rows;
       expect(after).toEqual(before);
       expect(await reads.getUsualDrinks(g.uid, c)).toEqual([]);
-      expect(await reads.getCoffeeFeeling(g.uid, c)).toBeNull();
+      expect(await reads.getCoffeeFeeling({ uid: g.uid }, c)).toBeNull();
     });
   });
 
@@ -193,7 +193,7 @@ describe('the post-result card (B2)', () => {
     await withRollback(async ({ client: c }) => {
       const g = await guest(c);
       await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: 'other', words: 'Café du Monde' }] }, c);
-      const k = await reads.getCupboardCoffee(g.uid, c);
+      const k = await reads.getCupboardCoffee({ uid: g.uid }, c);
       expect([k?.code, k?.customerWords]).toEqual(['other', 'Café du Monde']);
       await expect(recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: 'starbucks', words: 'the blonde one' }] }, c))
         .rejects.toSatisfy((e: unknown) => e instanceof PostResultCardError && e.status === 400);
@@ -227,7 +227,7 @@ describe('the post-result card (B2)', () => {
       const account = await guest(c, { quiz: false });
       await record.identityLink({ userId: g.userId, fromUserId: g.userId, toUserId: account.userId, how: 'email_match', source: 'onsite', sourceId: `t-${randomUUID()}` }, c);
       expect((await reads.getUsualDrinks(account.uid, c)).map(d => d.code)).toEqual(['latte']);
-      expect((await reads.getCoffeeFeeling(account.uid, c))?.code).toBe('happy');
+      expect((await reads.getCoffeeFeeling({ uid: account.uid }, c))?.code).toBe('happy');
       const profile = await reads.getBrewProfileCurrent(account.uid, c);
       expect(profile.usual_drink?.value).toEqual(['latte']);
     });
@@ -249,7 +249,7 @@ describe('the field rows are the switch (A4, B2 kill switch)', () => {
         const kitchen = mirror.fields.find(f => f.code === 'cupboard_coffee')!;
         expect(kitchen.values.map(v => v.code)).not.toContain('wawa');
         expect(kitchen.displayLabels.wawa).toBeTruthy();
-        expect((await reads.getCupboardCoffee(g.uid, c))?.code).toBe('wawa');
+        expect((await reads.getCupboardCoffee({ uid: g.uid }, c))?.code).toBe('wawa');
         expect(mirror.fields.map(f => f.code)).toContain('coffee_feeling');
       } finally {
         await brew.loadBrewProfileFields();
@@ -270,9 +270,9 @@ describe('Liam markers (B4)', () => {
       expect(counters.filter(k => k === 'failures').length).toBe(before + 1);
       await resolveRemember(g.uid, [{ field: 'coffee_feeling', rawValue: 'bolder' }], sid, 5, c);
       expect((await reads.getUsualDrinks(g.uid, c)).map(d => d.code).sort()).toEqual(['drip_black', 'latte']);
-      const k = await reads.getCupboardCoffee(g.uid, c);
+      const k = await reads.getCupboardCoffee({ uid: g.uid }, c);
       expect([k?.code, k?.customerWords]).toEqual(['other', 'Café du Monde']);
-      expect((await reads.getCoffeeFeeling(g.uid, c))?.moveCode).toBe(await moveFor(c, 'bolder'));
+      expect((await reads.getCoffeeFeeling({ uid: g.uid }, c))?.moveCode).toBe(await moveFor(c, 'bolder'));
       expect((await rows(c, g.userId)).filter(r => r.field === 'coffee_feeling').length).toBe(1);
     });
   });

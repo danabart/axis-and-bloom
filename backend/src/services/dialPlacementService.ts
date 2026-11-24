@@ -420,7 +420,12 @@ export const setStep = (input: SetStepInput) => withTransaction(tx => setStepInT
 // ── Ella's Bloom Map 9 (2026-11-20), B1 ───────────────────────────────────────
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
 
-export interface SetSaidBackInput { sourceCode: string; factCode: string; saysBack: string | null; isQuoted?: boolean; adminUid?: string | null }
+export interface SetSaidBackInput {
+  sourceCode: string; factCode: string; saysBack: string | null; isQuoted?: boolean;
+  /** Ella map 10: the direction the fact argues for (a customer move code); null = none; undefined keeps the current value */
+  moveCode?: string | null;
+  adminUid?: string | null;
+}
 export interface SetSaidBackResult { id: number | null; unchanged: boolean; supersededId: number | null }
 
 /**
@@ -431,6 +436,8 @@ export interface SetSaidBackResult { id: number | null; unchanged: boolean; supe
  * lists (a current answer of an active quiz, an active value of the source's
  * brew field). isQuoted false keeps the phrase but never quotes it, on
  * purpose; left out, a new row is quoted and an existing row keeps its value.
+ * moveCode (Ella map 10) is the direction the fact argues for, a customer
+ * move (dial_move.is_customer_move); null = none; left out, kept.
  */
 export async function setSaidBackInTx(tx: Tx, input: SetSaidBackInput): Promise<SetSaidBackResult> {
   const factCode = String(input.factCode ?? '').trim();
@@ -438,8 +445,8 @@ export async function setSaidBackInTx(tx: Tx, input: SetSaidBackInput): Promise<
   const src = await tx.query<{ id: number }>(`SELECT id FROM dial_said_back_source WHERE code = $1`, [input.sourceCode]);
   if (!src.rows[0]) throw invalid(`unknown said-back source ${input.sourceCode}`);
   if (!factCode) throw invalid('factCode is required');
-  const cur = (await tx.query<{ id: number; says_back: string; is_quoted: boolean }>(
-    `SELECT id, says_back, is_quoted FROM dial_said_back WHERE source_id = $1 AND fact_code = $2 AND superseded_at IS NULL FOR UPDATE`,
+  const cur = (await tx.query<{ id: number; says_back: string; is_quoted: boolean; move_id: number | null }>(
+    `SELECT id, says_back, is_quoted, move_id FROM dial_said_back WHERE source_id = $1 AND fact_code = $2 AND superseded_at IS NULL FOR UPDATE`,
     [src.rows[0].id, factCode])).rows[0];
   if (!says) {
     if (!cur) return { id: null, unchanged: true, supersededId: null };
@@ -449,14 +456,72 @@ export async function setSaidBackInTx(tx: Tx, input: SetSaidBackInput): Promise<
   const known = await tx.query(`SELECT 1 FROM v_dial_said_back_fact WHERE source_code = $1 AND fact_code = $2`, [input.sourceCode, factCode]);
   if (!known.rows[0]) throw new DialMapError(404, 'FACT_NOT_FOUND', `No current ${input.sourceCode} fact ${factCode}`);
   const quoted = input.isQuoted ?? cur?.is_quoted ?? true;
-  if (cur && cur.says_back === says && cur.is_quoted === quoted) return { id: cur.id, unchanged: true, supersededId: null };
+  let moveId: number | null = cur?.move_id ?? null;
+  if (input.moveCode !== undefined) {
+    if (input.moveCode === null || input.moveCode === '') moveId = null;
+    else {
+      const mv = await tx.query<{ id: number }>(`SELECT id FROM dial_move WHERE code = $1 AND is_customer_move`, [input.moveCode]);
+      if (!mv.rows[0]) throw invalid(`moveCode ${input.moveCode} is not a customer move`);
+      moveId = mv.rows[0].id;
+    }
+  }
+  if (cur && cur.says_back === says && cur.is_quoted === quoted && (cur.move_id ?? null) === moveId) return { id: cur.id, unchanged: true, supersededId: null };
   if (cur) await tx.query(`UPDATE dial_said_back SET superseded_at = clock_timestamp() WHERE id = $1`, [cur.id]);
   const ins = await tx.query<{ id: number }>(
-    `INSERT INTO dial_said_back (source_id, fact_code, says_back, is_quoted, decided_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [src.rows[0].id, factCode, says, quoted, input.adminUid ?? null]);
+    `INSERT INTO dial_said_back (source_id, fact_code, says_back, is_quoted, move_id, decided_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [src.rows[0].id, factCode, says, quoted, moveId, input.adminUid ?? null]);
   return { id: ins.rows[0].id, unchanged: false, supersededId: cur?.id ?? null };
 }
 export const setSaidBack = (input: SetSaidBackInput) => withTransaction(tx => setSaidBackInTx(tx, input));
+
+// ── Ella's Bloom Map 10 (2026-11-24), B1 ──────────────────────────────────────
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_10_REASONS_REV2.md
+
+export interface SetReasonChoiceInput {
+  kindCode: string; code: string;
+  /** the admin label; required for a new row, undefined keeps the current one */
+  label?: string;
+  /** undefined keeps the current order (a new row goes last) */
+  sortOrder?: number;
+  /** undefined keeps the current switch (a new row is on) */
+  isActive?: boolean;
+  adminUid?: string | null;
+}
+export interface SetReasonChoiceResult { id: number; unchanged: boolean; supersededId: number | null }
+
+/**
+ * The one writer of dial_reason_choice: set a choice's order, switch it on or
+ * off, or enter a new one. Supersede and insert (one current row per kind and
+ * code), a no-op when nothing changes; never deletes (G2.11). The code is not
+ * checked against what the service knows: an unknown code is skipped at read
+ * and reported by data-catalog check 15.
+ */
+export async function setReasonChoiceInTx(tx: Tx, input: SetReasonChoiceInput): Promise<SetReasonChoiceResult> {
+  const code = String(input.code ?? '').trim();
+  if (!code) throw invalid('code is required');
+  const kind = (await tx.query<{ id: number }>(`SELECT id FROM dial_reason_choice_kind WHERE code = $1`, [input.kindCode])).rows[0];
+  if (!kind) throw invalid(`unknown reason-choice kind ${input.kindCode}`);
+  const cur = (await tx.query<{ id: number; label: string; sort_order: number; is_active: boolean }>(
+    `SELECT id, label, sort_order, is_active FROM dial_reason_choice WHERE kind_id = $1 AND code = $2 AND superseded_at IS NULL FOR UPDATE`,
+    [kind.id, code])).rows[0];
+  const label = input.label !== undefined ? String(input.label).trim() : cur?.label ?? '';
+  if (!label) throw invalid('label is required');
+  let sortOrder = input.sortOrder ?? cur?.sort_order;
+  if (sortOrder === undefined) {
+    sortOrder = Number((await tx.query<{ n: number }>(
+      `SELECT COALESCE(max(sort_order), 0) + 1 AS n FROM v_dial_reason_choice WHERE is_current AND kind_code = $1`, [input.kindCode])).rows[0].n);
+  }
+  if (!Number.isInteger(sortOrder) || sortOrder < 0) throw invalid('sortOrder must be a whole number, 0 or more');
+  const isActive = input.isActive ?? cur?.is_active ?? true;
+  if (cur && cur.label === label && cur.sort_order === sortOrder && cur.is_active === isActive) return { id: cur.id, unchanged: true, supersededId: null };
+  if (cur) await tx.query(`UPDATE dial_reason_choice SET superseded_at = clock_timestamp() WHERE id = $1`, [cur.id]);
+  const ins = await tx.query<{ id: number }>(
+    `INSERT INTO dial_reason_choice (kind_id, code, label, sort_order, is_active, decided_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [kind.id, code, label, sortOrder, isActive, input.adminUid ?? null]);
+  console.info('[ella-map] setReasonChoice', { kind: input.kindCode, code, sortOrder, isActive, id: ins.rows[0].id, actor: input.adminUid ?? null });
+  return { id: ins.rows[0].id, unchanged: false, supersededId: cur?.id ?? null };
+}
+export const setReasonChoice = (input: SetReasonChoiceInput) => withTransaction(tx => setReasonChoiceInTx(tx, input));
 
 export interface PublishInput { label: string; reason?: string | null; adminUid?: string | null }
 

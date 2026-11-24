@@ -196,8 +196,9 @@ export async function planDecidedMap(tx: Tx): Promise<Plan> {
       if (!a || !b) { rows.push({ section: 'step', subject, now: '', next, action: 'skip', why: `no active coffees row for ${[!a ? from : null, !b ? to : null].filter(Boolean).join(' and ')}` }); continue; }
       const cur = haveStep
         ? (await tx.query<{ button_word: string; customer_line: string | null; basis: string; is_shown: boolean }>(
-            `SELECT s.button_word, s.customer_line, b.code AS basis, s.is_shown FROM dial_step s JOIN dial_step_basis b ON b.id = s.basis_id
-              WHERE s.from_coffee_id = $1 AND s.to_coffee_id = $2 AND s.superseded_at IS NULL`, [a.id, b.id])).rows[0]
+            // Ella map 10 (item 4): through the table's view
+            `SELECT s.button_word, s.customer_line, s.basis_code AS basis, s.is_shown FROM v_dial_step s
+              WHERE s.from_coffee_id = $1 AND s.to_coffee_id = $2 AND s.is_current`, [a.id, b.id])).rows[0]
         : undefined;
       const now = cur ? `"${cur.button_word}" / ${cur.customer_line === null ? '(destination notes)' : `"${cur.customer_line}"`} / ${cur.basis}${cur.is_shown ? '' : ' / hidden'}` : '(none)';
       // a hidden step stays hidden: the seed sets words and basis, Dana's is_shown wins
@@ -264,7 +265,7 @@ export async function applyDecidedMap(tx: Tx): Promise<ApplyResult> {
       const a = plan.coffees[from], b = plan.coffees[to];
       if (!a || !b || !isWrite('step', `#${s.n} ${from} -> ${to}`)) continue;
       const cur = (await tx.query<{ is_shown: boolean }>(
-        `SELECT is_shown FROM dial_step WHERE from_coffee_id = $1 AND to_coffee_id = $2 AND superseded_at IS NULL`, [a.id, b.id])).rows[0];
+        `SELECT is_shown FROM v_dial_step WHERE from_coffee_id = $1 AND to_coffee_id = $2 AND is_current`, [a.id, b.id])).rows[0];
       const r = await setStepInTx(tx, { fromCoffeeId: a.id, toCoffeeId: b.id, buttonWord: word, customerLine: line, basisCode: s.basis,
         isShown: cur?.is_shown ?? true, notes: NOTES, adminUid: ACTOR });
       if (!r.unchanged) written++;

@@ -17,6 +17,7 @@ import type pg from 'pg';
 import { db } from '../db/client.js';
 import type { CatalogIntegrityCheck, CatalogIntegrityReport } from './catalogIntegrity.js';
 import { getParameters } from './evidenceReads.js';
+import { KNOWN_REASON_CHOICES } from './matchService.js';
 import { listScales } from './cuppingReads.js';
 import {
   appWriterModules,
@@ -217,6 +218,8 @@ export const DIAL_SEED_CODES: Record<string, string[]> = {
   dial_start_condition: ['always', 'fruity_gt_cn', 'fruity_gt_balanced', 'cn_gt_zero', 'espresso_at_home'],
   // Ella map 9 (2026-11-20)
   dial_said_back_source: ['quiz_answer', 'coffee_feeling', 'cupboard_coffee'],
+  // Ella map 10 (2026-11-24)
+  dial_reason_choice_kind: ['step_support', 'lead_source'],
 };
 // Ella map 3 (2026-11-12): the dial_customer_copy codes matchService and the pages read
 export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_available', 'choose_this', 'see_whole_map', 'trail_title', 'trail_start', 'moved_to', 'email_map_intro',
@@ -224,9 +227,10 @@ export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_availa
   'map_eyebrow', 'map_title_first', 'map_title_after', 'map_intro', 'first_bag_title', 'here_title', 'why_this_one',
   'steps_title', 'steps_hint', 'see_it', 'make_next_bag', 'closing_line',
   'add_first_bag', 'added_to_cart',
-  // Ella map 9 (2026-11-20): the personal text
-  'founder_pick', 'lead_title', 'others_title', 'told_us_two', 'told_us_one', 'also_said', 'kitchen', 'asked_for',
-  'step_away', 'step_against', 'price_add'];
+  // Ella map 9 (2026-11-20): the personal text (its frames told_us_*, also_said, asked_for, step_* are read by nothing since Ella map 10)
+  'founder_pick', 'lead_title', 'others_title', 'kitchen', 'price_add',
+  // Ella map 10 (2026-11-24)
+  'no_support'];
 export const DIAL_PARAMETER_KEYS = [
   'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
   'dial_w_ring', 'dial_w_body', 'dial_w_sweet', 'dial_w_lane', 'dial_cap_different',
@@ -237,7 +241,7 @@ export const DIAL_PARAMETER_KEYS = [
   'dial_suggest_threshold', 'dial_delta_min_to_mention',
   'dial_size_roaster_cut_1', 'dial_size_roaster_cut_2', // Ella map 5
   'dial_earthy_branch_reworded_on', // Ella map 7
-  'dial_quote_family_answers', 'dial_quote_other_answers', 'dial_away_max_points', // Ella map 9
+  'dial_quote_family_answers', 'dial_quote_other_answers', 'dial_away_max_points', // Ella map 9 (the last two read by nothing since Ella map 10; the rows stay)
 ];
 
 export async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIntegrityCheck[]> {
@@ -324,7 +328,20 @@ export async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<Ca
         AND NOT EXISTS (SELECT 1 FROM v_dial_step s WHERE s.is_current AND s.is_shown AND s.from_coffee_id = r.coffee_id AND s.to_coffee_id = r.lead_to_coffee_id)
       ORDER BY 1`)).rows.map(r => r.finding);
   const c14 = check(14, "Ella map: every start rule's lead is a current shown step from its first bag", badLead, '0 findings', n => `${n} lead(s) off the steps`);
-  return [c7, c8, c9, c10, c11, c12, c13, c14];
+  // Ella map 10 (A7): a reason-choice code the service does not know (it is
+  // skipped at read); a coffee on the active map with no map_line. A quoted
+  // phrase with no direction is fine (NULL = argues for none).
+  const choiceRows = (await runner.query<{ kind_code: string; code: string; is_active: boolean }>(
+    `SELECT kind_code, code, is_active FROM v_dial_reason_choice WHERE is_current ORDER BY kind_order, sort_order, code`)).rows;
+  const unknownChoices = choiceRows.filter(r => !(KNOWN_REASON_CHOICES[r.kind_code] ?? []).includes(r.code))
+    .map(r => `${r.kind_code} ${r.code}${r.is_active ? '' : ' (off)'}`);
+  const c15 = check(15, 'Ella map: every reason choice is one the service knows', unknownChoices,
+    `${choiceRows.length} choice row(s), all known`, n => `${n} unknown choice(s), skipped`);
+  const noLine = (await runner.query<{ coffee_name: string }>(
+    `SELECT p.coffee_name FROM v_dial_placement p JOIN v_dial_coffee_availability av ON av.coffee_id = p.coffee_id
+      WHERE av.map_line IS NULL ORDER BY p.coffee_name`)).rows.map(r => r.coffee_name);
+  const c16 = check(16, 'Ella map: every coffee on the active map has a map_line', noLine, '0 coffees without one', n => `${n} coffee(s) without a map_line`);
+  return [c7, c8, c9, c10, c11, c12, c13, c14, c15, c16];
 }
 
 // Boot log lines: one summary line, then one line per check with findings,

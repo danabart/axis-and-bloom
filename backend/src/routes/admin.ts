@@ -2534,10 +2534,11 @@ catalogRouter.post('/coffees', async (req: AuthRequest, res) => {
 });
 
 catalogRouter.patch('/coffees/:id', async (req: AuthRequest, res) => {
-  const { name, origin, blendOrSingle, process, roastLevel, roastShade, flavorDescriptorsRoaster, categoryCodes, originRegion } = req.body;
+  // mapLine: Ella map 10, the /admin/map coffee card (the coffee's plain sentence on /map)
+  const { name, origin, blendOrSingle, process, roastLevel, roastShade, flavorDescriptorsRoaster, categoryCodes, originRegion, mapLine } = req.body;
   try {
     const { result } = await updateCoffee(
-      { coffeeId: Number(req.params.id), name, origin, blendOrSingle, process, roastLevel, roastShade, flavorDescriptorsRoaster, categoryCodes, originRegion },
+      { coffeeId: Number(req.params.id), name, origin, blendOrSingle, process, roastLevel, roastShade, flavorDescriptorsRoaster, categoryCodes, originRegion, mapLine },
       { actor: req.uid ?? 'unknown' }
     );
     // origin_region_id included for callers resolving the slug (Flavor

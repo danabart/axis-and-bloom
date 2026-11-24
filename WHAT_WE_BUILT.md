@@ -7060,3 +7060,40 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 - **Writers:** `dialPlacementService.setSaidBackInTx` (new); `setStartRuleInTx`, `setStepInTx` take the new fields (left out = kept). A step's move and `when_line` travel with the step row like its `customer_line`, so they reach the page through Publish.
 - **Admin:** `/admin/map` edits the four rule fields and each step's move and opening; new panels "What we say back" and "Read it as" (`GET /api/admin/map/reasons`, read only; a customer with no decision is read from their start rule, C8). `/api/map/steps` adds `basis` (the rows each text used) for admins only.
 - **Seed:** `backend/src/scripts/ellaMapReasons_2026_11_20.ts` (`--dry-run` default, `--apply`, `--publish "<label>"` refuses if the placements would change, `--expect-db`). Part E changes (Dana): no quote family on any start rule, La Familia's lead line "A little further the same way: ...", `v7_q1_b` never quoted on purpose (corrected 2026-11-21: `dial_said_back.is_quoted` false with its phrase kept, a "never quote" switch per row on `/admin/map`; composition reads only quoted rows; check 13 counts any current row as covered). Production: 117 rows, published "L4 step directions (Ella map 9)" (v6, 18 placements, the same as L3); a rerun writes nothing.
+
+### 282. Ella's Bloom Map, brief 10: the reasons on `/map`, Rev 2 (2026-11-24)
+
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_10_REASONS_REV2.md` · design `DESIGN_MAP_REASONS_REV2_2026-11-21.md` · `CLOSING_REPORT_10.md`. Test DB done; production seed waits at the Part E STOP.
+
+- **What the customer reads:** every card on `/map` is one sentence about the customer, from something they answered, then one sentence about the coffee. No "You told us", "You asked for" or "If you want…" opener.
+  - **The top card** carries its label and reason whenever there is a quiz: "Founder's pick" on a first match, "You are here" after a step.
+    - A first match is the coffee of the latest quiz result, with only "Same again" since. That includes one recorded before the start rules, like Dana's own account.
+    - With no usable answer, it shows the rule's `customer_reason` when the rule names the coffee.
+  - **A step card** opens with its customer's supporting answer, or "Your answers point elsewhere.", then the step's line (else the coffee's `map_line`).
+  - **Each answer is used once on a page.**
+- **How a card is chosen is data:** `dial_reason_choice` holds ordered, switchable rows of two kinds.
+  - Step support, in order: family and direction, family, direction.
+  - The lead, in order: setup answer, start rule, strongest support. When several steps go the setup answer's way, the one with the strongest quiz support wins, then the rule's lead, then step order (Dana 2026-11-24).
+  - `matchService.steps` dispatches on the codes (`KNOWN_REASON_CHOICES`); an unknown code is skipped and reported by check 15.
+- **Schema:**
+  - `dial_said_back.move_id` (the direction a fact argues for);
+  - `coffees.map_line` (through `v_coffee`, `v_dial_coffee_availability`);
+  - `dial_wedge.branches_from_code` (earthy from chocolate_nutty, floral from fruity), carried through `v_dial_placement`;
+  - `dial_start_condition.family_code` (through `v_dial_start_rule`, `v_dial_start`);
+  - `dial_reason_choice_kind`, `dial_reason_choice`, `v_dial_reason_choice`;
+  - the copy row `no_support`;
+  - data-catalog checks 15 (unknown choice) and 16 (a map coffee with no `map_line`).
+- **Writers, all reused except one:**
+  - `setSaidBackInTx` takes `moveCode`;
+  - `catalogService.updateCoffeeInTx` takes `mapLine` (through `PATCH /api/admin/catalog/coffees/:id`);
+  - new: `dialPlacementService.setReasonChoiceInTx`.
+- **Readers:**
+  - new: `dialReads.reasonChoices`;
+  - `customerReads.getCupboardCoffee` and `getCoffeeFeeling` take a sign-in id or a profile id. Brief 9's `…ByProfile` copies are folded back.
+- **Seed scripts read through views only:** brief 9's script; the `dial_step` reads of `ellaMapDecided_2026_11_16.ts`. Brief 9's script no longer writes back a phrase that has changed since.
+- **Admin `/admin/map`:**
+  - "What we say back" gets a direction per row.
+  - The coffee card edits `map_line`.
+  - New "How a card is chosen" (up, down, on).
+  - The rule and step editors no longer show the lead quote family or `when_line`; both are still stored but no longer read.
+- **Seed:** `backend/src/scripts/ellaMapReasonsRev2_2026_11_23.ts`, with `--dry-run` (the default), `--apply` and `--expect-db`; it never publishes. Test DB: 48 rows (24 sentences, 18 `map_line`s, 6 choices). A rerun writes nothing.

@@ -87,29 +87,29 @@ const BAL = { primary: 'Balanced' };
 const ALL_BALANCED = ['v7_q1_b', 'v7_q2_b', 'v7_q3_b', 'v7_q4_b', 'v7_q5_b', 'v7_q6_b'];
 
 describe('the first bag (B2)', () => {
-  it('all answers in one family: two quoted, no also-said, then the rule coffee_line', async () => {
+  // Ella map 10: the frames are gone; each answer's sentence stands on its own
+  it('all answers in one family: two sentences, then the rule coffee_line', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
-      const copy = await copyOf(c);
       const p = await person(c, { ...BAL, scores: { 'Balanced & Sweet': 9 }, answers: ALL_BALANCED });
       await quizDecide(c, p);
       const r = await page(c, p.userId);
       const a = await said(c, 'quiz_answer', 'v7_q5_b'), b = await said(c, 'quiz_answer', 'v7_q2_b');
-      expect(r.firstBag!.text.startsWith(fill(copy.told_us_two, { a: a!, b: b! }))).toBe(true);
-      expect(r.firstBag!.text).not.toContain(fill(copy.also_said, { c: '' }).replace('.', '').trim());
+      expect(r.firstBag!.text.startsWith(`${a} ${b} `)).toBe(true);
       expect(r.firstBag!.isFounderPick).toBe(true);
       expect(r.firstBag!.basis!.factCodes).toEqual(['v7_q5_b', 'v7_q2_b']);
     });
   });
 
-  it('a split result adds the also-said sentence (the top answer for another family)', async () => {
+  // Ella map 10: the answer for the family the rule's condition is about replaces "You also said"
+  it('a rule with a condition adds the answer for the family the condition is about', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
-      const copy = await copyOf(c);
       const p = await person(c, { ...BAL, scores: { 'Balanced & Sweet': 8, Fruity: 1 }, answers: ['v7_q1_c', 'v7_q2_b', 'v7_q3_b', 'v7_q4_b', 'v7_q5_b', 'v7_q6_b'] });
       await quizDecide(c, p);
       const r = await page(c, p.userId);
-      expect(r.firstBag!.text).toContain(fill(copy.also_said, { c: (await said(c, 'quiz_answer', 'v7_q1_c'))! }));
+      expect(r.firstBag!.text).toContain((await said(c, 'quiz_answer', 'v7_q1_c'))!);
+      expect(r.firstBag!.basis!.factCodes).toEqual(['v7_q5_b', 'v7_q2_b', 'v7_q1_c']);
     });
   });
 
@@ -151,7 +151,8 @@ describe('the first bag (B2)', () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
       const p = await person(c, {
-        primary: 'Earthy', branch: 'v7_branch_cn_earthy', scores: { 'Chocolate & Nutty': 9 },
+        // a real Earthy session stores the family it branched from (Ella map 10: no "also said" carries the C&N answer any more)
+        primary: 'Earthy', branch: 'v7_branch_cn_earthy', branchedFrom: 'Chocolate & Nutty', scores: { 'Chocolate & Nutty': 9 },
         answers: ['v7_q1_a', 'v7_q2_a', 'v7_q3_a', 'v7_q4_a', 'v7_q5_a', 'v7_q6_a'],
       });
       await quizDecide(c, p);
@@ -162,10 +163,9 @@ describe('the first bag (B2)', () => {
 });
 
 describe('the lead and the other steps (B2)', () => {
-  it('a feeling that names a direction with a matching step leads, with asked_for; the opposite step says step_against', async () => {
+  it('a feeling that names a direction with a matching step leads, opening with the feeling sentence', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
-      const copy = await copyOf(c);
       const p = await person(c, { ...BAL, scores: { 'Balanced & Sweet': 4, 'Chocolate & Nutty': 3, Fruity: 2 },
         answers: ['v7_q1_b', 'v7_q2_c', 'v7_q3_b', 'v7_q4_b', 'v7_q5_a', 'v7_q6_a'], feeling: 'bolder' });
       await quizDecide(c, p);
@@ -173,11 +173,9 @@ describe('the lead and the other steps (B2)', () => {
       const lead = r.steps.find(s => s.isLead)!;
       expect(r.steps.filter(s => s.isLead)).toHaveLength(1);
       expect(r.steps[0].isLead).toBe(true);
-      expect(lead.text.startsWith(fill(copy.asked_for, { feeling: (await said(c, 'coffee_feeling', 'bolder'))! }))).toBe(true);
+      expect(lead.text.startsWith((await said(c, 'coffee_feeling', 'bolder'))!)).toBe(true);
       const moves = (await c.query<{ id: number; move_code: string | null }>(`SELECT id, move_code FROM v_dial_step WHERE on_active_map`)).rows;
       expect(moves.find(m => m.id === lead.stepId)!.move_code).toBe('bolder');
-      const gentle = r.steps.find(s => moves.find(m => m.id === s.stepId)!.move_code === 'gentler')!;
-      expect(gentle.text.endsWith(copy.step_against)).toBe(true);
     });
   });
 
@@ -194,20 +192,20 @@ describe('the lead and the other steps (B2)', () => {
     });
   });
 
-  it('step_away: a destination family the customer gave at most dial_away_max_points to, and not their own', async () => {
+  // Ella map 10: step_away is retired; a step no answer supports opens with no_support
+  it('no_support: person 85, Geometric has no unused answer for it; Benchmark has one', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
       const copy = await copyOf(c);
-      // person 85's answers: La Familia, Geometric (Fruity, 1 point) moves away, Benchmark (their own) does not
       const p = await person(c, { ...BAL, scores: { 'Balanced & Sweet': 8, Fruity: 1 }, answers: ['v7_q1_c', 'v7_q2_b', 'v7_q3_b', 'v7_q4_b', 'v7_q5_b', 'v7_q6_b'] });
       await quizDecide(c, p);
       const r = await page(c, p.userId);
-      expect(r.steps.find(s => s.name === 'Geometric')!.text.endsWith(copy.step_away)).toBe(true);
-      expect(r.steps.find(s => s.name === 'Benchmark')!.text.endsWith(copy.step_away)).toBe(false);
+      expect(r.steps.find(s => s.name === 'Geometric')!.text.startsWith(copy.no_support)).toBe(true);
+      expect(r.steps.find(s => s.name === 'Benchmark')!.text.startsWith(copy.no_support)).toBe(false);
     });
   });
 
-  it('no quiz: after a step and with no quiz, the notes and when_line only, no lead, no founder label', async () => {
+  it('no quiz: after a step and with no quiz, no top card, no lead, nothing about the customer', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
       const p = await person(c, { ...BAL, scores: { 'Balanced & Sweet': 9 }, answers: ALL_BALANCED });
@@ -247,11 +245,12 @@ describe('the lead and the other steps (B2)', () => {
       await quizDecide(c, p);
       const r = await page(c, p.userId);
       expect(r.position!.name).toBe('Benchmark');
-      expect(r.firstBag!.text).toBe('You have Counter Culture Coffee in your kitchen. You told us too bitter is what would bother you most, and you smooth a black coffee before you try it. You also said a little bitterness tastes serious to you. This is the cup where nothing sticks out, and it works however you make it.');
+      // Ella map 10: design Rev 2's worked page for person 81
+      expect(r.firstBag!.text).toBe('You have Counter Culture Coffee in your kitchen. Too bitter is what would bother you most. You smooth a black coffee before you try it. This is the cup where nothing sticks out, and it works however you make it.');
       expect(r.steps.map(s => [s.name, s.isLead, s.text])).toEqual([
-        ['La Familia', true, 'You asked for something gentler than what you drink now. Caramel and honey with a little clementine. Lighter in the cup.'],
-        ['The Daily', false, 'If you want more bite. The same chocolate, livelier, with a bit more bite. This goes the other way from what you asked for.'],
-        ['Fabricator', false, "If you're curious. Hazelnut, a little citrus, a dry finish."],
+        ['La Familia', true, "You'd like something gentler than what you drink now. Caramel and honey with a little clementine. Lighter in the cup."],
+        ['The Daily', false, 'A little bitterness tastes serious to you. The same chocolate, livelier, with a bit more bite.'],
+        ['Fabricator', false, 'For you, a good cup feels alive and changes as you drink it. Hazelnut, a little citrus, a dry finish.'],
       ]);
       // the customer page reads the same text and no basis
       const plain = await match.steps(p.userId, c);
@@ -339,7 +338,7 @@ describe('the integrity checks (A8)', () => {
   it('report an orphan phrase, a quotable answer with no phrase, and a lead off the steps', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
-      const ids = (await dialMapChecks(c)).filter(k => k.id >= 12);
+      const ids = (await dialMapChecks(c)).filter(k => k.id >= 12 && k.id <= 14);
       expect(ids.map(k => [k.id, k.pass])).toEqual([[12, true], [13, true], [14, true]]);
       // an orphan: a phrase for a code no current answer has (written directly, as an old row would be)
       await c.query(`INSERT INTO dial_said_back (source_id, fact_code, says_back, decided_by)
@@ -349,7 +348,7 @@ describe('the integrity checks (A8)', () => {
       const r = (await c.query(`SELECT coffee_id, lead_to_coffee_id FROM v_dial_start_rule WHERE is_current AND lead_to_coffee_id IS NOT NULL LIMIT 1`)).rows[0];
       const s = (await c.query(`SELECT * FROM v_dial_step WHERE is_current AND from_coffee_id = $1 AND to_coffee_id = $2`, [r.coffee_id, r.lead_to_coffee_id])).rows[0];
       await setStepInTx(tx(c), { fromCoffeeId: s.from_coffee_id, toCoffeeId: s.to_coffee_id, buttonWord: s.button_word, customerLine: s.customer_line, basisCode: s.basis_code, isShown: false });
-      const after = (await dialMapChecks(c)).filter(k => k.id >= 12);
+      const after = (await dialMapChecks(c)).filter(k => k.id >= 12 && k.id <= 14);
       expect(after.map(k => k.pass)).toEqual([false, false, false]);
       expect(after[0].details).toContain('quiz_answer v6_retired_zzz');
       expect(after[1].details!.some(d => d.endsWith('v7_q2_a'))).toBe(true);

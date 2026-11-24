@@ -31,9 +31,13 @@ export interface MapTrailStep {
   onActiveMap: boolean;
 }
 /** Ella map 7: the first-bag reason, before any bag; Ella map 9: its composed text and the founder's-pick label */
-export interface MapFirstBag { coffeeId: number; reason: string; text?: string; isFounderPick?: boolean; basis?: MapTextBasis }
+export interface MapFirstBag {
+  coffeeId: number; reason: string; text?: string; isFounderPick?: boolean; basis?: MapTextBasis;
+  /** Ella map 10: the top card's label, a copy code (founder_pick on a first match, here_title after a step) */
+  labelCode?: string;
+}
 /** Ella map 9 (admins only): the rows and facts a composed text used */
-export interface MapTextBasis { ruleId?: number | null; stepId?: number; copyCodes: string[]; saidBackIds: number[]; factCodes: string[] }
+export interface MapTextBasis { ruleId?: number | null; stepId?: number; copyCodes: string[]; saidBackIds: number[]; factCodes: string[]; /** Ella map 10: the reason choice that picked it */ choice?: string | null }
 /** Ella map 8: a buyable coffee's anchor-size price (null price = not buyable) */
 export interface MapPrice { cents: number; sizeLabel: string; weightOz: number }
 /** Ella map 7: one published step leaving the customer's coffee */

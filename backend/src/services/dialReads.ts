@@ -346,6 +346,10 @@ export interface MapCoffee {
   has_sku: boolean; has_price: boolean; family_code: string | null;
   /** the roaster's own bag notes (coffees.flavor_descriptors_roaster), each element split on commas; [] when none */
   roaster_words: string[];
+  /** Ella map 10: the coffee's plain sentence on /map (coffees.map_line); null when not written */
+  map_line: string | null;
+  /** Ella map 10: the family the placement's quiz branch comes from (dial_wedge.branches_from_code); null for none */
+  family_branches_from_code: string | null;
 }
 
 function wordsOf(raw: unknown): string[] {
@@ -357,12 +361,13 @@ function wordsOf(raw: unknown): string[] {
 export async function mapCoffees(coffeeIds?: number[], runner: Runner = db): Promise<Map<number, MapCoffee>> {
   const r = await runner.query(
     `SELECT av.coffee_id, av.map_name, (c.is_active AND av.is_sellable) AS is_sellable, av.in_stock,
-            av.weight_oz, av.size_label, av.price_cents, av.has_sku, av.has_price, c.match_archetype AS family_code,
-            c.flavor_descriptors_roaster AS roaster_words
+            av.weight_oz, av.size_label, av.price_cents, av.has_sku, av.has_price,
+            p.archetype_code::text AS family_code, p.family_branches_from_code,
+            c.flavor_descriptors_roaster AS roaster_words, av.map_line
        FROM v_dial_coffee_availability av
        JOIN v_coffee c ON c.id = av.coffee_id
-      WHERE av.coffee_id IN (SELECT coffee_id FROM v_dial_placement)
-        AND ($1::int[] IS NULL OR av.coffee_id = ANY($1::int[]))`, [coffeeIds ?? null]);
+       JOIN v_dial_placement p ON p.coffee_id = av.coffee_id
+      WHERE ($1::int[] IS NULL OR av.coffee_id = ANY($1::int[]))`, [coffeeIds ?? null]);
   return new Map(r.rows.map(x => [x.coffee_id, {
     ...x, weight_oz: x.weight_oz === null ? null : Number(x.weight_oz), roaster_words: wordsOf(x.roaster_words),
   }]));
@@ -486,7 +491,7 @@ export async function decidedMap(runner: Runner = db) {
        FROM v_dial_placement_preview ORDER BY archetype_code, coffee_name`)).rows;
   const roaster = await roasterFactsForCoffees(decisions.map(d => d.coffee_id), runner);
   const av = await runner.query(
-    `SELECT coffee_id, is_sellable, size_label, price_cents, has_sku, has_price, map_name
+    `SELECT coffee_id, is_sellable, size_label, price_cents, has_sku, has_price, map_name, map_line
        FROM v_dial_coffee_availability WHERE coffee_id = ANY($1::int[])`, [decisions.map(d => d.coffee_id)]);
   return {
     version,
@@ -511,10 +516,13 @@ export interface StartRuleRow {
   /** Ella map 9 (A3): the first bag's personal line and its lead */
   coffee_line: string | null; lead_to_coffee_id: number | null; lead_to_coffee_name: string | null;
   lead_line: string | null; lead_quote_family_code: string | null;
+  /** Ella map 10 (A4): the family each condition is about (dial_start_condition.family_code) */
+  condition_family_code: string | null; also_condition_family_code: string | null;
 }
 const START_RULE_COLS = `id, family_code, family_name, family_order, priority, condition_code, condition_label,
   also_condition_code, also_condition_label, coffee_id, coffee_name, admin_label, customer_reason, notes,
-  decided_by, created_at, superseded_at, is_current, coffee_line, lead_to_coffee_id, lead_to_coffee_name, lead_line, lead_quote_family_code`;
+  decided_by, created_at, superseded_at, is_current, coffee_line, lead_to_coffee_id, lead_to_coffee_name, lead_line, lead_quote_family_code,
+  condition_family_code, also_condition_family_code`;
 
 /** The start rule (v_dial_start_rule): current rows in family then priority order; with history, every row, newest first within a (family, priority). */
 export async function startRules(opts: { history?: boolean } = {}, runner: Runner = db): Promise<StartRuleRow[]> {
@@ -529,7 +537,8 @@ export async function startForSession(quizSessionId: string, runner: Runner = db
   const r = await runner.query(
     `SELECT quiz_session_id, family_read, scores, conditions, rule_id, priority, condition_code, also_condition_code,
             coffee_id, coffee_name, admin_label, customer_reason,
-            branched_from_code, coffee_line, lead_to_coffee_id, lead_line, lead_quote_family_code
+            branched_from_code, coffee_line, lead_to_coffee_id, lead_line, lead_quote_family_code,
+            condition_family_code, also_condition_family_code
        FROM v_dial_start WHERE quiz_session_id = $1`, [quizSessionId]);
   return r.rows[0] ?? null;
 }
@@ -547,10 +556,10 @@ export async function startFallback(conditionCode: string, runner: Runner = db):
 /** The steps on the active map leaving one coffee (v_dial_step, on_active_map), in basis order then word. */
 export async function stepsFrom(coffeeId: number, runner: Runner = db) {
   const r = await runner.query(
-    `SELECT id, from_coffee_id, to_coffee_id, to_coffee_name, button_word, customer_line, basis_sort_order, move_code, when_line
+    `SELECT id, from_coffee_id, to_coffee_id, to_coffee_name, button_word, customer_line, basis_sort_order, move_code
        FROM v_dial_step WHERE on_active_map AND from_coffee_id = $1
       ORDER BY basis_sort_order, button_word, to_coffee_name, id`, [coffeeId]);
-  return r.rows as Array<{ id: number; from_coffee_id: number; to_coffee_id: number; to_coffee_name: string; button_word: string; customer_line: string | null; basis_sort_order: number; move_code: string | null; when_line: string | null }>;
+  return r.rows as Array<{ id: number; from_coffee_id: number; to_coffee_id: number; to_coffee_name: string; button_word: string; customer_line: string | null; basis_sort_order: number; move_code: string | null }>;
 }
 
 /** Every step on the active map as (from, to) -> word: the trail's words. */
@@ -570,19 +579,19 @@ export async function laneIsOpen(archetypeCode: string, laneCode: string, runner
 // ── Ella's Bloom Map 9 (2026-11-20), B2 ───────────────────────────────────────
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
 
-export interface SaidBackRow { id: number; source_code: string; fact_code: string; says_back: string }
+export interface SaidBackRow { id: number; source_code: string; fact_code: string; says_back: string; /** Ella map 10: the direction it argues for */ move_code: string | null }
 
 /** The current quoted phrases (v_dial_said_back), keyed `${source}:${fact}`. A fact with no key is never quoted (no row, or is_quoted false). */
 export async function saidBack(runner: Runner = db): Promise<Map<string, SaidBackRow>> {
   const r = await runner.query<SaidBackRow>(
-    `SELECT id, source_code, fact_code, says_back FROM v_dial_said_back WHERE is_current AND is_quoted`);
+    `SELECT id, source_code, fact_code, says_back, move_code FROM v_dial_said_back WHERE is_current AND is_quoted`);
   return new Map(r.rows.map(x => [`${x.source_code}:${x.fact_code}`, x]));
 }
 
 /** Every fact the map could say back, with its phrase (v_dial_said_back_fact): the admin table. */
 export async function saidBackFacts(runner: Runner = db) {
   const r = await runner.query(
-    `SELECT source_code, fact_code, fact_label, context, context_group, q_number, weight, is_quotable, said_back_id, says_back, is_quoted
+    `SELECT source_code, fact_code, fact_label, context, context_group, q_number, weight, is_quotable, said_back_id, says_back, is_quoted, move_code
        FROM v_dial_said_back_fact
       ORDER BY source_order, context_group, q_number NULLS LAST, fact_order, fact_code`);
   return r.rows;
@@ -591,7 +600,7 @@ export async function saidBackFacts(runner: Runner = db) {
 /** Every said-back row, current and superseded, newest first (the admin history). */
 export async function saidBackHistory(runner: Runner = db) {
   return (await runner.query(
-    `SELECT id, source_code, fact_code, says_back, decided_by, created_at, superseded_at, is_current
+    `SELECT id, source_code, fact_code, says_back, is_quoted, move_code, decided_by, created_at, superseded_at, is_current
        FROM v_dial_said_back ORDER BY source_code, fact_code, created_at DESC, id DESC`)).rows;
 }
 
@@ -608,7 +617,24 @@ export async function quizAnswers(quizSessionId: string, runner: Runner = db): P
   return r.rows.map(x => ({ ...x, weight: Number(x.weight) }));
 }
 
-/** dial_move code -> the code of its opposite move (bolder <-> gentler); moves without one are absent. */
+// ── Ella's Bloom Map 10 (2026-11-24), B2 ──────────────────────────────────────
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_10_REASONS_REV2.md
+
+export interface ReasonChoiceRow {
+  id: number; kind_code: string; kind_label: string; kind_order: number; code: string; label: string;
+  sort_order: number; is_active: boolean; decided_by: string | null; created_at: string; superseded_at: string | null; is_current: boolean;
+}
+
+/** How a /map card is chosen (v_dial_reason_choice): current rows in kind then sort order; with history, every row, newest first within a (kind, code). */
+export async function reasonChoices(opts: { history?: boolean } = {}, runner: Runner = db): Promise<ReasonChoiceRow[]> {
+  const r = await runner.query<ReasonChoiceRow>(
+    `SELECT id, kind_code, kind_label, kind_order, code, label, sort_order, is_active, decided_by, created_at, superseded_at, is_current
+       FROM v_dial_reason_choice ${opts.history ? '' : 'WHERE is_current'}
+      ORDER BY kind_order, kind_code, sort_order, code, created_at DESC, id DESC`);
+  return r.rows;
+}
+
+/** dial_move code -> the code of its opposite move (bolder <-> gentler); moves without one are absent. Read by nothing since Ella map 10 (step_against retired). */
 export async function moveOpposites(runner: Runner = db): Promise<Map<string, string>> {
   const r = await runner.query<{ code: string; opposite: string }>(
     `SELECT m.code, o.code AS opposite FROM dial_move m JOIN dial_move o ON o.id = m.opposite_move_id`);

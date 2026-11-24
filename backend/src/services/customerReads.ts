@@ -826,8 +826,17 @@ export interface CupboardCoffeeRow {
   fieldValueId: number; code: string; label: string; brandKind: string; roasterId: string | null;
   customerWords: string | null; capturedAt: string | null; source: string | null; quizSessionId: string | null;
 }
-export async function getCupboardCoffee(uid: string, runner: Runner = db): Promise<CupboardCoffeeRow | null> {
-  const canonicalId = await resolveCanonicalUserId(uid, runner);
+/**
+ * Ella map 10 (G3.9 amended): one lookup per fact, by either key. A sign-in id
+ * (uid) or a profile id resolves to the canonical customer; brief 9's copies
+ * by profile id are folded back into these.
+ */
+export type CustomerKey = { uid: string } | { profileId: string };
+const canonicalOfKey = (key: CustomerKey, runner: Runner) =>
+  'uid' in key ? resolveCanonicalUserId(key.uid, runner) : canonicalOfProfile(key.profileId, runner);
+
+export async function getCupboardCoffee(key: CustomerKey, runner: Runner = db): Promise<CupboardCoffeeRow | null> {
+  const canonicalId = await canonicalOfKey(key, runner);
   if (!canonicalId) return null;
   const x = (await runner.query(
     `SELECT field_value_id, code, label, brand_kind, roaster_id, customer_words, captured_at, source, quiz_session_id
@@ -841,8 +850,8 @@ export async function getCupboardCoffee(uid: string, runner: Runner = db): Promi
 export interface CoffeeFeelingRow {
   fieldValueId: number; code: string; label: string; moveCode: string; capturedAt: string | null; source: string | null; quizSessionId: string | null;
 }
-export async function getCoffeeFeeling(uid: string, runner: Runner = db): Promise<CoffeeFeelingRow | null> {
-  const canonicalId = await resolveCanonicalUserId(uid, runner);
+export async function getCoffeeFeeling(key: CustomerKey, runner: Runner = db): Promise<CoffeeFeelingRow | null> {
+  const canonicalId = await canonicalOfKey(key, runner);
   if (!canonicalId) return null;
   const x = (await runner.query(
     `SELECT field_value_id, code, label, move_code, captured_at, source, quiz_session_id
@@ -853,21 +862,6 @@ export async function getCoffeeFeeling(uid: string, runner: Runner = db): Promis
   } : null;
 }
 
-// Ella's Bloom Map 9 (2026-11-20), C10: the same two reads by profile id (matchService has a profile, not a uid).
-export async function getCupboardCoffeeByProfile(profileId: string, runner: Runner = db): Promise<{ code: string; label: string } | null> {
-  const canonical = await canonicalOfProfile(profileId, runner);
-  if (!canonical) return null;
-  const x = (await runner.query<{ code: string; label: string }>(
-    `SELECT code, label FROM v_customer_cupboard_coffee WHERE canonical_user_id = $1`, [canonical])).rows[0];
-  return x ?? null;
-}
-export async function getCoffeeFeelingByProfile(profileId: string, runner: Runner = db): Promise<{ code: string; moveCode: string } | null> {
-  const canonical = await canonicalOfProfile(profileId, runner);
-  if (!canonical) return null;
-  const x = (await runner.query<{ code: string; move_code: string }>(
-    `SELECT code, move_code FROM v_customer_coffee_feeling WHERE canonical_user_id = $1`, [canonical])).rows[0];
-  return x ? { code: x.code, moveCode: x.move_code } : null;
-}
 
 /**
  * Ella map 9 (C2, "Read it as"): customers whose email contains the text, one

@@ -19,7 +19,7 @@ import * as dialReads from './dialReads.js';
 import { record, type MatchSource } from './customerFacts.js';
 import {
   getMatchCurrent, getMatchTrail, getMatchDecisionBySource, getMatchQuizContext, getCurrentQuizSessionId,
-  getBrewDecafByProfile, getMatchTrailLines, getCupboardCoffeeByProfile, getCoffeeFeelingByProfile, type MatchCurrentRow,
+  getBrewDecafByProfile, getMatchTrailLines, getCupboardCoffee, getCoffeeFeeling, type MatchCurrentRow,
 } from './customerReads.js';
 import { getParameters } from './evidenceReads.js';
 import { getCardPresentations } from './coffeeCardReads.js';
@@ -428,45 +428,64 @@ export async function me(profileId: string, runner: Runner = db) {
   };
 }
 
-/** The first bag's rule row as the composition needs it (Ella map 9 adds the personal line and the lead). */
+/** The first bag's rule row as the composition needs it (Ella map 9: the personal line and the lead; Ella map 10: the condition families). */
 interface FirstBagRule {
   coffeeId: number; ruleId: number | null; reason: string;
-  coffeeLine: string | null; leadToCoffeeId: number | null; leadLine: string | null; leadQuoteFamilyCode: string | null;
+  coffeeLine: string | null; leadToCoffeeId: number | null; leadLine: string | null;
+  /** Ella map 10 (A4): the families the rule's conditions are about, condition first */
+  conditionFamilies: string[];
 }
 type RuleLike = {
   id?: number | null; rule_id?: number | null; coffee_id: number; customer_reason: string; coffee_line?: string | null;
-  lead_to_coffee_id?: number | null; lead_line?: string | null; lead_quote_family_code?: string | null;
+  lead_to_coffee_id?: number | null; lead_line?: string | null;
+  condition_family_code?: string | null; also_condition_family_code?: string | null;
 };
 const ruleOf = (r: RuleLike): FirstBagRule => ({
   coffeeId: r.coffee_id, ruleId: r.id ?? r.rule_id ?? null, reason: r.customer_reason,
-  coffeeLine: r.coffee_line ?? null, leadToCoffeeId: r.lead_to_coffee_id ?? null,
-  leadLine: r.lead_line ?? null, leadQuoteFamilyCode: r.lead_quote_family_code ?? null,
+  coffeeLine: r.coffee_line ?? null, leadToCoffeeId: r.lead_to_coffee_id ?? null, leadLine: r.lead_line ?? null,
+  conditionFamilies: [r.condition_family_code, r.also_condition_family_code].filter((f): f is string => !!f),
 });
 
+/** One decision of the customer's trail (v_customer_match_trail, through getMatchTrail). */
+interface TrailDecision { decision_id: string; move_code: string; picked_coffee_id: number; inputs: unknown }
+
 /**
- * Before any bag (the position is the quiz's decision): the rule row behind
- * the first bag. The rule row the decision recorded, read as its (family,
- * priority)'s current row when that still names the same coffee (so an edited
- * sentence shows at once), else the recorded row; for a decision with no rule
- * recorded, the session's live winning row when it names the position's
- * coffee. Null after a bag, or when nothing names this coffee.
+ * Ella map 10 (Task 0 item 2, Dana 2026-11-24): the position is a first match
+ * when its coffee is the coffee of the customer's latest quiz-result decision
+ * and no decision since then picked another coffee ("Same again" keeps it).
+ * Returns that quiz-result decision, else null.
  */
-async function firstBagRule(profileId: string, pos: MatchCurrentRow, runner: Runner): Promise<FirstBagRule | null> {
-  if (pos.moveCode !== 'quiz_result') return null;
-  const trail = await getMatchTrail(profileId, runner);
-  const decision = trail.find(t => t.decision_id === pos.decisionId);
-  const inputs = (decision?.inputs ?? {}) as { rule_id?: number; quiz?: { session_id?: string | null } };
+function firstMatchDecision(trail: TrailDecision[], coffeeId: number): TrailDecision | null {
+  let i = trail.length - 1;
+  while (i >= 0 && trail[i].move_code !== 'quiz_result') i--;
+  if (i < 0) return null;
+  return trail.slice(i).every(t => t.picked_coffee_id === coffeeId) ? trail[i] : null;
+}
+
+/**
+ * The rule row behind a first match: the rule row the quiz decision recorded,
+ * read as its (family, priority)'s current row when that still names the same
+ * coffee (so an edited sentence shows at once), else the recorded row; for a
+ * decision with no rule recorded (one made before the start rules), the
+ * session's live winning row when it names the coffee. Null when no rule
+ * names this coffee.
+ */
+async function ruleForDecision(decision: TrailDecision, coffeeId: number, runner: Runner): Promise<FirstBagRule | null> {
+  const inputs = (decision.inputs ?? {}) as { rule_id?: number; quiz?: { session_id?: string | null } };
   const rows = inputs.rule_id ? await dialReads.startRules({ history: true }, runner) : [];
   const recorded = rows.find(r => r.id === inputs.rule_id);
   const current = recorded ? rows.find(r => r.is_current && r.family_code === recorded.family_code && r.priority === recorded.priority) : undefined;
   const live = !recorded && inputs.quiz?.session_id ? await dialReads.startForSession(inputs.quiz.session_id, runner) : null;
   const options = [current, recorded, live?.rule_id ? live : null].filter(Boolean).map(r => ruleOf(r as RuleLike));
-  return options.find(o => o.coffeeId === pos.coffeeId) ?? null;
+  return options.find(o => o.coffeeId === coffeeId) ?? null;
 }
 
-/** The one reason under the first bag (me(): the trail page keeps its shape). */
+/** The one reason under the first bag (me(): the trail page keeps its shape; before any bag only). */
 async function firstBagReason(profileId: string, pos: MatchCurrentRow, runner: Runner): Promise<{ coffeeId: number; reason: string } | null> {
-  const r = await firstBagRule(profileId, pos, runner);
+  if (pos.moveCode !== 'quiz_result') return null;
+  const trail = await getMatchTrail(profileId, runner) as TrailDecision[];
+  const decision = trail.find(t => t.decision_id === pos.decisionId);
+  const r = decision ? await ruleForDecision(decision, pos.coffeeId, runner) : null;
   return r ? { coffeeId: r.coffeeId, reason: r.reason } : null;
 }
 
@@ -484,7 +503,8 @@ async function offeredSteps(coffeeId: number, decaf: boolean, runner: Runner) {
  * Ella map 8 (B1): per coffee on the map, what /map shows and what useCart needs
  * for a direct line, from v_dial_coffee_availability (coffee, SKU and price at
  * the anchor size): the map name, the family label, the roaster's words, and a
- * price only when the coffee is buyable.
+ * price only when the coffee is buyable. Ella map 10: the coffee's map_line and
+ * its families (the placement's family and the family its quiz branch comes from).
  */
 async function mapFacts(coffeeIds: number[], runner: Runner) {
   const rows = await dialReads.mapCoffees(coffeeIds, runner);
@@ -493,8 +513,9 @@ async function mapFacts(coffeeIds: number[], runner: Runner) {
   return {
     name: (id: number, fallback: string) => rows.get(id)?.map_name ?? fallback,
     familyLabel: (id: number) => { const f = rows.get(id)?.family_code; return f ? labels.get(f) ?? null : null; },
-    /** Ella map 9: the family code, compared with the customer's quiz families (step_away) */
-    familyCode: (id: number) => rows.get(id)?.family_code ?? null,
+    /** Ella map 10: the families whose answers count as this coffee's own */
+    families: (id: number) => new Set([rows.get(id)?.family_code, rows.get(id)?.family_branches_from_code].filter((f): f is string => !!f)),
+    mapLine: (id: number) => rows.get(id)?.map_line ?? null,
     roasterWords: (id: number) => rows.get(id)?.roaster_words ?? [],
     price: (id: number): MapPrice | null => {
       const r = rows.get(id);
@@ -507,14 +528,14 @@ async function mapFacts(coffeeIds: number[], runner: Runner) {
 /** A buyable coffee's anchor-size price: what the price chip shows and the cart line carries. */
 export interface MapPrice { cents: number; sizeLabel: string; weightOz: number }
 
-/** Ella map 9 (B2, admins only): the rows and facts a composed text used. */
-export interface TextBasis { ruleId?: number | null; stepId?: number; copyCodes: string[]; saidBackIds: number[]; factCodes: string[] }
+/** Ella map 9 (B2, admins only): the rows and facts a composed text used; Ella map 10: the reason choice that picked it. */
+export interface TextBasis { ruleId?: number | null; stepId?: number; copyCodes: string[]; saidBackIds: number[]; factCodes: string[]; choice?: string | null }
 
 export interface MapStepCard {
   stepId: number; word: string; coffeeId: number;
   /** the map's name (short name, else the coffee's name), the same name the cart line carries */
   name: string;
-  /** the step's customer line, or the destination's notes when the step has none */
+  /** the step's customer line, else the destination's map_line, else its notes */
   line: string | null;
   /** the roaster's own words, else the signature descriptors */
   notes: string[];
@@ -524,13 +545,14 @@ export interface MapStepCard {
   familyLabel: string | null;
   /** Ella map 9: the one step we would take the customer to next */
   isLead: boolean;
-  /** Ella map 9: the card's composed text (approved rows and the customer's own facts) */
+  /** the card's text: a sentence about the customer, then one about the coffee (Ella map 10) */
   text: string;
   basis?: TextBasis;
 }
 export interface MapStepsResult {
   position: null | { coffeeId: number; name: string; notes: string[]; price: MapPrice | null; familyLabel: string | null; hasBag: boolean };
-  firstBag: { coffeeId: number; reason: string; text: string; isFounderPick: boolean; basis?: TextBasis } | null;
+  /** Ella map 10: the top card whenever the customer has a quiz: its label (a dial_customer_copy code) and its text */
+  firstBag: { coffeeId: number; reason: string; text: string; labelCode: string; isFounderPick: boolean; basis?: TextBasis } | null;
   steps: MapStepCard[];
   copy: Record<string, string>;
   /** Ella map 9 (C8): set when the position is read from the start rule ("Read it as" a customer with no decision); nothing is written */
@@ -547,17 +569,44 @@ export interface StepsOptions {
   readAsRule?: boolean;
 }
 
+/** Ella map 10: one thing the page may say about the customer: a self-taken quiz answer or the setup feeling, through its approved sentence. */
+interface Fact {
+  key: string; code: string; saidId: number; text: string;
+  /** the direction it argues for (dial_said_back.move_id); null = none */
+  move: string | null;
+  /** the family the answer scored for (the branch answer: the result's family); null for the feeling */
+  family: string | null;
+  weight: number; isFeeling: boolean;
+}
+interface Support { fact: Fact; choice: string; rank: number }
 /**
- * GET /api/map/steps (Ella map 7, B3; Ella map 9, B2): the position, the first
- * bag with its composed text when the customer has no bag yet, and the
- * published steps leaving the position, each with its text and at most one
- * marked as the lead. The text is composed at read from approved rows
- * (dial_customer_copy, dial_said_back, the start rule, the step) and the
- * customer's own facts (their self-taken quiz answers, kitchen brand and
- * feeling); nothing is stored, no model writes a word, and no family, answer,
- * move code or coffee id appears here: every comparison is a join on rows.
- * No ring, lane, grade, version or basis leaves this function (basis only
- * with withBasis, for admins).
+ * Ella map 10: the reason-choice codes this service knows how to apply, per
+ * kind (dial_reason_choice rows name them; any other code is skipped and
+ * reported by data-catalog check 15). The order and switches are data.
+ */
+export const KNOWN_REASON_CHOICES: Record<string, readonly string[]> = {
+  step_support: ['family_and_direction', 'family', 'direction'],
+  lead_source: ['setup_answer', 'start_rule', 'strongest_support'],
+};
+/** Stronger support first: the earlier kind in row order, then the heavier quiz question; none last. */
+const supportOrder = (a: Support | null, b: Support | null) =>
+  a && b ? a.rank - b.rank || b.fact.weight - a.fact.weight : a ? -1 : b ? 1 : 0;
+
+/**
+ * GET /api/map/steps (Ella map 7, B3; Ella map 9, B2; Ella map 10, B2): the
+ * position, its top card and the published steps leaving it, each with its
+ * text and at most one marked as the lead. Every card is a sentence about the
+ * customer (one of their own facts, through its approved said-back sentence)
+ * then a sentence about the coffee; a step no fact supports opens with
+ * no_support. How a card is chosen is data (dial_reason_choice): the step
+ * cards try the active step-support choices in row order, the lead the active
+ * lead sources in row order; a code the service does not know is skipped
+ * (data-catalog check 15). An answer is used once per page: the top card,
+ * then the lead, then the other steps in shown order. Composed at read;
+ * nothing is stored, no model writes a word, and no family, answer, move or
+ * coffee id appears here: every comparison is between rows. No ring, lane,
+ * grade, version or basis leaves this function (basis only with withBasis,
+ * for admins).
  */
 export async function steps(profileId: string, runner: Runner = db, opts: StepsOptions = {}): Promise<MapStepsResult> {
   const copy = await dialReads.customerCopy(runner);
@@ -565,123 +614,204 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
   const ctx = await customerContext(profileId, null, runner);
   const start = ctx.quizSessionId ? await dialReads.startForSession(ctx.quizSessionId, runner) : null;
 
-  // The position and the first bag's rule. With no decision, "Read it as" reads the start rule (C8).
+  // The position, whether it is a first match, and the rule that names it.
+  // With no decision, "Read it as" reads the start rule as a first match (C8).
   let positionCoffee: { id: number; name: string } | null = null;
   let rule: FirstBagRule | null = null;
   let hasBag = false;
+  let firstMatch = false;
   let readAs: 'start_rule' | undefined;
   if (pos) {
     positionCoffee = { id: pos.coffeeId, name: pos.coffeeName };
     hasBag = pos.moveCode !== 'quiz_result';
-    rule = await firstBagRule(profileId, pos, runner);
+    const decision = firstMatchDecision(await getMatchTrail(profileId, runner) as TrailDecision[], pos.coffeeId);
+    firstMatch = decision !== null;
+    rule = decision ? await ruleForDecision(decision, pos.coffeeId, runner) : null;
   } else if (opts.readAsRule && start) {
     const row = start.rule_id ? start : await dialReads.startFallback(FALLBACK_CONDITION, runner);
     if (row) {
       rule = ruleOf(row as RuleLike);
       positionCoffee = { id: rule.coffeeId, name: String((row as { coffee_name: string }).coffee_name) };
+      firstMatch = true;
       readAs = 'start_rule';
     }
   }
   if (!positionCoffee) return { position: null, firstBag: null, steps: [], copy };
+  const here = positionCoffee.id;
 
-  const offered = await offeredSteps(positionCoffee.id, ctx.decaf, runner);
-  const ids = [positionCoffee.id, ...offered.map(x => x.to_coffee_id)];
+  const offered = await offeredSteps(here, ctx.decaf, runner);
+  const ids = [here, ...offered.map(x => x.to_coffee_id)];
   const [pres, facts] = await Promise.all([getCardPresentations(ids), mapFacts(ids, runner)]);
   // Ella map 8 (B1, item 8b): the roaster's own words, else today's signature descriptors.
   const notes = (id: number) => { const w = facts.roasterWords(id); return w.length ? w : pres.get(id)?.signatureNotes ?? []; };
-  const stepLine = (x: { to_coffee_id: number; customer_line: string | null }) =>
-    x.customer_line ?? (notes(x.to_coffee_id).length ? notes(x.to_coffee_id).join(', ') : null);
+  /** what the coffee is: its map_line, else its notes */
+  const coffeeSentence = (id: number) => facts.mapLine(id) ?? (notes(id).length ? notes(id).join(', ') : null);
+  /** what changes in the cup: the step's line, else the destination's sentence */
+  const stepLine = (x: { to_coffee_id: number; customer_line: string | null }) => x.customer_line ?? coffeeSentence(x.to_coffee_id);
 
-  // The customer's facts, each quoted only through a current said-back row.
+  // The customer's facts, each said only through a current quoted said-back row.
   const said = await dialReads.saidBack(runner);
   const params = Object.fromEntries((await getParameters('dial_', runner)).map(p => [p.key, Number(p.value)]));
   const answers = ctx.quizSessionId ? await dialReads.quizAnswers(ctx.quizSessionId, runner) : [];
-  // G2.19: a quiz taken by someone else is never quoted; the treat question (weight 0) and a fact with no row never are
-  const quotable = answers.filter(a => a.is_self_taken && a.weight > 0 && said.has(`quiz_answer:${a.answer_code}`));
+  // G2.19: a quiz taken by someone else is never used; the treat question (weight 0) and a fact with no quoted row never are
+  const quizFacts: Fact[] = answers
+    .filter(a => a.is_self_taken && a.weight > 0 && said.has(`quiz_answer:${a.answer_code}`))
+    .map(a => {
+      const s = said.get(`quiz_answer:${a.answer_code}`)!;
+      return { key: `quiz_answer:${a.answer_code}`, code: a.answer_code, saidId: s.id, text: s.says_back, move: s.move_code, family: a.family_code, weight: a.weight, isFeeling: false };
+    });
+  const cupboard = await getCupboardCoffee({ profileId }, runner);
+  const kitchen = cupboard ? said.get(`cupboard_coffee:${cupboard.code}`) ?? null : null;
+  const feelingRow = await getCoffeeFeeling({ profileId }, runner);
+  const feelingSaid = feelingRow ? said.get(`coffee_feeling:${feelingRow.code}`) ?? null : null;
+  const feeling: Fact | null = feelingRow && feelingSaid
+    ? { key: `coffee_feeling:${feelingRow.code}`, code: feelingRow.code, saidId: feelingSaid.id, text: feelingSaid.says_back, move: feelingSaid.move_code, family: null, weight: 0, isFeeling: true }
+    : null;
+  const allFacts = feeling ? [...quizFacts, feeling] : quizFacts;
   // C1: the family as read and the family the quiz branched from count as the customer's own
   const ownFamilies = new Set([start?.family_read, start?.branched_from_code].filter((f): f is string => !!f));
-  const famAnswers = quotable.filter(a => a.family_code !== null && ownFamilies.has(a.family_code)).slice(0, params.dial_quote_family_answers ?? 0);
-  const otherAnswers = quotable.filter(a => a.family_code !== null && !ownFamilies.has(a.family_code)).slice(0, params.dial_quote_other_answers ?? 0);
-  const phrase = (a: { answer_code: string }) => said.get(`quiz_answer:${a.answer_code}`)!;
-  const cupboard = await getCupboardCoffeeByProfile(profileId, runner);
-  const kitchen = cupboard ? said.get(`cupboard_coffee:${cupboard.code}`) ?? null : null;
-  const feeling = await getCoffeeFeelingByProfile(profileId, runner);
-  const feelingSaid = feeling ? said.get(`coffee_feeling:${feeling.code}`) ?? null : null;
-  const opposites = await dialReads.moveOpposites(runner);
-  const scores = (start?.scores ?? {}) as Record<string, number>;
 
-  const compose = (parts: Array<{ code?: string; text: string | null; said?: Array<{ id: number; fact_code: string }> } | null>, base: Partial<TextBasis> = {}) => {
-    const used = parts.filter((p): p is { code?: string; text: string; said?: Array<{ id: number; fact_code: string }> } => !!p && !!p.text);
-    const basis: TextBasis = {
-      ...base, copyCodes: used.flatMap(p => (p.code ? [p.code] : [])),
-      saidBackIds: used.flatMap(p => (p.said ?? []).map(s => s.id)), factCodes: used.flatMap(p => (p.said ?? []).map(s => s.fact_code)),
-    };
-    return { text: used.map(p => sentenceOf(p.text)).join(' '), basis };
+  // How a card is chosen (dial_reason_choice): the active rows of each kind, in row order.
+  const choices = await dialReads.reasonChoices({}, runner);
+  const activeCodes = (kind: string) => choices.filter(c => c.kind_code === kind && c.is_active).map(c => c.code);
+  const supportKinds = activeCodes('step_support');
+  const leadSources = activeCodes('lead_source');
+
+  const used = new Set<string>();
+  const free = (pool: Fact[]) => pool.filter(f => !used.has(f.key));
+  /**
+   * A step's support: the first active step-support choice, in row order, that
+   * finds an unused fact. Family choices use quiz answers only (the feeling has
+   * no family); within the family choice an answer that argues for no
+   * direction is preferred. An unknown code is skipped.
+   */
+  const supportFor = (x: { to_coffee_id: number; move_code: string | null }, pool: Fact[]): Support | null => {
+    const fams = facts.families(x.to_coffee_id);
+    const open = free(pool);
+    const ofFamily = open.filter(f => !f.isFeeling && f.family !== null && fams.has(f.family));
+    for (const [rank, choice] of supportKinds.entries()) {
+      let f: Fact | undefined;
+      if (choice === 'family_and_direction') f = x.move_code ? ofFamily.find(a => a.move === x.move_code) : undefined;
+      else if (choice === 'family') f = ofFamily.find(a => a.move === null) ?? ofFamily[0];
+      else if (choice === 'direction') f = x.move_code ? open.find(a => a.move === x.move_code) : undefined;
+      else continue;
+      if (f) return { fact: f, choice, rank };
+    }
+    return null;
   };
 
-  // The first bag: kitchen, the quoted answers and the rule's coffee_line; else the rule's customer_reason.
+  type Part = { code?: string; text: string | null; said?: Array<{ id: number; fact_code: string }> };
+  const factPart = (f: Fact): Part => ({ text: f.text, said: [{ id: f.saidId, fact_code: f.code }] });
+  const compose = (parts: Array<Part | null>, base: Partial<TextBasis> = {}) => {
+    const kept = parts.filter((p): p is Part & { text: string } => !!p && !!p.text);
+    const basis: TextBasis = {
+      ...base, copyCodes: kept.flatMap(p => (p.code ? [p.code] : [])),
+      saidBackIds: kept.flatMap(p => (p.said ?? []).map(s => s.id)), factCodes: kept.flatMap(p => (p.said ?? []).map(s => s.fact_code)),
+    };
+    return { text: kept.map(p => sentenceOf(p.text)).join(' '), basis };
+  };
+  /** Take up to n unused quiz answers that pass, in answer order (branch first, heavier question, question number). */
+  const take = (pass: (f: Fact) => boolean, n: number) => {
+    const out: Fact[] = [];
+    for (const f of quizFacts) {
+      if (out.length >= n) break;
+      if (!used.has(f.key) && pass(f)) { out.push(f); used.add(f.key); }
+    }
+    return out;
+  };
+
+  // The top card, whenever there is a quiz. First match: "Founder's pick", up to
+  // dial_quote_family_answers answers for the customer's family, then the answer
+  // for the family the rule's condition is about, then the rule's coffee_line
+  // (else the coffee's sentence); with no usable answer and a rule that names the
+  // coffee, the rule's customer_reason (Dana 2026-11-24). After a step: "You are
+  // here", answers for this coffee's families, then its sentence. The kitchen
+  // sentence opens it. No quiz: no top card, the notes as before.
   let firstBag: MapStepsResult['firstBag'] = null;
-  if (rule && !hasBag) {
-    const quoted = famAnswers.length > 0 && rule.coffeeLine !== null;
-    const told = famAnswers.map(phrase);
-    const also = otherAnswers.map(phrase);
-    const c = compose([
-      kitchen && { code: 'kitchen', text: fill(copy.kitchen, { brand: kitchen.says_back }), said: [kitchen] },
-      quoted && told.length >= 2 ? { code: 'told_us_two', text: fill(copy.told_us_two, { a: told[0].says_back, b: told[1].says_back }), said: told.slice(0, 2) } : null,
-      quoted && told.length === 1 ? { code: 'told_us_one', text: fill(copy.told_us_one, { a: told[0].says_back }), said: told } : null,
-      quoted && also.length ? { code: 'also_said', text: fill(copy.also_said, { c: also.map(x => x.says_back).join(' and ') }), said: also } : null,
-      quoted ? { text: rule.coffeeLine } : { text: rule.reason },
-    ], { ruleId: rule.ruleId });
-    firstBag = { coffeeId: rule.coffeeId, reason: rule.reason, text: c.text, isFounderPick: true, ...(opts.withBasis ? { basis: c.basis } : {}) };
+  if (ctx.quizSessionId) {
+    const n = params.dial_quote_family_answers ?? 0;
+    const parts: Part[] = [];
+    if (kitchen) parts.push({ code: 'kitchen', text: fill(copy.kitchen, { brand: kitchen.says_back }), said: [kitchen] });
+    let labelCode: string;
+    if (firstMatch) {
+      labelCode = 'founder_pick';
+      const fam = take(f => f.family !== null && ownFamilies.has(f.family), n);
+      const cond = rule && rule.conditionFamilies.length ? take(f => f.family !== null && rule!.conditionFamilies.includes(f.family), 1) : [];
+      const told = [...fam, ...cond];
+      if (!told.length && rule) parts.push({ text: rule.reason });
+      else parts.push(...told.map(factPart), { text: rule?.coffeeLine ?? coffeeSentence(here) });
+    } else {
+      labelCode = 'here_title';
+      const fams = facts.families(here);
+      parts.push(...take(f => f.family !== null && fams.has(f.family), n).map(factPart), { text: coffeeSentence(here) });
+    }
+    const c = compose(parts, { ruleId: rule?.ruleId ?? null, choice: labelCode });
+    firstBag = {
+      coffeeId: here, reason: rule?.reason ?? '', text: c.text, labelCode, isFounderPick: labelCode === 'founder_pick',
+      ...(opts.withBasis ? { basis: c.basis } : {}),
+    };
   }
 
-  // The lead: the feeling's direction when a step from here carries it (a tie goes to the rule's lead,
-  // else the first in step order); otherwise the rule's lead (first bag only); otherwise none.
-  const feelingSteps = feeling ? offered.filter(x => x.move_code !== null && x.move_code === feeling.moveCode) : [];
-  const ruleLead = rule && !hasBag && rule.leadToCoffeeId !== null ? offered.find(x => x.to_coffee_id === rule!.leadToCoffeeId) ?? null : null;
-  const lead = feelingSteps.length
-    ? { step: feelingSteps.find(x => x.to_coffee_id === ruleLead?.to_coffee_id) ?? feelingSteps[0], by: 'feeling' as const }
-    : ruleLead ? { step: ruleLead, by: 'rule' as const } : null;
-  const awayMax = params.dial_away_max_points ?? 0;
+  // The lead: the first active lead source, in row order, that yields one.
+  //  setup_answer: the feeling names a direction and a step goes that way; among
+  //    several, the strongest quiz support (step-card order) wins, then the rule's
+  //    lead, then step order (Dana 2026-11-24); the feeling's sentence, then the step's line.
+  //  start_rule: on a first match, the rule's lead with the rule's lead sentence.
+  //  strongest_support: the step with the strongest support; its fact, then the step's line.
+  type Offered = (typeof offered)[number];
+  let lead: { step: Offered; parts: Part[]; choice: string; ruleId?: number | null } | null = null;
+  for (const source of leadSources) {
+    if (source === 'setup_answer') {
+      if (!feeling || feeling.move === null) continue;
+      const ranked = offered.map((x, i) => ({ x, i, s: supportFor(x, quizFacts) })).filter(r => r.x.move_code === feeling.move);
+      if (!ranked.length) continue;
+      const ruleLead = (r: { x: Offered }) => Number(rule !== null && r.x.to_coffee_id === rule.leadToCoffeeId);
+      ranked.sort((a, b) => supportOrder(a.s, b.s) || ruleLead(b) - ruleLead(a) || a.i - b.i);
+      used.add(feeling.key);
+      lead = { step: ranked[0].x, parts: [factPart(feeling), { text: stepLine(ranked[0].x) }], choice: source };
+    } else if (source === 'start_rule') {
+      if (!firstMatch || !rule || rule.leadToCoffeeId === null) continue;
+      const x = offered.find(s => s.to_coffee_id === rule!.leadToCoffeeId);
+      if (!x) continue;
+      lead = { step: x, parts: [{ text: rule.leadLine ?? stepLine(x) }], choice: source, ruleId: rule.ruleId };
+    } else if (source === 'strongest_support') {
+      const ranked = offered.map((x, i) => ({ x, i, s: supportFor(x, allFacts) })).filter(r => r.s !== null);
+      if (!ranked.length) continue;
+      ranked.sort((a, b) => supportOrder(a.s, b.s) || a.i - b.i);
+      const best = ranked[0];
+      used.add(best.s!.fact.key);
+      lead = { step: best.x, parts: [factPart(best.s!.fact), { text: stepLine(best.x) }], choice: source };
+    } else continue;
+    break;
+  }
+
+  // The other steps, in shown order: the first support that finds an unused fact, else no_support; then the step's line.
+  const texts = new Map<number, { text: string; basis: TextBasis }>();
+  if (lead) texts.set(lead.step.id, compose(lead.parts, { stepId: lead.step.id, choice: lead.choice, ...(lead.ruleId !== undefined ? { ruleId: lead.ruleId } : {}) }));
+  for (const x of offered) {
+    if (texts.has(x.id)) continue;
+    const s = supportFor(x, allFacts);
+    if (s) used.add(s.fact.key);
+    texts.set(x.id, compose([
+      s ? factPart(s.fact) : { code: 'no_support', text: copy.no_support ?? null },
+      { text: stepLine(x) },
+    ], { stepId: x.id, choice: s?.choice ?? null }));
+  }
 
   const cards: MapStepCard[] = offered.map(x => {
-    const isLead = lead?.step.id === x.id;
-    const line = stepLine(x);
-    let c: { text: string; basis: TextBasis };
-    if (isLead && lead!.by === 'feeling') {
-      c = compose([
-        feelingSaid && { code: 'asked_for', text: fill(copy.asked_for, { feeling: feelingSaid.says_back }), said: [feelingSaid] },
-        { text: line },
-      ], { stepId: x.id });
-    } else if (isLead) {
-      const quote = rule!.leadQuoteFamilyCode ? quotable.find(a => a.family_code === rule!.leadQuoteFamilyCode) ?? null : null;
-      c = compose([
-        quote && { code: 'told_us_one', text: fill(copy.told_us_one, { a: phrase(quote).says_back }), said: [phrase(quote)] },
-        { text: rule!.leadLine ?? line },
-      ], { ruleId: rule!.ruleId, stepId: x.id });
-    } else {
-      const against = !!feeling && x.move_code !== null && opposites.get(feeling.moveCode) === x.move_code;
-      const dest = facts.familyCode(x.to_coffee_id);
-      const away = !against && quotable.length > 0 && dest !== null && !ownFamilies.has(dest) && Number(scores[dest] ?? 0) <= awayMax;
-      c = compose([
-        { text: x.when_line },
-        { text: line },
-        against ? { code: 'step_against', text: copy.step_against ?? null } : null,
-        away ? { code: 'step_away', text: copy.step_away ?? null } : null,
-      ], { stepId: x.id });
-    }
+    const c = texts.get(x.id)!;
     return {
       stepId: x.id, word: x.button_word, coffeeId: x.to_coffee_id, name: facts.name(x.to_coffee_id, x.to_coffee_name),
-      line, notes: notes(x.to_coffee_id), price: facts.price(x.to_coffee_id), familyLabel: facts.familyLabel(x.to_coffee_id),
-      isLead, text: c.text, ...(opts.withBasis ? { basis: c.basis } : {}),
+      line: stepLine(x), notes: notes(x.to_coffee_id), price: facts.price(x.to_coffee_id), familyLabel: facts.familyLabel(x.to_coffee_id),
+      isLead: lead?.step.id === x.id, text: c.text, ...(opts.withBasis ? { basis: c.basis } : {}),
     };
   });
   cards.sort((a, b) => Number(b.isLead) - Number(a.isLead));
 
   return {
     position: {
-      coffeeId: positionCoffee.id, name: facts.name(positionCoffee.id, positionCoffee.name), notes: notes(positionCoffee.id),
-      price: facts.price(positionCoffee.id), familyLabel: facts.familyLabel(positionCoffee.id), hasBag,
+      coffeeId: here, name: facts.name(here, positionCoffee.name), notes: notes(here),
+      price: facts.price(here), familyLabel: facts.familyLabel(here), hasBag,
     },
     firstBag,
     steps: cards,

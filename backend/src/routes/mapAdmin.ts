@@ -9,7 +9,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth.js';
 import * as dialReads from '../services/dialReads.js';
-import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, setStep, publish, setStartRule, setSaidBack, DialMapError } from '../services/dialPlacementService.js';
+import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, setStep, publish, setStartRule, setSaidBack, setReasonChoice, DialMapError } from '../services/dialPlacementService.js';
 import { getMatchDecisions, searchCustomersForMap } from '../services/customerReads.js';
 import { steps as composedSteps } from '../services/matchService.js';
 import { setLean, setRing, CatalogError } from '../services/catalogService.js';
@@ -237,12 +237,29 @@ const SaidBackBody = z.object({
   fact: z.string().trim().min(1).max(80),
   saysBack: z.string().trim().max(300).nullable(),
   isQuoted: z.boolean().optional(),
+  // Ella map 10: the direction the fact argues for (a customer move code); null = none; left out = kept
+  move: z.string().trim().min(1).max(40).nullable().optional(),
 });
 router.put('/said-back', async (req: AuthRequest, res) => {
   try {
     const b = SaidBackBody.parse(req.body ?? {});
-    res.json(await setSaidBack({ sourceCode: b.source, factCode: b.fact, saysBack: b.saysBack, isQuoted: b.isQuoted, adminUid: req.uid ?? null }));
+    res.json(await setSaidBack({ sourceCode: b.source, factCode: b.fact, saysBack: b.saysBack, isQuoted: b.isQuoted, moveCode: b.move, adminUid: req.uid ?? null }));
   } catch (err) { fail(res, 'set said back', err); }
+});
+// Ella map 10 (B4): how a card is chosen, the ordered switchable rows (dial_reason_choice)
+router.get('/reason-choices', read('reason choices', req => dialReads.reasonChoices({ history: req.query.history === '1' })));
+const ReasonChoiceBody = z.object({
+  kind: z.string().trim().min(1).max(40),
+  code: z.string().trim().min(1).max(60),
+  label: z.string().trim().min(1).max(120).optional(),
+  sortOrder: z.number().int().min(0).max(999).optional(),
+  isActive: z.boolean().optional(),
+});
+router.put('/reason-choices', async (req: AuthRequest, res) => {
+  try {
+    const b = ReasonChoiceBody.parse(req.body ?? {});
+    res.json(await setReasonChoice({ kindCode: b.kind, code: b.code, label: b.label, sortOrder: b.sortOrder, isActive: b.isActive, adminUid: req.uid ?? null }));
+  } catch (err) { fail(res, 'set reason choice', err); }
 });
 // The picker: customers by email (at least 3 characters)
 router.get('/customers', read('customer search', req => searchCustomersForMap(z.string().trim().min(3).max(120).parse(req.query.q ?? ''))));

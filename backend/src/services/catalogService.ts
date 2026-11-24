@@ -610,6 +610,8 @@ export interface UpdateCoffeeInput {
   originRegion?: string | null;
   /** Ella map 8: the short customer name; `null` clears it, `undefined` leaves it. Never a roaster name. */
   shortName?: string | null;
+  /** Ella map 10: the coffee's plain sentence on /map; `null` clears it, `undefined` leaves it. Never a roaster name. */
+  mapLine?: string | null;
 }
 // Split the same way createCoffee / createCoffeeInTx are, so a caller that already
 // holds a transaction (the roastery portal's accept, one transaction for create +
@@ -634,6 +636,19 @@ export async function updateCoffeeInTx(
       }
     }
     await tx.query(`UPDATE coffees SET short_name = $1 WHERE id = $2`, [next, input.coffeeId]);
+  }
+  if (input.mapLine !== undefined) {
+    const next = input.mapLine === null ? null : input.mapLine.trim();
+    if (next === '') throw new CatalogError(400, 'INVALID_INPUT', 'mapLine must not be blank (send null to clear it)');
+    if (next !== null && next.length > 200) throw new CatalogError(400, 'INVALID_INPUT', 'mapLine is at most 200 characters');
+    if (next !== null) {
+      const roaster = (await tx.query<{ name: string }>(
+        `SELECT r.name FROM coffees c JOIN roaster r ON r.id = c.roaster_id WHERE c.id = $1`, [input.coffeeId])).rows[0];
+      if (roaster && next.toLowerCase().includes(roaster.name.trim().toLowerCase())) {
+        throw new CatalogError(400, 'INVALID_INPUT', 'mapLine must not contain the roaster name');
+      }
+    }
+    await tx.query(`UPDATE coffees SET map_line = $1 WHERE id = $2`, [next, input.coffeeId]);
   }
   await tx.query(
     `UPDATE coffees SET

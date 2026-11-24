@@ -26,10 +26,10 @@ import EllaMapFace from '../bloom/map/EllaMapFace';
 import EllaMapLegend from '../bloom/map/EllaMapLegend';
 import { setLean, type ApiFetch } from '../../lib/catalogWrites';
 import {
-  getDecidedMap, getVocabulary, getWedges, getStartRules, getRingHistory, setStep, setRing, publishMap, setStartRule,
+  getDecidedMap, getVocabulary, getWedges, getStartRules, getRingHistory, setStep, setRing, publishMap, setStartRule, setMapLine,
   type DecidedMap, type DecisionNow, type StepRow, type Vocabulary, type Wedge, type Seam, type StartRule, type RingHistoryRow,
 } from '../../lib/mapAdmin';
-import { SaidBackTable, ReadItAs } from './AdminEllaMapReasons';
+import { SaidBackTable, ReadItAs, ReasonChoicesCard } from './AdminEllaMapReasons';
 
 const CARD = 'border border-stone-200 rounded-xl bg-white';
 const INPUT = 'w-full border border-stone-300 rounded px-2 py-1 text-sm';
@@ -130,8 +130,9 @@ export default function AdminEllaMap() {
         <div className="space-y-6">
           <StartRuleTable rows={startRules} map={map} families={wedges.wedges} apiFetch={apiFetch} onChanged={load} />
           <StepsTable steps={map.steps} vocab={vocab} openId={openStep} setOpenId={setOpenStep} apiFetch={apiFetch} onChanged={load} />
-          <SaidBackTable apiFetch={apiFetch} />
+          <SaidBackTable apiFetch={apiFetch} moves={vocab.moves} />
           <ReadItAs apiFetch={apiFetch} />
+          <ReasonChoicesCard apiFetch={apiFetch} />
         </div>
       </div>
     </div>
@@ -152,6 +153,9 @@ function CoffeeCard({ d, map, vocab, label, apiFetch, onClose, onChanged, onOpen
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [history, setHistory] = useState<RingHistoryRow[]>([]);
+  // Ella map 10 (C2): the coffee's plain sentence on /map (coffees.map_line, catalogService.updateCoffee)
+  const [mapLine, setMapLineDraft] = useState(buy?.map_line ?? '');
+  useEffect(() => { setMapLineDraft(buy?.map_line ?? ''); }, [buy?.map_line]);
   useEffect(() => { getRingHistory(apiFetch, d.coffee_id).then(setHistory).catch(() => setHistory([])); }, [apiFetch, d.coffee_id, d.decided_ring]);
   const rings = vocab.rings.filter(r => (r.code === 0) === d.is_center);
   const laneChanged = !!lane && lane !== d.decided_lane_code;
@@ -166,6 +170,16 @@ function CoffeeCard({ d, map, vocab, label, apiFetch, onClose, onChanged, onOpen
       if (ringChanged) await setRing(apiFetch, d.coffee_id, { ring: ring!, basis: basis.trim() });
       setMsg('Saved. Publish to put it on the map.');
       setBasis('');
+      await onChanged();
+    } catch (err) { setMsg(err instanceof Error ? err.message : 'Save failed'); }
+    finally { setBusy(false); }
+  }
+
+  async function saveMapLine() {
+    setBusy(true); setMsg('');
+    try {
+      await setMapLine(apiFetch, d.coffee_id, mapLine.trim() || null);
+      setMsg('Saved. It shows on the next read of the page.');
       await onChanged();
     } catch (err) { setMsg(err instanceof Error ? err.message : 'Save failed'); }
     finally { setBusy(false); }
@@ -189,6 +203,17 @@ function CoffeeCard({ d, map, vocab, label, apiFetch, onClose, onChanged, onOpen
         </div>
         <button className="text-xs text-stone-500 hover:underline" onClick={onClose}>Close</button>
       </div>
+
+      {buy && (
+        <div className="mt-3" data-testid="card-map-line">
+          <p className="text-xs text-stone-500">The coffee's sentence on /map (when no start rule or step line says it)</p>
+          <div className="flex gap-2 mt-1">
+            <input className="w-full border border-stone-300 rounded px-2 py-1 text-sm" value={mapLine} onChange={e => setMapLineDraft(e.target.value)} data-testid="map-line-input" />
+            <button className="px-3 py-1.5 rounded text-sm bg-stone-800 text-white hover:bg-stone-700 disabled:opacity-50"
+              disabled={busy || mapLine.trim() === (buy.map_line ?? '')} onClick={saveMapLine} data-testid="map-line-save">Save</button>
+          </div>
+        </div>
+      )}
 
       {facts && (
         <div className="mt-3 text-sm">
@@ -314,17 +339,18 @@ function PublishBox({ map, apiFetch, onPublished }: { map: DecidedMap; apiFetch:
   );
 }
 
-type RuleDraft = { coffeeId: string; adminLabel: string; customerReason: string; coffeeLine: string; leadTo: string; leadLine: string; leadQuote: string };
+// Ella map 10: the lead quote family is read by nothing and no longer shown or sent (the column keeps its value).
+type RuleDraft = { coffeeId: string; adminLabel: string; customerReason: string; coffeeLine: string; leadTo: string; leadLine: string };
 const draftOf = (r: StartRule): RuleDraft => ({
   coffeeId: String(r.coffee_id), adminLabel: r.admin_label, customerReason: r.customer_reason, coffeeLine: r.coffee_line ?? '',
-  leadTo: r.lead_to_coffee_id ? String(r.lead_to_coffee_id) : '', leadLine: r.lead_line ?? '', leadQuote: r.lead_quote_family_code ?? '',
+  leadTo: r.lead_to_coffee_id ? String(r.lead_to_coffee_id) : '', leadLine: r.lead_line ?? '',
 });
 
-function StartRuleTable({ rows, map, families, apiFetch, onChanged }: {
+function StartRuleTable({ rows, map, apiFetch, onChanged }: {
   rows: StartRule[]; map: DecidedMap; families: Wedge[]; apiFetch: ApiFetch; onChanged: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState<number | null>(null);
-  const [draft, setDraft] = useState<RuleDraft>({ coffeeId: '', adminLabel: '', customerReason: '', coffeeLine: '', leadTo: '', leadLine: '', leadQuote: '' });
+  const [draft, setDraft] = useState<RuleDraft>({ coffeeId: '', adminLabel: '', customerReason: '', coffeeLine: '', leadTo: '', leadLine: '' });
   // Ella map 9: a lead must be a current shown step from the first bag (setStartRule refuses otherwise)
   const leadOptions = map.steps.filter(s => s.is_shown && s.from_coffee_id === Number(draft.coffeeId));
   const [historyOf, setHistoryOf] = useState<string | null>(null);
@@ -340,7 +366,7 @@ function StartRuleTable({ rows, map, families, apiFetch, onChanged }: {
         family: r.family_code, priority: r.priority, condition: r.condition_code, alsoCondition: r.also_condition_code,
         coffeeId: Number(draft.coffeeId), adminLabel: draft.adminLabel.trim(), customerReason: draft.customerReason.trim(), notes: r.notes,
         coffeeLine: draft.coffeeLine.trim() || null, leadToCoffeeId: draft.leadTo ? Number(draft.leadTo) : null,
-        leadLine: draft.leadLine.trim() || null, leadQuoteFamily: draft.leadQuote || null,
+        leadLine: draft.leadLine.trim() || null,
       });
       setMsg(res.unchanged ? 'Unchanged.' : 'Saved. It applies to the next quiz result at once.');
       setEditing(null);
@@ -393,7 +419,7 @@ function StartRuleTable({ rows, map, families, apiFetch, onChanged }: {
                       ? (
                         <span className="grid gap-1">
                           <textarea className={INPUT} rows={3} value={draft.customerReason} onChange={e => setDraft({ ...draft, customerReason: e.target.value })} data-testid="edit-reason" />
-                          <span className="text-xs text-stone-500">After the answers we quote (empty: the reason above is shown)</span>
+                          <span className="text-xs text-stone-500">The coffee sentence after the customer's answers (with no usable answer, the reason above is shown)</span>
                           <textarea className={INPUT} rows={2} value={draft.coffeeLine} onChange={e => setDraft({ ...draft, coffeeLine: e.target.value })} data-testid="edit-coffee-line" />
                           <span className="text-xs text-stone-500">Where we'd take them next</span>
                           <select className={INPUT} value={draft.leadTo} onChange={e => setDraft({ ...draft, leadTo: e.target.value })} data-testid="edit-lead">
@@ -401,10 +427,6 @@ function StartRuleTable({ rows, map, families, apiFetch, onChanged }: {
                             {leadOptions.map(s => <option key={s.id} value={s.to_coffee_id}>{s.button_word} → {s.to_coffee_name}</option>)}
                           </select>
                           <textarea className={INPUT} rows={2} value={draft.leadLine} onChange={e => setDraft({ ...draft, leadLine: e.target.value })} placeholder="The lead's sentence (empty: the step's line)" data-testid="edit-lead-line" />
-                          <select className={INPUT} value={draft.leadQuote} onChange={e => setDraft({ ...draft, leadQuote: e.target.value })} data-testid="edit-lead-quote">
-                            <option value="">Quote nothing before the lead</option>
-                            {families.map(f => <option key={f.archetype_code} value={f.archetype_code}>Quote their {f.archetype_name} answer</option>)}
-                          </select>
                         </span>
                       )
                       : (
@@ -414,7 +436,6 @@ function StartRuleTable({ rows, map, families, apiFetch, onChanged }: {
                           {r.lead_to_coffee_name && (
                             <span className="text-xs text-stone-500" data-testid="rule-lead">
                               Next: {r.lead_to_coffee_name}{r.lead_line ? ` · ${r.lead_line}` : ''}
-                              {r.lead_quote_family_code ? ` · quotes their ${families.find(f => f.archetype_code === r.lead_quote_family_code)?.archetype_name ?? r.lead_quote_family_code} answer` : ''}
                             </span>
                           )}
                         </span>
@@ -494,15 +515,14 @@ function StepRowView({ s, back, vocab, open, onToggle, apiFetch, onChanged }: {
   const [basis, setBasis] = useState(s.basis_code);
   const [shown, setShown] = useState(s.is_shown);
   const [move, setMove] = useState(s.move_code ?? '');
-  const [whenLine, setWhenLine] = useState(s.when_line ?? '');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  useEffect(() => { setWord(s.button_word); setLine(s.customer_line ?? ''); setBasis(s.basis_code); setShown(s.is_shown); setMove(s.move_code ?? ''); setWhenLine(s.when_line ?? ''); }, [s]);
+  useEffect(() => { setWord(s.button_word); setLine(s.customer_line ?? ''); setBasis(s.basis_code); setShown(s.is_shown); setMove(s.move_code ?? ''); }, [s]);
   async function save() {
     setBusy(true); setMsg('');
     try {
       const r = await setStep(apiFetch, { from: s.from_coffee_id, to: s.to_coffee_id, word: word.trim(), line: line.trim() || null, basis, shown,
-        move: move || null, whenLine: whenLine.trim() || null });
+        move: move || null });   // Ella map 10: when_line is read by nothing; not shown or sent (kept)
       setMsg(r.unchanged ? 'Unchanged.' : 'Saved. Publish to put it on the map.');
       await onChanged();
     } catch (err) { setMsg(err instanceof Error ? err.message : 'Save failed'); }
@@ -525,7 +545,6 @@ function StepRowView({ s, back, vocab, open, onToggle, apiFetch, onChanged }: {
               <div className="grid gap-2" data-testid={`step-edit-${s.id}`}>
                 <input className={INPUT} value={word} onChange={e => setWord(e.target.value)} placeholder="Customer says" />
                 <textarea className={INPUT} rows={2} value={line} onChange={e => setLine(e.target.value)} placeholder="The one thing that changes (empty: the destination's notes)" />
-                <input className={INPUT} value={whenLine} onChange={e => setWhenLine(e.target.value)} placeholder="The card's opening when it is not the lead (If you want more weight.)" data-testid={`step-when-${s.id}`} />
                 <select className="border border-stone-300 rounded px-2 py-1 text-sm" value={move} onChange={e => setMove(e.target.value)} data-testid={`step-move-${s.id}`}>
                   <option value="">No direction</option>
                   {vocab.moves.filter(m => m.is_customer_move).map(m => <option key={m.code} value={m.code}>Answers: {m.label}</option>)}

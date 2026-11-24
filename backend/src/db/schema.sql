@@ -2873,6 +2873,7 @@ ALTER TABLE dial_position_signal DROP COLUMN IF EXISTS suggested_vocabulary_id C
 -- before the grants at the end) read v_coffee, the pooled range, the cupping,
 -- portal and evidence views and the sellable candidates; dropped here, before
 -- any of those drop and recreate themselves, and recreated every boot.
+DROP VIEW IF EXISTS v_dial_reason_choice;     -- Ella map 10
 DROP VIEW IF EXISTS v_dial_said_back_fact;    -- Ella map 9: reads v_dial_said_back, quiz content, brew values
 DROP VIEW IF EXISTS v_dial_said_back;         -- Ella map 9
 DROP VIEW IF EXISTS v_dial_quiz_answer;       -- Ella map 9: reads v_customer_quiz_current, quiz_session, quiz content
@@ -5213,6 +5214,15 @@ DO $$ BEGIN
     ALTER TABLE coffees ADD CONSTRAINT coffees_short_name_not_blank CHECK (short_name IS NULL OR btrim(short_name) <> '');
   END IF;
 END $$;
+-- Ella map 10 (2026-11-24), A2: the coffee's plain sentence on /map, for a
+-- card no start rule or step line explains (design Rev 2, Data 2). Written
+-- through catalogService.updateCoffee; NULL = not written yet.
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS map_line TEXT;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffees_map_line_not_blank') THEN
+    ALTER TABLE coffees ADD CONSTRAINT coffees_map_line_not_blank CHECK (map_line IS NULL OR btrim(map_line) <> '');
+  END IF;
+END $$;
 CREATE OR REPLACE VIEW v_coffee AS
 SELECT
   c.id, c.name, c.origin, c.blend_or_single, c.process, c.roast_level, c.roast_shade,
@@ -5232,7 +5242,9 @@ SELECT
   -- this view is CREATE OR REPLACE only (see above).
   aa.notes                        AS match_notes,
   aa.basis                        AS match_basis,
-  c.short_name
+  c.short_name,
+  -- Ella map 10 (A2), appended last (CREATE OR REPLACE only)
+  c.map_line
 FROM coffees c
 LEFT JOIN roaster r              ON r.id = c.roaster_id
 LEFT JOIN coffee_archetype_assignment aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
@@ -10720,6 +10732,19 @@ FROM (VALUES
 LEFT JOIN dial_reading r ON r.code = v.ruler
 LEFT JOIN cupping_note f ON f.descriptor = v.family AND f.tier = 1 AND f.parent_id IS NULL
 ON CONFLICT (archetype_code) DO NOTHING;
+-- Ella map 10 (2026-11-24), A6: the family a wedge's quiz branch comes from
+-- (the quiz rows name only the family that triggers a branch, not the family
+-- it leads to). A /map step card counts this family's answers as the
+-- destination's own. Set once when the column is added; after that it is data.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dial_wedge' AND column_name = 'branches_from_code') THEN
+    ALTER TABLE dial_wedge ADD COLUMN branches_from_code archetype_enum REFERENCES coffee_archetype(code);
+    UPDATE dial_wedge w SET branches_from_code = v.parent::archetype_enum
+      FROM (VALUES ('earthy', 'chocolate_nutty'), ('floral', 'fruity')) v(family, parent)
+     WHERE w.archetype_code = v.family::archetype_enum;
+  END IF;
+END $$;
 
 -- 3. The lean decision (catalog domain, sister of coffee_archetype_assignment)
 CREATE TABLE IF NOT EXISTS coffee_lean_assignment (
@@ -10997,7 +11022,8 @@ SELECT c.id AS coffee_id,
        (k.sku_id IS NOT NULL) AS in_stock,
        z.weight_oz, z.label AS size_label, k.sku_id, p.retail_price_cents AS price_cents,
        (k.sku_id IS NOT NULL) AS has_sku, (p.retail_price_cents IS NOT NULL) AS has_price,
-       COALESCE(NULLIF(btrim(c.short_name), ''), c.name) AS map_name
+       COALESCE(NULLIF(btrim(c.short_name), ''), c.name) AS map_name,
+       c.map_line   -- Ella map 10 (A2)
 FROM coffees c
 LEFT JOIN coffee_size z ON z.is_anchor AND z.is_active
 LEFT JOIN LATERAL (SELECT k.id AS sku_id FROM coffee_sku k
@@ -11347,13 +11373,15 @@ SELECT p.id AS placement_id, p.version_id, v.label AS version_label,
        p.grade_id, g.code AS grade_code, g.rank AS grade_rank,
        p.n_sessions, p.n_cuppers, p.is_sellable_at_cut, p.inputs_used, p.flags,
        (vc.is_active AND av.is_sellable) AS is_sellable, (vc.is_active AND av.in_stock) AS in_stock,
-       vc.category_codes
+       vc.category_codes,
+       fw.branches_from_code::text AS family_branches_from_code   -- Ella map 10 (A6)
 FROM dial_placement p
 JOIN dial_map_version v ON v.id = p.version_id AND v.activated_at IS NOT NULL AND v.retired_at IS NULL
 JOIN v_coffee vc ON vc.id = p.coffee_id
 JOIN dial_lane l ON l.id = p.lane_id
 JOIN dial_evidence_grade g ON g.id = p.grade_id
-JOIN v_dial_coffee_availability av ON av.coffee_id = p.coffee_id;
+JOIN v_dial_coffee_availability av ON av.coffee_id = p.coffee_id
+LEFT JOIN dial_wedge fw ON fw.archetype_code = p.archetype_code;
 
 -- The points the edges are drawn between, one set per mode: 'preview'
 -- (placeable preview rows, current parameters) and 'active' (the active
@@ -12528,6 +12556,18 @@ INSERT INTO dial_start_condition (code, label, sort_order) VALUES
   ('cn_gt_zero',         'Any Chocolate & Nutty points',                4),
   ('espresso_at_home',   'Makes espresso at home',                      5)
 ON CONFLICT (code) DO NOTHING;
+-- Ella map 10 (2026-11-24), A4: the family a condition is about; the /map top
+-- card quotes the customer's answer for it (NULL: always, espresso at home).
+-- Set once when the column is added; after that it is data.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dial_start_condition' AND column_name = 'family_code') THEN
+    ALTER TABLE dial_start_condition ADD COLUMN family_code archetype_enum REFERENCES coffee_archetype(code);
+    UPDATE dial_start_condition c SET family_code = v.family::archetype_enum
+      FROM (VALUES ('fruity_gt_cn', 'fruity'), ('fruity_gt_balanced', 'fruity'), ('cn_gt_zero', 'chocolate_nutty')) v(code, family)
+     WHERE c.code = v.code;
+  END IF;
+END $$;
 
 -- A4: the rule. Per family (as read in v_dial_start_input), the lowest
 -- priority whose conditions hold wins. Supersede and insert, one current row
@@ -12570,7 +12610,9 @@ SELECT r.id, r.family_code::text AS family_code, fa.name AS family_name, w.angle
        r.coffee_id, c.name AS coffee_name, r.admin_label, r.customer_reason, r.notes, r.decided_by,
        r.created_at, r.superseded_at, (r.superseded_at IS NULL) AS is_current,
        -- Ella map 9 (A3)
-       r.coffee_line, r.lead_to_coffee_id, lc.name AS lead_to_coffee_name, r.lead_line, r.lead_quote_family_code::text AS lead_quote_family_code
+       r.coffee_line, r.lead_to_coffee_id, lc.name AS lead_to_coffee_name, r.lead_line, r.lead_quote_family_code::text AS lead_quote_family_code,
+       -- Ella map 10 (A4)
+       c1.family_code::text AS condition_family_code, c2.family_code::text AS also_condition_family_code
 FROM dial_start_rule r
 JOIN coffee_archetype fa ON fa.code = r.family_code
 LEFT JOIN dial_wedge w ON w.archetype_code = r.family_code
@@ -12662,7 +12704,9 @@ SELECT i.quiz_session_id, i.user_id, i.canonical_user_id, i.family_read, i.score
        r.id AS rule_id, r.priority, r.condition_code, r.also_condition_code,
        r.coffee_id, r.coffee_name, r.admin_label, r.customer_reason,
        -- Ella map 9: the family the quiz branched from, and the rule's lines
-       i.branched_from_code, r.coffee_line, r.lead_to_coffee_id, r.lead_line, r.lead_quote_family_code
+       i.branched_from_code, r.coffee_line, r.lead_to_coffee_id, r.lead_line, r.lead_quote_family_code,
+       -- Ella map 10 (A4)
+       r.condition_family_code, r.also_condition_family_code
 FROM v_dial_start_input i
 LEFT JOIN LATERAL (
   SELECT r.* FROM v_dial_start_rule r
@@ -12730,12 +12774,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS dial_said_back_one_current ON dial_said_back (
 -- Ella map 9 correction (Dana 2026-11-21): the phrase is kept, the row says
 -- whether it is quoted. Replaces a hard-coded list of answer codes (G2.1).
 ALTER TABLE dial_said_back ADD COLUMN IF NOT EXISTS is_quoted BOOLEAN NOT NULL DEFAULT true;
+-- Ella map 10 (2026-11-24), A1: the direction a fact argues for (NULL = none).
+ALTER TABLE dial_said_back ADD COLUMN IF NOT EXISTS move_id INT REFERENCES dial_move(id);
 
 CREATE VIEW v_dial_said_back AS
 SELECT sb.id, s.code AS source_code, s.label AS source_label, sb.fact_code, sb.says_back, sb.is_quoted, sb.decided_by,
-       sb.created_at, sb.superseded_at, (sb.superseded_at IS NULL) AS is_current
+       sb.created_at, sb.superseded_at, (sb.superseded_at IS NULL) AS is_current,
+       sb.move_id, mv.code AS move_code   -- Ella map 10 (A1)
 FROM dial_said_back sb
-JOIN dial_said_back_source s ON s.id = sb.source_id;
+JOIN dial_said_back_source s ON s.id = sb.source_id
+LEFT JOIN dial_move mv ON mv.id = sb.move_id;
 
 -- Every fact the map could say back (the admin table and the integrity
 -- checks): the current answers of the active quizzes, and the values of each
@@ -12745,7 +12793,7 @@ SELECT s.code AS source_code, s.sort_order AS source_order, a.answer_code AS fac
        qq.q_text AS context, q.version AS context_group, qq.q_number, a.sort_order AS fact_order,
        (COALESCE(qq.weight, 1) * COALESCE(a.weight, 1)) AS weight,
        (COALESCE(qq.weight, 1) * COALESCE(a.weight, 1)) > 0 AS is_quotable,
-       sb.id AS said_back_id, sb.says_back, sb.is_quoted
+       sb.id AS said_back_id, sb.says_back, sb.is_quoted, sb.move_code
 FROM quiz_answer a
 JOIN quiz_question qq ON qq.id = a.question_id AND qq.is_current
 JOIN quiz q ON q.id = qq.quiz_id AND q.is_active
@@ -12754,7 +12802,7 @@ LEFT JOIN v_dial_said_back sb ON sb.is_current AND sb.source_code = s.code AND s
 WHERE a.is_current AND a.answer_code IS NOT NULL
 UNION ALL
 SELECT s.code, s.sort_order, fv.code, fv.label, f.label, f.code, NULL, fv.sort_order, NULL, true,
-       sb.id, sb.says_back, sb.is_quoted
+       sb.id, sb.says_back, sb.is_quoted, sb.move_code
 FROM dial_said_back_source s
 JOIN brew_profile_field f ON f.code = s.brew_field_code
 JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.is_active
@@ -12825,6 +12873,61 @@ WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END ELLA'S BLOOM MAP 9 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN ELLA'S BLOOM MAP 10 block (2026-11-24): the reasons on /map, Rev 2
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_10_REASONS_REV2.md
+-- Every card is one sentence about the customer and one about the coffee,
+-- composed at read (matchService.steps). How a card is chosen is data:
+-- ordered, switchable rows per kind. v_dial_reason_choice is in the Ella drop
+-- list near the top of this file.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- A3: what the rows choose. step_support = what a step card may use to speak
+-- about the customer; lead_source = what decides the lead step.
+CREATE TABLE IF NOT EXISTS dial_reason_choice_kind (
+  id         SERIAL PRIMARY KEY,
+  code       TEXT NOT NULL UNIQUE,
+  label      TEXT NOT NULL,
+  sort_order SMALLINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO dial_reason_choice_kind (code, label, sort_order) VALUES
+  ('step_support', 'What a step card may use', 1),
+  ('lead_source',  'What decides the lead',    2)
+ON CONFLICT (code) DO NOTHING;
+
+-- A3: one ordered, switchable row per (kind, code). The service dispatches on
+-- the code; a code it does not know is skipped and reported (check 15).
+-- Supersede and insert (one current row per kind and code); never deleted.
+CREATE TABLE IF NOT EXISTS dial_reason_choice (
+  id            SERIAL PRIMARY KEY,
+  kind_id       INT NOT NULL REFERENCES dial_reason_choice_kind(id),
+  code          TEXT NOT NULL CHECK (btrim(code) <> ''),
+  label         TEXT NOT NULL CHECK (btrim(label) <> ''),
+  sort_order    SMALLINT NOT NULL,
+  is_active     BOOLEAN NOT NULL DEFAULT true,
+  decided_by    TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  superseded_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dial_reason_choice_one_current ON dial_reason_choice (kind_id, code) WHERE superseded_at IS NULL;
+
+CREATE VIEW v_dial_reason_choice AS
+SELECT rc.id, k.code AS kind_code, k.label AS kind_label, k.sort_order AS kind_order,
+       rc.code, rc.label, rc.sort_order, rc.is_active, rc.decided_by, rc.created_at, rc.superseded_at,
+       (rc.superseded_at IS NULL) AS is_current
+FROM dial_reason_choice rc
+JOIN dial_reason_choice_kind k ON k.id = rc.kind_id;
+
+-- A5: the one sentence a step card carries when no answer supports it (insert if missing).
+INSERT INTO dial_customer_copy (code, text, decided_by)
+SELECT 'no_support', 'Your answers point elsewhere.', 'seed'
+WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = 'no_support');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END ELLA'S BLOOM MAP 10 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -13485,6 +13588,8 @@ GRANT UPDATE (superseded_at) ON dial_start_rule TO ab_app;
 -- Ella map 9 (2026-11-20): what we say back is supersede-only; its source is a lookup
 REVOKE UPDATE, DELETE, TRUNCATE ON dial_said_back, dial_said_back_source FROM ab_app;
 GRANT UPDATE (superseded_at) ON dial_said_back TO ab_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON dial_reason_choice, dial_reason_choice_kind FROM ab_app;   -- Ella map 10
+GRANT UPDATE (superseded_at) ON dial_reason_choice TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
 -- Liam brand answers (2026-10-24): supersede only. The one UPDATE the writer
 -- makes sets superseded_at; nothing is ever deleted (lint:customer rule 8 is

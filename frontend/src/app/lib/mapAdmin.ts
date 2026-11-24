@@ -168,6 +168,8 @@ export interface RoasterFacts {
 export interface CoffeeAvailability {
   coffee_id: number; is_sellable: boolean; size_label: string | null; price_cents: number | null;
   has_sku: boolean; has_price: boolean; map_name: string;
+  /** Ella map 10: the coffee's plain sentence on /map; null when not written */
+  map_line: string | null;
 }
 export interface DecidedMap {
   version: { id: number; label: string; reason: string | null; cut_at: string; activated_at: string } | null;
@@ -192,11 +194,25 @@ export const setStep = (f: ApiFetch, body: { from: number; to: number; word: str
 export interface SaidBackFact {
   source_code: string; fact_code: string; fact_label: string; context: string | null; context_group: string | null;
   q_number: number | null; weight: string | number | null; is_quotable: boolean; said_back_id: number | null; says_back: string | null; is_quoted: boolean | null;
+  /** Ella map 10: the direction the fact argues for (a customer move code); null = none */
+  move_code: string | null;
 }
 export interface MapCustomerHit { profile_id: string; email: string; has_quiz: boolean; has_position: boolean }
 export const getSaidBack = (f: ApiFetch) => call<SaidBackFact[]>(f, `${B}/said-back`);
-export const setSaidBack = (f: ApiFetch, body: { source: string; fact: string; saysBack: string | null; isQuoted?: boolean }) =>
+export const setSaidBack = (f: ApiFetch, body: { source: string; fact: string; saysBack: string | null; isQuoted?: boolean; move?: string | null }) =>
   call<{ id: number | null; unchanged: boolean }>(f, `${B}/said-back`, json('PUT', body));
+
+// Ella's Bloom Map 10 (2026-11-24): how a card is chosen, and the coffee's map_line
+export interface ReasonChoice {
+  id: number; kind_code: string; kind_label: string; kind_order: number; code: string; label: string;
+  sort_order: number; is_active: boolean; decided_by: string | null; created_at: string; superseded_at: string | null; is_current: boolean;
+}
+export const getReasonChoices = (f: ApiFetch) => call<ReasonChoice[]>(f, `${B}/reason-choices`);
+export const setReasonChoice = (f: ApiFetch, body: { kind: string; code: string; sortOrder?: number; isActive?: boolean }) =>
+  call<{ id: number; unchanged: boolean }>(f, `${B}/reason-choices`, json('PUT', body));
+/** PATCH /api/admin/catalog/coffees/:id (catalogService.updateCoffee): only mapLine is sent. */
+export const setMapLine = (f: ApiFetch, coffeeId: number, mapLine: string | null) =>
+  call<unknown>(f, `/api/admin/catalog/coffees/${coffeeId}`, json('PATCH', { mapLine }));
 export const searchMapCustomers = (f: ApiFetch, q: string) => call<MapCustomerHit[]>(f, `${B}/customers?q=${encodeURIComponent(q)}`);
 export const getReasons = (f: ApiFetch, profileId: string) =>
   call<import('./mapCustomer').MapSteps>(f, `${B}/reasons?profileId=${encodeURIComponent(profileId)}`);

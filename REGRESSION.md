@@ -428,3 +428,11 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **Basis goes to admins only:** `/api/map/steps` returns `basis` only for an admin caller; `GET /api/admin/map/reasons` writes nothing.
 - [ ] **The old Bloom page and every `dial_surface` row are unchanged** (all `lane`).
 - [ ] **"Never quote" is data, not code:** a current `dial_said_back` row with `is_quoted` false keeps its phrase, is never quoted on `/map`, and check 13 does not report it (`v7_q1_b`); no answer code is written in the code (G2.1).
+
+## Ella's Bloom Map 10: the reasons on `/map`, Rev 2 (2026-11-24)
+
+- [ ] **Every card is a customer sentence, then a coffee sentence:** no "You told us", "You also said", "You asked for", "If you want…" or third piece on any card; a step no answer supports opens with "Your answers point elsewhere."
+- [ ] **The top card always has a label and a reason when there is a quiz:** "Founder's pick" on a first match (the latest quiz result's coffee, only "Same again" since, including one recorded before the start rules), "You are here" after a step; no quiz, the notes only.
+- [ ] **An answer is used once per page:** the top card first, then the lead, then the other steps in shown order.
+- [ ] **How a card is chosen is the rows of `dial_reason_choice`:** switching a choice off or reordering it on `/admin/map` changes "Read it as" on the next read; an unknown code is skipped and reported (check 15).
+- [ ] **A quiz taken by someone else, the treat question and a never-quoted row are never used.**

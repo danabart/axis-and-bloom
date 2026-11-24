@@ -7,12 +7,17 @@
 //  * "Read it as": search a customer by email and see their /map text as built
 //    now, with the rows each text used (GET /reasons, matchService.steps; read
 //    only). A customer with no decision is read from their start rule.
+//  * Ella map 10: each said-back row carries the direction it argues for
+//    (picker; the options are the customer moves from the API), and "How a
+//    card is chosen" lists the ordered, switchable choices (dial_reason_choice;
+//    GET/PUT /reason-choices, dialPlacementService.setReasonChoice).
 // The page types in only chrome (headings, button verbs); every customer word
 // comes from the API (G4.2).
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
 import { useEffect, useState } from 'react';
 import type { ApiFetch } from '../../lib/catalogWrites';
-import { getSaidBack, setSaidBack, searchMapCustomers, getReasons, type SaidBackFact, type MapCustomerHit } from '../../lib/mapAdmin';
+import { getSaidBack, setSaidBack, searchMapCustomers, getReasons, getReasonChoices, setReasonChoice,
+  type SaidBackFact, type MapCustomerHit, type ReasonChoice } from '../../lib/mapAdmin';
 import type { MapSteps } from '../../lib/mapCustomer';
 
 const CARD = 'border border-stone-200 rounded-xl bg-white';
@@ -20,7 +25,7 @@ const INPUT = 'w-full border border-stone-300 rounded px-2 py-1 text-sm';
 const BTN_PRIMARY = 'px-3 py-1.5 rounded text-sm bg-stone-800 text-white hover:bg-stone-700 disabled:opacity-50';
 const LINK = 'text-sm text-[#b5523b] hover:underline';
 
-export function SaidBackTable({ apiFetch }: { apiFetch: ApiFetch }) {
+export function SaidBackTable({ apiFetch, moves }: { apiFetch: ApiFetch; moves: Array<{ code: string; label: string; is_customer_move: boolean }> }) {
   const [rows, setRows] = useState<SaidBackFact[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -46,6 +51,15 @@ export function SaidBackTable({ apiFetch }: { apiFetch: ApiFetch }) {
       await load();
     } catch (err) { setMsg(err instanceof Error ? err.message : 'Save failed'); }
   }
+  async function setDirection(r: SaidBackFact, move: string) {
+    setMsg('');
+    try {
+      const res = await setSaidBack(apiFetch, { source: r.source_code, fact: r.fact_code, saysBack: r.says_back, move: move || null });
+      setMsg(res.unchanged ? 'Unchanged.' : 'Saved. It shows on the next read of the page.');
+      await load();
+    } catch (err) { setMsg(err instanceof Error ? err.message : 'Save failed'); }
+  }
+  const directions = moves.filter(m => m.is_customer_move);
   const visible = rows.filter(r => showBrands || r.source_code !== 'cupboard_coffee');
   let lastGroup = '';
   return (
@@ -58,7 +72,7 @@ export function SaidBackTable({ apiFetch }: { apiFetch: ApiFetch }) {
       <table className="w-full text-sm mt-2">
         <thead>
           <tr className="text-left text-xs uppercase tracking-wide text-stone-500">
-            <th className="py-1 font-normal">Answer</th><th className="py-1 font-normal">We say back</th><th className="py-1 font-normal">Never quote</th><th />
+            <th className="py-1 font-normal">Answer</th><th className="py-1 font-normal">We say back</th><th className="py-1 font-normal">Argues for</th><th className="py-1 font-normal">Never quote</th><th />
           </tr>
         </thead>
         <tbody>
@@ -77,6 +91,15 @@ export function SaidBackTable({ apiFetch }: { apiFetch: ApiFetch }) {
                   {isEditing
                     ? <input className={INPUT} value={draft} onChange={e => setDraft(e.target.value)} data-testid="said-back-edit" />
                     : <span data-testid="said-back-phrase" className={r.is_quoted === false ? 'text-stone-400 line-through' : ''}>{r.says_back ?? '–'}</span>}
+                </td>
+                <td className="py-1.5 pr-2">
+                  {r.source_code !== 'cupboard_coffee' && (
+                    <select className="border border-stone-300 rounded px-1 py-0.5 text-xs" value={r.move_code ?? ''} disabled={!r.says_back}
+                      onChange={e => void setDirection(r, e.target.value)} data-testid="said-back-direction">
+                      <option value="">None</option>
+                      {directions.map(m => <option key={m.code} value={m.code}>{m.label}</option>)}
+                    </select>
+                  )}
                 </td>
                 <td className="py-1.5 pr-2">
                   <input type="checkbox" aria-label="Never quote" data-testid="said-back-never-quote"
@@ -114,8 +137,8 @@ export function ReadItAs({ apiFetch }: { apiFetch: ApiFetch }) {
     setMsg(''); setPicked(h);
     try { setPage(await getReasons(apiFetch, h.profile_id)); } catch (err) { setMsg(err instanceof Error ? err.message : 'Read failed'); }
   }
-  const basisLine = (b?: { ruleId?: number | null; stepId?: number; copyCodes: string[]; factCodes: string[] }) =>
-    b ? [b.ruleId ? `rule ${b.ruleId}` : null, b.stepId ? `step ${b.stepId}` : null, b.copyCodes.length ? `copy ${b.copyCodes.join(', ')}` : null,
+  const basisLine = (b?: { ruleId?: number | null; stepId?: number; copyCodes: string[]; factCodes: string[]; choice?: string | null }) =>
+    b ? [b.choice ? `chosen by ${b.choice}` : null, b.ruleId ? `rule ${b.ruleId}` : null, b.stepId ? `step ${b.stepId}` : null, b.copyCodes.length ? `copy ${b.copyCodes.join(', ')}` : null,
          b.factCodes.length ? `facts ${b.factCodes.join(', ')}` : null].filter(Boolean).join(' · ') : '';
   return (
     <section className={`${CARD} p-4`} data-testid="read-it-as">
@@ -142,7 +165,7 @@ export function ReadItAs({ apiFetch }: { apiFetch: ApiFetch }) {
           {!page.position && <p className="text-stone-600 mt-1">No position and no quiz to read: the page is empty for this customer.</p>}
           {page.position && (
             <>
-              <p className="mt-1 font-medium">{page.position.name}{page.firstBag?.isFounderPick ? ` · ${page.copy.founder_pick}` : ''}</p>
+              <p className="mt-1 font-medium">{page.position.name}{page.firstBag?.labelCode ? ` · ${page.copy[page.firstBag.labelCode] ?? page.firstBag.labelCode}` : ''}</p>
               {page.firstBag && <p className="text-stone-700" data-testid="read-it-as-first">{page.firstBag.text ?? page.firstBag.reason}</p>}
               {page.firstBag?.basis && <p className="text-xs text-stone-400">{basisLine(page.firstBag.basis)}</p>}
               <ul className="mt-2 space-y-2">
@@ -159,6 +182,62 @@ export function ReadItAs({ apiFetch }: { apiFetch: ApiFetch }) {
         </div>
       )}
       {msg && <p className="text-xs text-stone-700 mt-2">{msg}</p>}
+    </section>
+  );
+}
+
+/**
+ * Ella map 10 (C2): "How a card is chosen": the ordered, switchable choices per
+ * kind, as rows (dial_reason_choice). Up and down swap two rows' order; the
+ * switch turns a choice on or off. Each change supersedes and inserts; the
+ * next read of /map and "Read it as" follow it.
+ */
+export function ReasonChoicesCard({ apiFetch }: { apiFetch: ApiFetch }) {
+  const [rows, setRows] = useState<ReasonChoice[]>([]);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = async () => { try { setRows(await getReasonChoices(apiFetch)); } catch (err) { setMsg(err instanceof Error ? err.message : 'Failed to load'); } };
+  useEffect(() => { void load(); }, [apiFetch]); // eslint-disable-line react-hooks/exhaustive-deps
+  const kinds = [...new Map(rows.map(r => [r.kind_code, { code: r.kind_code, label: r.kind_label, order: r.kind_order }])).values()]
+    .sort((a, b) => a.order - b.order);
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true); setMsg('');
+    try { await fn(); setMsg('Saved. It applies on the next read of the page.'); await load(); }
+    catch (err) { setMsg(err instanceof Error ? err.message : 'Save failed'); }
+    finally { setBusy(false); }
+  }
+  const swap = (a: ReasonChoice, b: ReasonChoice) => run(async () => {
+    await setReasonChoice(apiFetch, { kind: a.kind_code, code: a.code, sortOrder: b.sort_order });
+    await setReasonChoice(apiFetch, { kind: b.kind_code, code: b.code, sortOrder: a.sort_order });
+  });
+  return (
+    <section className={`${CARD} p-4`} data-testid="reason-choices">
+      <h2 className="text-sm font-medium text-stone-800">5. How a card is chosen</h2>
+      <p className="text-xs text-stone-500 mt-1">Each list is tried from the top; a choice switched off is skipped.</p>
+      {kinds.map(k => {
+        const list = rows.filter(r => r.kind_code === k.code).sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code));
+        return (
+          <div key={k.code} className="mt-3" data-testid="reason-kind" data-kind={k.code}>
+            <p className="text-xs uppercase tracking-wide text-stone-500">{k.label}</p>
+            <ol className="mt-1 space-y-1">
+              {list.map((r, i) => (
+                <li key={r.code} className="flex items-center gap-2 text-sm" data-testid="reason-choice" data-code={r.code} data-active={r.is_active ? '1' : '0'}>
+                  <span className="w-5 text-stone-400">{i + 1}.</span>
+                  <span className={`flex-1 ${r.is_active ? 'text-stone-800' : 'text-stone-400 line-through'}`}>{r.label}</span>
+                  <button className={LINK} disabled={busy || i === 0} onClick={() => swap(r, list[i - 1])} data-testid="reason-up">Up</button>
+                  <button className={LINK} disabled={busy || i === list.length - 1} onClick={() => swap(r, list[i + 1])} data-testid="reason-down">Down</button>
+                  <label className="text-xs flex items-center gap-1">
+                    <input type="checkbox" checked={r.is_active} disabled={busy}
+                      onChange={e => run(() => setReasonChoice(apiFetch, { kind: r.kind_code, code: r.code, isActive: e.target.checked }))} data-testid="reason-on" /> On
+                  </label>
+                </li>
+              ))}
+            </ol>
+          </div>
+        );
+      })}
+      {rows.length === 0 && <p className="text-xs text-stone-500 mt-2">No choices yet.</p>}
+      {msg && <p className="text-xs text-stone-700 mt-2" data-testid="reason-msg">{msg}</p>}
     </section>
   );
 }

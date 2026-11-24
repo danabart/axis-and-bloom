@@ -147,29 +147,20 @@ const phrase = (says: string, quoted: boolean) => (quoted ? says : `${says} [nev
 
 interface Facts { saidBack: Map<string, string>; facts: Map<string, string>; kitchenLabels: Map<string, string> }
 
-async function readFacts(tx: Tx, schema: boolean): Promise<Facts> {
+// Ella map 10 (Task 0 item 4): every read goes through the table's view.
+async function readFacts(tx: Tx): Promise<Facts> {
   const saidBack = new Map<string, string>();
-  if (schema) {
-    const q = await hasCol(tx, 'dial_said_back', 'is_quoted') ? 'sb.is_quoted' : 'true';
-    const r = await tx.query<{ source: string; fact_code: string; says_back: string; is_quoted: boolean }>(
-      `SELECT s.code AS source, sb.fact_code, sb.says_back, ${q} AS is_quoted FROM dial_said_back sb JOIN dial_said_back_source s ON s.id = sb.source_id
-        WHERE sb.superseded_at IS NULL`);
-    for (const x of r.rows) saidBack.set(`${x.source}:${x.fact_code}`, phrase(x.says_back, x.is_quoted));
-  }
+  const r = await tx.query<{ source_code: string; fact_code: string; says_back: string; is_quoted: boolean }>(
+    `SELECT source_code, fact_code, says_back, is_quoted FROM v_dial_said_back WHERE is_current`);
+  for (const x of r.rows) saidBack.set(`${x.source_code}:${x.fact_code}`, phrase(x.says_back, x.is_quoted));
+  // the facts the map could say back: the current answers of the active quizzes and the active brew values
   const facts = new Map<string, string>();
-  const q = await tx.query<{ answer_code: string; answer_text: string }>(
-    `SELECT a.answer_code, a.answer_text FROM quiz_answer a JOIN quiz_question qq ON qq.id = a.question_id AND qq.is_current
-       JOIN quiz z ON z.id = qq.quiz_id AND z.is_active WHERE a.is_current AND a.answer_code IS NOT NULL`);
-  for (const x of q.rows) facts.set(`quiz_answer:${x.answer_code}`, x.answer_text);
   const kitchenLabels = new Map<string, string>();
-  for (const [source, field] of Object.entries(SOURCE_FIELD)) {
-    const b = await tx.query<{ code: string; label: string }>(
-      `SELECT fv.code, fv.label FROM brew_profile_field_value fv JOIN brew_profile_field f ON f.id = fv.field_id
-        WHERE f.code = $1 AND fv.is_active`, [field]);
-    for (const x of b.rows) {
-      facts.set(`${source}:${x.code}`, x.label);
-      if (source === 'cupboard_coffee') kitchenLabels.set(x.code, x.label);
-    }
+  const f = await tx.query<{ source_code: string; fact_code: string; fact_label: string }>(
+    `SELECT source_code, fact_code, fact_label FROM v_dial_said_back_fact`);
+  for (const x of f.rows) {
+    facts.set(`${x.source_code}:${x.fact_code}`, x.fact_label);
+    if (x.source_code === SOURCE_FIELD.cupboard_coffee) kitchenLabels.set(x.fact_code, x.fact_label);
   }
   return { saidBack, facts, kitchenLabels };
 }
@@ -184,7 +175,7 @@ async function wantedSaidBack(tx: Tx, f: Facts): Promise<Array<{ source: string;
 
 
 async function coffeeIdByName(tx: Tx): Promise<Map<string, number>> {
-  const r = await tx.query<{ id: number; name: string }>(`SELECT c.id, c.name FROM coffees c WHERE c.is_active`);
+  const r = await tx.query<{ id: number; name: string }>(`SELECT c.id, c.name FROM v_coffee c WHERE c.is_active`);
   const m = new Map<string, number>();
   const dup = new Set<string>();
   for (const x of r.rows) { if (m.has(x.name)) dup.add(x.name); m.set(x.name, x.id); }
@@ -195,7 +186,8 @@ async function coffeeIdByName(tx: Tx): Promise<Map<string, number>> {
 /** Read-only: what --apply would write, row by row. */
 export async function planReasons(tx: Tx): Promise<Plan> {
   const schema = await has(tx, 'dial_said_back') && await hasCol(tx, 'dial_step', 'when_line') && await hasCol(tx, 'dial_start_rule', 'coffee_line');
-  const f = await readFacts(tx, schema);
+  if (!schema) throw new Error('the Ella map 9 schema is not on this database yet; deploy first');
+  const f = await readFacts(tx);
   const ids = await coffeeIdByName(tx);
   const nameOf = new Map([...ids].map(([n, id]) => [id, n]));
   const rows: PlanRow[] = [];
@@ -205,12 +197,17 @@ export async function planReasons(tx: Tx): Promise<Plan> {
     const now = f.saidBack.get(`${d.source}:${d.fact}`) ?? null;
     if (!f.facts.has(`${d.source}:${d.fact}`) || !d.says) { rows.push({ section: 'said_back', subject, now: show(now), next: show(d.says), action: 'skip', why: 'no current fact with this code' }); continue; }
     const next = phrase(d.says, d.quoted ?? true);
+    // Ella map 10: Data 1's phrases were rewritten by ellaMapReasonsRev2_2026_11_23; a phrase changed since is never written back
+    if (d.source !== 'cupboard_coffee' && now !== null && now !== next) {
+      rows.push({ section: 'said_back', subject, now: show(now), next: show(next), action: 'skip', why: 'changed since (Rev 2 seed or /admin/map); kept' });
+      continue;
+    }
     rows.push({ section: 'said_back', subject, now: show(now), next: show(next), action: now === next ? 'same' : 'write' });
   }
 
   const rules = (await tx.query<Record<string, unknown>>(
-    `SELECT r.*, r.family_code::text AS family, c.name AS coffee_name ${schema ? ', r.lead_quote_family_code::text AS lead_quote' : ''}
-       FROM dial_start_rule r JOIN coffees c ON c.id = r.coffee_id WHERE r.superseded_at IS NULL`)).rows;
+    `SELECT r.family_code AS family, r.priority, r.coffee_name, r.coffee_line, r.lead_to_coffee_id, r.lead_line, r.lead_quote_family_code AS lead_quote
+       FROM v_dial_start_rule r WHERE r.is_current`)).rows;
   for (const d of DATA_2) {
     const subject = `${d.family} #${d.priority} (${d.coffee})`;
     const next = `${show(d.coffeeLine)} / lead ${d.lead}: ${show(d.leadLine)} / quote ${d.quote ?? '(none)'}`;
@@ -226,10 +223,8 @@ export async function planReasons(tx: Tx): Promise<Plan> {
   }
 
   const steps = (await tx.query<Record<string, unknown>>(
-    `SELECT st.*, cf.name AS from_name, ct.name AS to_name ${schema ? ', mv.code AS move_code' : ''}
-       FROM dial_step st JOIN coffees cf ON cf.id = st.from_coffee_id JOIN coffees ct ON ct.id = st.to_coffee_id
-       ${schema ? 'LEFT JOIN dial_move mv ON mv.id = st.move_id' : ''}
-      WHERE st.superseded_at IS NULL AND st.is_shown`)).rows;
+    `SELECT s.from_coffee_name AS from_name, s.to_coffee_name AS to_name, s.move_code, s.when_line
+       FROM v_dial_step s WHERE s.is_current AND s.is_shown`)).rows;
   for (const d of DATA_3) {
     const subject = `${d.from} -> ${d.to}`;
     const next = `${d.move ?? '(no move)'} / ${show(d.when)}`;
@@ -254,7 +249,7 @@ export async function applyReasons(tx: Tx, opts: { publishLabel?: string | null 
   const { setSaidBackInTx, setStartRuleInTx, setStepInTx, publishInTx } = await import('../services/dialPlacementService.js');
   const plan = await planReasons(tx);
   if (!plan.schemaPresent) throw new Error('the Ella map 9 schema is not on this database yet; deploy first');
-  const f = await readFacts(tx, true);
+  const f = await readFacts(tx);
   const ids = await coffeeIdByName(tx);
   const isWrite = (section: PlanRow['section'], subject: string) => plan.rows.some(r => r.section === section && r.subject === subject && r.action === 'write');
   let written = 0;

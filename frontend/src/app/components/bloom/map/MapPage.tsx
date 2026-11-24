@@ -111,14 +111,17 @@ export default function MapPage() {
   const pos = data.position;
   const copy = data.copy;
   if (!pos) return <main className="max-w-md mx-auto px-4 py-10" data-testid="map-empty" />;
-  const first = data.firstBag && !pos.hasBag ? data.firstBag : null;
+  // Ella map 10 (C1): the top card carries its label and its text whenever the customer has a quiz
+  // (Founder's pick on a first match, "You are here" after a step); with no quiz, the notes as before.
+  const top = data.firstBag ?? null;
+  const topLabel = top?.labelCode ? copy[top.labelCode] ?? null : null;
   const lead = data.steps.find(s => s.isLead) ?? null;
   const others = data.steps.filter(s => !s.isLead);
 
   return (
     <main className="max-w-md mx-auto px-4 py-6" style={{ fontFamily: 'Lato, sans-serif' }} data-testid="map-page">
       <p className={`${EYEBROW} ${SOFT}`}>{copy.map_eyebrow}</p>
-      <h1 className={`text-3xl font-semibold ${INK} mt-1`} data-testid="map-title">{first ? copy.map_title_first : copy.map_title_after}</h1>
+      <h1 className={`text-3xl font-semibold ${INK} mt-1`} data-testid="map-title">{!pos.hasBag ? copy.map_title_first : copy.map_title_after}</h1>
       <p className={`text-sm ${SOFT} mt-2 mb-4`}>{copy.map_intro}</p>
 
       <div className="mb-5" data-testid="map-face">
@@ -128,16 +131,17 @@ export default function MapPage() {
 
       <section className="rounded-xl bg-white border border-[#e8e4dc] p-5 mb-6" data-testid="position-card">
         <div className="flex items-baseline justify-between gap-2">
-          <p className={EYEBROW} style={{ color: TEAL }} data-testid="position-title">{first ? copy.first_bag_title : copy.here_title}</p>
-          {first?.isFounderPick && <p className={`${EYEBROW} ${SOFT}`} data-testid="founder-pick">{copy.founder_pick}</p>}
+          <p className={EYEBROW} style={{ color: TEAL }} data-testid="position-title" data-label={top?.labelCode ?? ''}>
+            {topLabel ?? (pos.hasBag ? copy.here_title : copy.first_bag_title)}
+          </p>
         </div>
         <h2 className={`text-2xl font-semibold ${INK} mt-1`} data-testid="position-name">{pos.name}</h2>
-        {!first && pos.notes.length > 0 && <p className={`text-base ${INK} mt-1`}>{pos.notes.join(', ')}</p>}
-        {first && (
-          <p className={`text-sm ${SOFT} mt-2`} data-testid="first-bag-reason">{first.text ?? first.reason}</p>
+        {!top && pos.notes.length > 0 && <p className={`text-base ${INK} mt-1`}>{pos.notes.join(', ')}</p>}
+        {top && (
+          <p className={`text-sm ${SOFT} mt-2`} data-testid="first-bag-reason">{top.text ?? top.reason}</p>
         )}
         <Price price={pos.price} />
-        {first && pos.price && (
+        {!pos.hasBag && pos.price && (
           <div>
             <button type="button" onClick={() => addFirstBag(pos)} data-testid="add-first-bag"
               className="mt-3 px-4 py-2 rounded-full text-sm font-medium text-white" style={{ background: TEAL }}>

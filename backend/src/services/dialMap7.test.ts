@@ -210,7 +210,8 @@ describe('the page reads (D)', () => {
       const after = await match.steps(p.userId, c);
       expect(after.position?.coffeeId).toBe(bolder.coffeeId);
       expect(after.position?.hasBag).toBe(true);
-      expect(after.firstBag).toBeNull();
+      // Ella map 10: after a step the top card is "You are here" with its reason (it was absent before)
+      expect(after.firstBag?.labelCode).toBe('here_title');
       const next = (await c.query(`SELECT a.map_name AS to_coffee_name FROM v_dial_step s JOIN v_dial_coffee_availability a ON a.coffee_id = s.to_coffee_id WHERE s.on_active_map AND s.from_coffee_id = $1`, [bolder.coffeeId])).rows.map(x => x.to_coffee_name).sort();
       expect(after.steps.map(s => s.name).sort()).toEqual(next);
       // the trail: two choices in order, the second with the step's word, and the customer's own line
