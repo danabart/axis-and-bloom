@@ -7097,3 +7097,15 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
   - New "How a card is chosen" (up, down, on).
   - The rule and step editors no longer show the lead quote family or `when_line`; both are still stored but no longer read.
 - **Seed:** `backend/src/scripts/ellaMapReasonsRev2_2026_11_23.ts`, with `--dry-run` (the default), `--apply` and `--expect-db`; it never publishes. Test DB: 48 rows (24 sentences, 18 `map_line`s, 6 choices). A rerun writes nothing.
+
+### 283. Ella's Bloom Map, brief 11: Tiger Stripe is the first bag for Chocolate & Nutty leaning fruity (2026-11-24)
+
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_11_TIGER_STRIPE_START.md` · `CLOSING_REPORT_11.md`. Data only; done on production 2026-11-24.
+
+- **The rule:** `chocolate_nutty` priority 3 (`fruity_gt_balanced`, no also-condition) gives **Tiger Stripe Espresso** instead of Fabricator House Roast. Family, priority, condition, admin label and notes are unchanged (Dana 2026-11-24: Fabricator is held for launch).
+  - Reason: "You asked for a stronger cup and picked one bright answer. This is chocolate first, with a little lift."
+  - Coffee line: "This one is chocolate first with a little lift, and it holds up however you brew it."
+  - Lead: Geometric Filter Coffee, "More fruit, and sweeter."
+- **Script:** `backend/src/scripts/ellaMapTigerStart_2026_11_24.ts` (`--dry-run` default, `--apply`, `--expect-db`; one transaction; reads views only; writes through `dialPlacementService.setStartRuleInTx`; refuses if any other current rule changes). No publish: start rules are not versioned.
+- **Production:** rule #19 inserted, #13 superseded (not deleted); a rerun writes nothing. `v_dial_start`: the 14 current quiz results (13 real) that started on Fabricator now start on Tiger Stripe; none start on Fabricator. No recorded match decision on production picks Fabricator. Test DB: #235, #229 superseded.
+- **No schema, view, service or frontend change.**
