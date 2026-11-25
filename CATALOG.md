@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-25 from database `axisandbloom` · 232 tables · 120 views · 1987 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `2e8f1c4e9c0b` (full value in the footer).
+Generated 2026-11-25 from database `axisandbloom` · 232 tables · 120 views · 1987 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `c15042d1fd68` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -2072,7 +2072,7 @@ Append-only fact of a signed-in customer scanning a coffee-token QR on a bag the
 Append-only log of changes to a customer's brew profile (methods, grinder, preferences), replayed in order to produce the current profile
 
 - **Writer:** customerFacts.brewProfileChange (called from users.PATCH /brew-profile, users.DELETE /brew-profile, sommelier.resolveRemember, brewProfileCard.recordPostResultCard and brewProfileCard.saveRoutine), customerFacts.brewProfileChangeBackfill (called from usualDrink2TakesIt_2026_11_24)
-- **Readers:** v_customer_brew_profile, v_customer_timeline, v_customer_usual_drink, v_customer_cupboard_coffee, v_customer_coffee_feeling, v_customer_brew_profile_words, customerReads.getFactsWatermark, customerReads.getBrewProfileFieldCounts, customerIntegrity, staleGuestCleanup, customerReads.getLatestSingleValueSets (used only by the Part C script usualDrink2TakesIt_2026_11_24: the raw latest set row; approved by Dana 2026-11-25)
+- **Readers:** v_customer_brew_profile, v_customer_timeline, v_customer_usual_drink, v_customer_cupboard_coffee, v_customer_coffee_feeling, v_customer_brew_profile_words, customerReads.getFactsWatermark, customerReads.getBrewProfileFieldCounts, customerIntegrity, staleGuestCleanup, customerReads.getLatestSingleValueSets (only the conversion script usualDrink2TakesIt_2026_11_24, any --field; Dana 2026-11-25)
 - **Since:** 2026-09-27
 
 | column | type | null | comment |
@@ -4956,7 +4956,7 @@ One row per canonical customer: how they feel about the coffee they drink now, w
 
 #### `v_customer_cupboard_coffee`
 
-One row per canonical customer: the kitchen brand with its kind, linked roaster and the customer's words on the other row
+One row per canonical customer: the coffee they drink most, with its brand kind, linked roaster and the customer's words on the other row. Usual Drink 3 (2026-11-25): the kitchen holds up to three coffees; the row is the answer to the field whose values come from the kitchen (main_cupboard) while it is still among them, else the only kitchen answer, else no row; a single stored value reads as a one-item list. The admin counts (getBrewProfileFieldCounts) therefore count the main coffee only
 
 - **Writer:** none (derived)
 - **Readers:** customerReads.getCupboardCoffee, customerReads.getCupboardCoffeeByProfile, customerReads.getBrewProfileFieldCounts, customerIntegrity
@@ -5931,5 +5931,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: 2e8f1c4e9c0b3112d799d50afbb284db978bd11c6b8ae29791bf4b9ce1fa8330
-lineage-hash: 33785c6d6ca56cf7cce772e45ed7573f6626a9ae5e41be9d435ac18bd701a8ea
+catalog-hash: c15042d1fd68a7a9e64403833e3266736bb8be6bafb0c17319fa8e6b3c846999
+lineage-hash: fd2101eb3d34b78c166277337c76ed3a6b3c3a647cad4bd3f810a15817ad63e1

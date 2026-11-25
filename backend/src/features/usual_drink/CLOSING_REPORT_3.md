@@ -213,3 +213,22 @@ The test customer is "Zzz Test Customer UD3", uid `ktIy1WjLxHUg2fsTqNiJ4azwbWu1`
    - At 390 px: no sideways scroll, every card is 342 px (full column), the picked chips wrap one per row, every remove button is 44 × 44, and no button is under 44 px. The open list overlays the next card (`ud3_browse_390.png`).
 6. **A new quiz:** the card asks the four questions with the new kitchen prompt. "Drink most" is absent at one coffee and shown at two. The save answered 200 with `cupboard_coffee ["wawa","illy"]` and `main_cupboard "illy"`.
 7. **`/map`:** the route is gated for this test customer ("The map is not open yet"), so I called `matchService.steps` (what `/map` renders) read-only. Its first-bag text opens "You have Illy in your kitchen." (the main coffee). `getCupboardCoffee` for converted one-coffee customer `fa2f7d93` reads `counter_culture` / specialty as before.
+
+## Production (2026-11-25)
+
+- **Push and deploy.** Commit `d4c185e` was pushed to `main`. Deploy run 45700202258 is green (backend and frontend), serving revision `axis-bloom-backend-00898-bvj`.
+- **Boot log.**
+  - `DB schema verified`, `[db-roles] schema applied as axisbloom; request pool is ab_app`, `[brew-profile] field list loaded: 11 fields`, `running on port 8080`. No ERROR lines.
+  - Check 31 reports nothing. Checks #32 and #33 report 2 findings each: the two single `cupboard_coffee` values, as expected until Part C.
+  - `[data-catalog]` check #4 reported `CATALOG.md` stale. I regenerated it after the deploy with `npm run catalog:md -- --expect-db axisandbloom` (hash `c15042d1…`) and committed it with this report. The diff is the two comments this brief changed.
+- **Smoke** as the dedicated test user `quiz-scenario-test@axisandbloom.test` (uid `0BeUD1zIdCTyO4v78kofJVkFtfo1`), through the run.app API. A headless production UI is impossible here (canonical-host redirect and Cloudflare).
+  - **The payload:**
+    - `cupboard_coffee` is an array, max 3, with the new prompt; `dont_know`, `nothing` and `pods_unknown` are exclusive.
+    - `main_cupboard` reads "Which one do you drink most?", values from `cupboard_coffee`, in the kitchen group.
+    - Black is labelled "Black" and is not exclusive. The grinder and roast prompts are new, and `typeahead_remove` is "Remove {name}".
+    - The card asks usual_drink, main_drink, cupboard_coffee, main_cupboard, cupboard_roast and coffee_feeling.
+  - **1:** `["black","milk"]` answered 200 and reads back as such (it was `["black"]`).
+  - **2:** `["starbucks","other"]` with "Zzz smoke roaster" and `main_cupboard "other"` answered 200 and reads back as a list with the words, `main_cupboard` "other". Four coffees answered 400 ("takes at most 3 values"); `["nothing","wawa"]` answered 400 ("nothing stands alone"). The stored answer is unchanged after both.
+- **Part C dry run on production** (read-only): `cupboard_coffee` has 6 rows; 1 customer to convert, 0 skipped: `5d005443` `"joe_bean"` at `2026-11-25 18:49:30.587685` → `.587686`, no words. The smoke test user (`103cdf5f`, single `counter_culture` at Task 0) now holds a list from the smoke, so it needs no conversion.
+
+**STOP before Part C on production: waiting for Dana's go.** Expected effect: `cupboard_coffee` rows go from 6 to 7; checks #32 and #33 go to 0 on the next boot; no old row changes.
