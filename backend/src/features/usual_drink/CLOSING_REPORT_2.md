@@ -276,4 +276,14 @@ The browser was signed in as the marked test customer `Zzz Test Customer (Usual 
 
   The fourth customer from Task 0, `103cdf5f`, is the smoke test user. The smoke's own `set` rows replaced its single value with an array, so it needs no conversion.
 
-**STOP before Part C on production: waiting for Dana's go.** Expected effect: `takes_it` rows go from 9 to 12; checks #32 and #33 go to 0 on the next boot; no old row changes.
+**STOP before Part C on production** (Dana's go came after the question below). Expected effect: `takes_it` rows go from 9 to 12; checks #32 and #33 go to 0 on the next boot; no old row changes.
+
+**The fourth customer (Dana, before the go).** Task 0 and the deploy's boot checks counted four single values. The fourth was `103cdf5f`, the smoke test user. Its latest row was Liam's single `"milk"` (2026-09-28) until the production smoke wrote `["milk","sugar"]` and then `["black"]` through `PUT /brew-profile` (2026-11-25 15:39:40). Its folded value is an array, so the script's "latest set is a single value" read leaves it out, and its old single rows are superseded. Read-only on production before the run: checks #32 and #33 read 3 findings each (the three customers below), and no `takes_it` row sat at or after any new row's slot.
+
+**Part C on production (2026-11-25 18:26 UTC, Dana's go).** `npx tsx src/scripts/usualDrink2TakesIt_2026_11_24.ts --apply --expect-db axisandbloom`: 3 rows written, `takes_it` rows 9 → 12, 0 skipped. Each new row is `source 'backfill'` with `source_id ud2:takes_it:<user>`:
+- `611722c0`: `5d005443` `["milk"]` at `2026-10-06 19:34:42.557083`;
+- `c51fb1c8`: `20c656a6` `["black"]` at `2026-10-25 00:19:07.050045`;
+- `008975d8`: `4982be38` `["black"]` at `2026-10-25 01:19:56.831832`.
+
+A second `--apply` wrote 0 rows (12 → 12). No old row changed. All four folded `takes_it` values are arrays now: 103cdf5f `["black"]`, 20c656a6 `["black"]`, 4982be38 `["black"]`, 5d005443 `["milk"]`. The checks were run with the real functions against production right after: #32 "all rows fit" and #33 "all arrays", 0 findings each. Usual Drink 2 is done.
+
