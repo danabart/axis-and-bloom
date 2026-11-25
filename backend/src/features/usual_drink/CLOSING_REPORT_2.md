@@ -256,3 +256,24 @@ The browser was signed in as the marked test customer `Zzz Test Customer (Usual 
    - At 390 px: no sideways scroll; the history tab row does not wrap; no routine button or tab under 44 px; inputs at 16 px; the Save bar is in view while the autocomplete is open. The cookie banner covers it on a fresh browser until answered (OT-175).
    - The feedback nudge needs a pending-feedback order, which the test customer has none of, so it was checked in the frontend test instead.
 8. **Boot log** (test DB, after the check fix): `[brew-profile] field list loaded: 10 fields`. Customer checks 22–33 clean except check 31: one informational finding, the test customer's own "takes it with milk" against two non-milk drinks.
+
+
+## Production (2026-11-25)
+
+- **Push and deploy.** Commit `913be04` was pushed to `main`. Deploy run 45646794107 is green (backend and frontend), serving revision `axis-bloom-backend-00894-szv`.
+- **Boot log.**
+  - `DB schema verified`, `[db-roles] schema applied as axisbloom; request pool is ab_app`, `[brew-profile] field list loaded: 10 fields`, `running on port 8080`. No ERROR lines.
+  - Customer checks #32 and #33 report 4 findings each: the four single `takes_it` values, which is expected until Part C.
+  - `[data-catalog]` check #4 reported `CATALOG.md` stale; it was regenerated after the deploy with `npm run catalog:md -- --expect-db axisandbloom` (hash `2e8f1c4e…`) and committed with this report. Check #6 lists the same 27 dead-table candidates as before; that is not this brief.
+- **Smoke**, as the dedicated test user `quiz-scenario-test@axisandbloom.test` (uid `0BeUD1zIdCTyO4v78kofJVkFtfo1`, profile `103cdf5f…`) through the run.app API. A headless production UI is impossible here because of the canonical-host redirect and Cloudflare.
+  - **6, the payload the tab renders.** `/users/brew-profile/options` returns 10 fields in their groups: make (usual_drink, main_drink < usual_drink), gear, adds, kitchen (3), more. `black` is exclusive. The `takes_it` pickers are black, milk, plant_milk, sugar and syrup_creamer. `limits.typeaheadMaxRows` is 6, and all twelve routine/typeahead words are present. The card asks usual_drink, main_drink, cupboard_coffee, cupboard_roast and coffee_feeling.
+  - **1, the kitchen.** `PUT` with `other` and words "Zzz smoke roaster" answered 200 with one set row and reads back `{ value: "other", words: "Zzz smoke roaster" }`. Then `counter_culture` reads back with `words: null`.
+  - **3, what goes in it.** `["milk","sugar"]` answered 200 and reads back as such. `["black"]` answered 200. `["black","milk"]` answered 400 `{ code: "INVALID_ANSWER" }`, and the stored value stays `["black"]`.
+- **Part C dry run on production** (read-only): `takes_it` has 9 rows and 3 customers to convert, 0 skipped:
+  - `5d005443` "milk" at `2026-10-06 19:34:42.557082` → `.557083`;
+  - `20c656a6` "black" at `2026-10-25 00:19:07.050044` → `.050045`;
+  - `4982be38` "black" at `2026-10-25 01:19:56.831831` → `.831832`.
+
+  The fourth customer from Task 0, `103cdf5f`, is the smoke test user. The smoke's own `set` rows replaced its single value with an array, so it needs no conversion.
+
+**STOP before Part C on production: waiting for Dana's go.** Expected effect: `takes_it` rows go from 9 to 12; checks #32 and #33 go to 0 on the next boot; no old row changes.
