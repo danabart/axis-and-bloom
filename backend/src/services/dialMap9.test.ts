@@ -16,6 +16,7 @@ import { withRollback } from '../test/withRollback.js';
 import * as match from './matchService.js';
 import { setSaidBackInTx, setStartRuleInTx, setStepInTx, DialMapError } from './dialPlacementService.js';
 import { dialMapChecks } from './dataCatalogIntegrity.js';
+import { setParameterInTx } from './evidenceParameterService.js';
 import { applyReasons } from '../scripts/ellaMapReasons_2026_11_20.js';
 
 vi.setConfig({ testTimeout: 240_000 });
@@ -192,16 +193,22 @@ describe('the lead and the other steps (B2)', () => {
     });
   });
 
-  // Ella map 10: step_away is retired; a step no answer supports opens with no_support
-  it('no_support: person 85, Geometric has no unused answer for it; Benchmark has one', async () => {
+  // Ella map 10: step_away is retired; a step no answer supports opens with no_support.
+  // Follow-up 2026-11-25: with dial_step_reuse_answer on (the seed) Geometric reuses an
+  // answer already on the page; with it at 0 it has no unused answer and reads no_support.
+  it('no_support: person 85, Geometric reuses an answer (parameter on) or reads no_support (off); Benchmark has its own', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
       const copy = await copyOf(c);
       const p = await person(c, { ...BAL, scores: { 'Balanced & Sweet': 8, Fruity: 1 }, answers: ['v7_q1_c', 'v7_q2_b', 'v7_q3_b', 'v7_q4_b', 'v7_q5_b', 'v7_q6_b'] });
       await quizDecide(c, p);
       const r = await page(c, p.userId);
-      expect(r.steps.find(s => s.name === 'Geometric')!.text.startsWith(copy.no_support)).toBe(true);
+      expect(r.steps.find(s => s.name === 'Geometric')!.text.startsWith(copy.no_support)).toBe(false);
       expect(r.steps.find(s => s.name === 'Benchmark')!.text.startsWith(copy.no_support)).toBe(false);
+      await setParameterInTx(tx(c), { key: 'dial_step_reuse_answer', value: 0, adminId: 'zzz-map9' });
+      const off = await page(c, p.userId);
+      expect(off.steps.find(s => s.name === 'Geometric')!.text.startsWith(copy.no_support)).toBe(true);
+      expect(off.steps.find(s => s.name === 'Benchmark')!.text.startsWith(copy.no_support)).toBe(false);
     });
   });
 

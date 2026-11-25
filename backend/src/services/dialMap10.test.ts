@@ -14,6 +14,7 @@ import * as match from './matchService.js';
 import * as reads from './customerReads.js';
 import { setSaidBackInTx, setReasonChoiceInTx, DialMapError } from './dialPlacementService.js';
 import { updateCoffeeInTx, CatalogError } from './catalogService.js';
+import { setParameterInTx } from './evidenceParameterService.js';
 import { dialMapChecks } from './dataCatalogIntegrity.js';
 import { applyRev2 } from '../scripts/ellaMapReasonsRev2_2026_11_23.js';
 import { applyReasons } from '../scripts/ellaMapReasons_2026_11_20.js';
@@ -116,7 +117,7 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
       expect(cards(r)).toEqual([
         ['The Waverly', true, "You'd like a change from what you drink now. Fig and orange over dark chocolate."],
         ['Blossom', false, 'For you, a good cup is strong and satisfying. A darker roast with a fuller body.'],
-        ['Geometric', false, 'Your answers point elsewhere. More fruit, and sweeter.'],
+        ['Geometric', false, "You'd like a change from what you drink now. More fruit, and sweeter."], // reuses the feeling (dial_step_reuse_answer)
       ]);
     });
   });
@@ -135,7 +136,7 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
       expect(cards(r85)).toEqual([
         ['The Village', true, 'A little further the same way: just as light, with more flower and citrus in it.'],
         ['Benchmark', false, 'Too bitter is what would bother you most. Pure chocolate, rounder, less fruit.'],
-        ['Geometric', false, 'Your answers point elsewhere. Bright fruit over caramel, with more weight.'],
+        ['Geometric', false, "You're still discovering coffee. Bright fruit over caramel, with more weight."], // reuses a top-card answer
       ]);
       const r33 = await read(P33);
       expect(r33.firstBag!.text).toBe('A little bitterness tastes serious to you. A coffee with no bitterness would bother you. This is chocolate with some strength: our everyday cup.');
@@ -148,7 +149,7 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
       expect(cards(r23)).toEqual([
         ['La Familia', true, 'Lighter and sweeter: caramel, honey, a little clementine.'],
         ['Fabricator', false, 'A cup where every sip tastes the same would bother you. Drier and nuttier.'],
-        ['Tiger Stripe', false, 'Your answers point elsewhere. More chocolate and body.'],
+        ['Tiger Stripe', false, "Coffee is a daily ritual for you, and you're particular about it. More chocolate and body."], // reuses a top-card answer
         ['D.R. Congo', false, 'With a black coffee, your first thought is what flavors are in it. Clementine and nectarine over caramel and light chocolate.'],
       ]);
       const r81 = await read(P81, true);
@@ -167,9 +168,20 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
           for (const frame of ['You told us', 'You also said', 'You asked for', 'If you want', 'This moves away', 'This goes the other way']) expect(t).not.toContain(frame);
           for (const w of whenLines) expect(t).not.toContain(w);
         }
+        // dial_step_reuse_answer on (the seed): the top card and the lead use each answer once;
+        // an answer repeats only on a step card that found no unused one
+        const firstUse = [...r.firstBag!.basis!.factCodes, ...r.steps.filter(s => s.isLead).flatMap(s => s.basis!.factCodes)];
+        expect(new Set(firstUse).size).toBe(firstUse.length);
+      }
+      // with the parameter off, each answer is used once per page and the reusing cards read no_support
+      await setParameterInTx(tx(c), { key: 'dial_step_reuse_answer', value: 0, adminId: 'zzz-map10' });
+      const copy = await copyOf(c);
+      for (const r of [await read(P85), await read(P23)]) {
         const facts = [...r.firstBag!.basis!.factCodes, ...r.steps.flatMap(s => s.basis!.factCodes)];
         expect(new Set(facts).size).toBe(facts.length);
       }
+      expect(cards(await read(P85)).find(x => x[0] === 'Geometric')![2]).toBe(`${copy.no_support} Bright fruit over caramel, with more weight.`);
+      expect(cards(await read(P23)).find(x => x[0] === 'Tiger Stripe')![2]).toBe(`${copy.no_support} More chocolate and body.`);
     });
   });
 });

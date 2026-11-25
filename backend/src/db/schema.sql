@@ -13089,6 +13089,12 @@ INSERT INTO dial_customer_copy (code, text, decided_by)
 SELECT 'no_support', 'Your answers point elsewhere.', 'seed'
 WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = 'no_support');
 
+-- Follow-up (Dana 2026-11-25): a step card may reuse an answer already used on
+-- the page when no unused answer supports it (insert if missing; not versioned).
+INSERT INTO evidence_parameter (key, value, note)
+SELECT 'dial_step_reuse_answer', 1, 'Ella map 10: 1 = a step card no unused answer supports may take an answer already used on the page (second pass, same support kinds and order); no_support only when no answer, used or not, supports it. 0 = each answer is used once per page. Range: integer 0 <= value <= 1.'
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = 'dial_step_reuse_answer');
+
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END ELLA'S BLOOM MAP 10 block
 -- ═══════════════════════════════════════════════════════════════════════════

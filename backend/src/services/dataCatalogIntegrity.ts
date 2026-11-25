@@ -242,6 +242,7 @@ export const DIAL_PARAMETER_KEYS = [
   'dial_size_roaster_cut_1', 'dial_size_roaster_cut_2', // Ella map 5
   'dial_earthy_branch_reworded_on', // Ella map 7
   'dial_quote_family_answers', 'dial_quote_other_answers', 'dial_away_max_points', // Ella map 9 (the last two read by nothing since Ella map 10; the rows stay)
+  'dial_step_reuse_answer', // Ella map 10 follow-up (2026-11-25)
 ];
 
 export async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIntegrityCheck[]> {

@@ -440,6 +440,6 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 
 - [ ] **Every card is a customer sentence, then a coffee sentence:** no "You told us", "You also said", "You asked for", "If you want…" or third piece on any card; a step no answer supports opens with "Your answers point elsewhere."
 - [ ] **The top card always has a label and a reason when there is a quiz:** "Founder's pick" on a first match (the latest quiz result's coffee, only "Same again" since, including one recorded before the start rules), "You are here" after a step; no quiz, the notes only.
-- [ ] **An answer is used once per page:** the top card first, then the lead, then the other steps in shown order.
+- [ ] **Answers are taken in page order:** the top card first, then the lead, then the other steps in shown order. The top card and the lead use each answer once. A step card looks first among the unused answers, then (when `dial_step_reuse_answer` = 1, the default) among those already used on the page; it says "Your answers point elsewhere." only when no answer, used or not, supports it under the active support kinds. With the parameter at 0, each answer is used once per page (Ella map 10 follow-up, 2026-11-25).
 - [ ] **How a card is chosen is the rows of `dial_reason_choice`:** switching a choice off or reordering it on `/admin/map` changes "Read it as" on the next read; an unknown code is skipped and reported (check 15).
 - [ ] **A quiz taken by someone else, the treat question and a never-quoted row are never used.**

@@ -601,8 +601,11 @@ const supportOrder = (a: Support | null, b: Support | null) =>
  * no_support. How a card is chosen is data (dial_reason_choice): the step
  * cards try the active step-support choices in row order, the lead the active
  * lead sources in row order; a code the service does not know is skipped
- * (data-catalog check 15). An answer is used once per page: the top card,
- * then the lead, then the other steps in shown order. Composed at read;
+ * (data-catalog check 15). Answers are taken in page order: the top card,
+ * then the lead, then the other steps in shown order. A step card looks first
+ * among the answers not yet used on the page, then (parameter
+ * dial_step_reuse_answer, on by default) among those already used; it opens
+ * with no_support only when no answer, used or not, supports it. Composed at read;
  * nothing is stored, no model writes a word, and no family, answer, move or
  * coffee id appears here: every comparison is between rows. No ring, lane,
  * grade, version or basis leaves this function (basis only with withBasis,
@@ -685,9 +688,9 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
    * no family); within the family choice an answer that argues for no
    * direction is preferred. An unknown code is skipped.
    */
-  const supportFor = (x: { to_coffee_id: number; move_code: string | null }, pool: Fact[]): Support | null => {
+  const supportFor = (x: { to_coffee_id: number; move_code: string | null }, pool: Fact[], includeUsed = false): Support | null => {
     const fams = facts.families(x.to_coffee_id);
-    const open = free(pool);
+    const open = includeUsed ? pool : free(pool);
     const ofFamily = open.filter(f => !f.isFeeling && f.family !== null && fams.has(f.family));
     for (const [rank, choice] of supportKinds.entries()) {
       let f: Fact | undefined;
@@ -785,12 +788,15 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
     break;
   }
 
-  // The other steps, in shown order: the first support that finds an unused fact, else no_support; then the step's line.
+  // The other steps, in shown order: the first support that finds an unused fact; else, when
+  // dial_step_reuse_answer is on, the first that finds any fact (a second pass over the used
+  // ones); else no_support. Then the step's line.
+  const mayReuse = (params.dial_step_reuse_answer ?? 0) === 1;
   const texts = new Map<number, { text: string; basis: TextBasis }>();
   if (lead) texts.set(lead.step.id, compose(lead.parts, { stepId: lead.step.id, choice: lead.choice, ...(lead.ruleId !== undefined ? { ruleId: lead.ruleId } : {}) }));
   for (const x of offered) {
     if (texts.has(x.id)) continue;
-    const s = supportFor(x, allFacts);
+    const s = supportFor(x, allFacts) ?? (mayReuse ? supportFor(x, allFacts, true) : null);
     if (s) used.add(s.fact.key);
     texts.set(x.id, compose([
       s ? factPart(s.fact) : { code: 'no_support', text: copy.no_support ?? null },
