@@ -147,6 +147,8 @@ export interface BrewProfileFieldEntry {
   value: unknown;
   source: 'conversation' | 'profile_page' | null;
   capturedAt: string | null;
+  /** Usual Drink 2 (A8): the customer's own words on a value that accepts them (v_customer_brew_profile_words), else null */
+  words: string | null;
 }
 function factSourceToBrewProfileSource(factSource: string | null): 'conversation' | 'profile_page' | null {
   if (factSource === null) return null;
@@ -155,8 +157,11 @@ function factSourceToBrewProfileSource(factSource: string | null): 'conversation
 export async function getBrewProfileCurrent(uid: string, runner: Runner = db): Promise<Record<string, BrewProfileFieldEntry>> {
   const canonicalId = await resolveCanonicalUserId(uid, runner);
   if (!canonicalId) return {};
-  const result = await runner.query<{ field: string; value_jsonb: unknown; captured_at: string; source: string | null }>(
-    `SELECT field, value_jsonb, captured_at, source FROM v_customer_brew_profile WHERE canonical_user_id = $1`,
+  const result = await runner.query<{ field: string; value_jsonb: unknown; captured_at: string; source: string | null; customer_words: string | null }>(
+    `SELECT b.field, b.value_jsonb, b.captured_at, b.source, w.customer_words
+     FROM v_customer_brew_profile b
+     LEFT JOIN v_customer_brew_profile_words w ON w.canonical_user_id = b.canonical_user_id AND w.field = b.field
+     WHERE b.canonical_user_id = $1`,
     [canonicalId]
   );
   const doc: Record<string, BrewProfileFieldEntry> = {};
@@ -165,9 +170,34 @@ export async function getBrewProfileCurrent(uid: string, runner: Runner = db): P
       value: row.value_jsonb,
       source: factSourceToBrewProfileSource(row.source),
       capturedAt: row.captured_at ? new Date(row.captured_at).toISOString() : null,
+      words: row.customer_words ?? null,
     };
   }
   return doc;
+}
+
+// Usual Drink 2 (Part C) — the raw latest `set` row per user for one field
+// whose value is not a JSON array, with the timestamp one microsecond later
+// computed in SQL (text, so the microseconds survive; Dana 2026-11-24, Task 0
+// answer 1), and the field's row count. The conversion script's only read of
+// customer_brew_profile_change; it lives here because every customer_* read
+// does (lint:customer rule 4).
+export interface LatestSingleSetRow { id: string; userId: string; value: string; occurredAt: string; nextAt: string }
+export async function getLatestSingleValueSets(field: string, runner: Runner = db): Promise<{ rows: LatestSingleSetRow[]; fieldRowCount: number }> {
+  const r = await runner.query<{ id: string; user_id: string; value: string; occurred_at: string; next_at: string }>(
+    `SELECT id::text, user_id::text, value, occurred_at::text AS occurred_at,
+            (occurred_at + interval '1 microsecond')::text AS next_at
+     FROM (SELECT DISTINCT ON (user_id) id, user_id, value, occurred_at
+           FROM customer_brew_profile_change
+           WHERE field = $1 AND op = 'set'
+           ORDER BY user_id, occurred_at DESC) latest
+     WHERE jsonb_typeof(value::jsonb) <> 'array'
+     ORDER BY occurred_at`, [field]);
+  const n = await runner.query<{ n: number }>(`SELECT count(*)::int AS n FROM customer_brew_profile_change WHERE field = $1`, [field]);
+  return {
+    rows: r.rows.map(x => ({ id: x.id, userId: x.user_id, value: x.value, occurredAt: x.occurred_at, nextAt: x.next_at })),
+    fieldRowCount: n.rows[0].n,
+  };
 }
 
 export interface FeedbackCurrentRow {

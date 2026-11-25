@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
@@ -9,14 +10,14 @@ import {
   validateFullValue,
   incrementBrewProfileCounter,
 } from '../services/brewProfile.js';
-import { brewProfileOptions } from '../services/brewProfileCard.js';
+import { brewProfileOptions, saveRoutine, RoutineSaveError, brewProfileFallbackSourceId } from '../services/brewProfileCard.js';
 import { getUserBrewCards } from '../services/brewCard.js';
 import { hasLiamAccess } from '../services/liamAccess.js';
 import { getAliases } from '../services/sommelierRag.js';
 import { archetypeCode, archetypeLabel as catalogArchetypeLabel, archetypeCustomerWords } from '../services/catalogReads.js';
 import { record, BrewProfileChangeRejected } from '../services/customerFacts.js';
 import { getTimeline, getFeedbackCurrent, getBrewProfileCurrent } from '../services/customerReads.js';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { resolveSlot, ownSortOrder, savePosition, DIAL_EVENT_TRIGGERS } from '../services/dialPositionService.js';
 import { memberDialPosition, turnDialFor, HouseholdError } from '../services/householdService.js';
 import { profileIdForUid } from '../services/householdReads.js';
@@ -24,15 +25,10 @@ import { businessTimeZone } from '../services/commerceParameters.js';
 
 const router = Router();
 
-// Customer Blueprint C2, Part A2 — source_id for onsite brew-profile changes.
-// res.locals.apiEventId (middleware/apiEventLog.ts) is used when present;
-// this is the documented fallback otherwise (one minute of idempotency for a
-// double submit — a genuine second edit within the same minute is rare for a
-// profile field and, worst case, is a logged duplicate no-op, never a wrong write).
-function brewProfileFallbackSourceId(uid: string, field: string, op: string, value: unknown): string {
-  const hash = createHash('sha1').update(JSON.stringify(value ?? null)).digest('hex');
-  return `${uid}:${field}:${op}:${hash}:${Math.floor(Date.now() / 60000)}`;
-}
+// Customer Blueprint C2, Part A2 — source_id for onsite brew-profile changes:
+// res.locals.apiEventId (middleware/apiEventLog.ts) when present, else
+// brewProfileFallbackSourceId (moved to brewProfileCard.ts in Usual Drink 2,
+// one copy shared with saveRoutine).
 
 // Keyed by archetype_enum (schema.sql) — matches the archetype key format used everywhere
 // else (dial_archetype_config, /api/coffees/archetypes' `archetype` field, etc.), NOT a
@@ -952,6 +948,38 @@ router.patch('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthR
     console.error('[PATCH /api/users/brew-profile]', err);
     await incrementBrewProfileCounter('failures');
     res.status(500).json({ error: 'Failed to save brew profile field' });
+  }
+});
+
+// ── PUT /api/users/brew-profile ───────────────────────────────────────────────
+// Usual Drink 2 (B3) — the Profile routine's one save: every answer of the
+// form at once plus the fields the customer cleared, one transaction
+// (brewProfileCard.saveRoutine). The PATCH and DELETE routes stay (OPEN_TASKS);
+// the frontend no longer calls them. A validation message is logged and
+// returned with its code; the frontend shows its own words (routine_save_error).
+const routineBody = z.object({
+  answers: z.array(z.object({ field: z.string().min(1), value: z.unknown(), words: z.string().nullable().optional() })).max(50),
+  cleared: z.array(z.string().min(1)).max(50).default([]),
+});
+router.put('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+  const parsed = routineBody.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: 'answers and cleared required', code: 'BAD_BODY' }); return; }
+  try {
+    const result = await saveRoutine({ uid: req.uid!, answers: parsed.data.answers, cleared: parsed.data.cleared }, res.locals.apiEventId);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof RoutineSaveError) {
+      console.warn(`[PUT /api/users/brew-profile] ${err.code}: ${err.message}`);
+      res.status(err.status).json({ error: err.message, code: err.code });
+      return;
+    }
+    if (err instanceof BrewProfileChangeRejected) {
+      console.warn(`[PUT /api/users/brew-profile] rejected: ${err.message}`);
+      res.status(400).json({ error: err.message, code: 'REJECTED' });
+      return;
+    }
+    console.error('[PUT /api/users/brew-profile]', err);
+    res.status(500).json({ error: 'Failed to save the routine' });
   }
 });
 

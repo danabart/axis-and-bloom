@@ -18,10 +18,10 @@ import type { BloomDialHandle } from './BloomDialWidget';
 import type { ArchetypeData, DoorTarget, Slot } from './bloom/types';
 import FamilyTab from './FamilyTab';
 import OrderFeedbackForm from './OrderFeedbackForm';
-import TastingJournal from './profile/TastingJournal';
-import ActivityTimeline from './profile/ActivityTimeline';
+import TastingJournal, { JOURNAL_HEADING } from './profile/TastingJournal';
+import ActivityTimeline, { ACTIVITY_HEADING } from './profile/ActivityTimeline';
 import BrewProfileMirror from './profile/BrewProfileMirror';
-import BrewCards from './profile/BrewCards';
+import BrewCards, { BREW_CARDS_HEADING } from './profile/BrewCards';
 import WorthExploring from './profile/WorthExploring';
 import AddressForm from './profile/AddressForm';
 import SubscriptionPanel from './profile/SubscriptionPanel';
@@ -127,6 +127,10 @@ export default function Profile() {
   // ── Memory + Horizon layers (Profile Part 3) ────────────────────────────────
   const [flavorMemory, setFlavorMemory] = useState<FlavorMemoryData | null>(null);
   const [expandedJournalOrderId, setExpandedJournalOrderId] = useState<string | null>(null);
+  // Usual Drink 2 (D4): the history switcher; Activity is the default.
+  type HistorySegment = 'activity' | 'journal' | 'cards' | 'trail';
+  const [historySegment, setHistorySegment] = useState<HistorySegment>('activity');
+  const [trail, setTrail] = useState<{ has: boolean; title: string | null }>({ has: false, title: null });
 
   function loadFlavorMemory() {
     getFlavorMemory().then(setFlavorMemory).catch(err => { reportError('[Profile/flavor-memory]', err); setFlavorMemory(null); });
@@ -406,6 +410,15 @@ export default function Profile() {
   }
 
   const retakeCopy = stageCode === 'QUIZ_STALE_NO_ORDER' ? 'Palates change — retake anytime' : 'Retake the quiz';
+  // Which history segments show: Activity and Tasting journal always; Brew
+  // cards with at least one card; Your trail when MapTrail reports content.
+  // Labels: each component's own heading constant, the trail's from the API.
+  const historySegments: Array<{ key: HistorySegment; label: string }> = [
+    { key: 'activity', label: ACTIVITY_HEADING },
+    { key: 'journal', label: JOURNAL_HEADING },
+    ...((flavorMemory?.brewCards.length ?? 0) > 0 ? [{ key: 'cards' as const, label: BREW_CARDS_HEADING }] : []),
+    ...(trail.has && trail.title ? [{ key: 'trail' as const, label: trail.title }] : []),
+  ];
 
   return (
     <div className="w-full min-h-screen bg-[var(--ab-paper)]">
@@ -432,9 +445,9 @@ export default function Profile() {
           </h1>
         </div>
 
-        <div className="flex w-full mb-12 border-b border-[var(--ab-ink)]/20 relative gap-8">
+        <div className="flex w-full mb-12 border-b border-[var(--ab-ink)]/20 relative gap-8 overflow-x-auto whitespace-nowrap">
           {(['memory', 'orders', 'settings', 'family'] as Tab[]).map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`pb-4 text-[11px] uppercase tracking-[0.2em] font-normal transition-colors relative ${activeTab === tab ? 'text-[var(--ab-mark-b)]' : 'text-[var(--ab-ink)]/40 hover:text-[var(--ab-ink)]/70'}`}>
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`shrink-0 min-h-[44px] pb-4 text-[11px] uppercase tracking-[0.2em] font-normal transition-colors relative ${activeTab === tab ? 'text-[var(--ab-mark-b)]' : 'text-[var(--ab-ink)]/40 hover:text-[var(--ab-ink)]/70'}`}>
               {tab === 'memory' ? 'Flavor Memory' : tab === 'orders' ? 'Past Orders' : tab === 'settings' ? 'Settings' : 'Family Household'}
               {activeTab === tab && <motion.div layoutId="profile-tab-indicator" className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--ab-mark-b)]" />}
             </button>
@@ -455,54 +468,27 @@ export default function Profile() {
                   </div>
                 )}
 
-                {/* Part 22 — the whole tab is now one ~760px column, hairline-
-                    separated (var(--ab-ink-hairline), ~34px rhythm) rather than a flex gap:
-                    quotes/nudge → archetype block (folded, breakout unfold) →
-                    hr → worth exploring (+ its adjacent-archetype expansion)
-                    → hr → the one two-up row (flavor activity / tasting
-                    journal) → hr → brew cards → hr → what Liam knows → hr →
-                    Liam entry + fallback retake link. Order 1-6 below matches
-                    PROMPT_one_column_pages.md §3 exactly; brew cards / the
-                    pending-feedback nudge / the adjacent-archetype expansion
-                    / the Liam entry link aren't named in that numbered list
-                    (it predates none of them, they're just real content the
-                    prompt's own §5 "nothing removed" requires keeping) — each
-                    slotted into the same hairline rhythm at the most logical
-                    point: the feedback nudge stays beside the quotes it's
-                    contextually paired with, the adjacent section stays right
-                    under the chip that opens it, and brew cards/Liam-entry
-                    round out the tail exactly where the mockup's own "what
-                    Liam knows" slot sits. */}
+                {/* Usual Drink 2 (2026-11-24), D4 — the tab is three blocks in one
+                    column (nothing removed, same components, G4.1): the feedback
+                    nudge on top; 1. palate (the archetype heading with the retake
+                    link beside it, always visible, D8; the first feature line, the
+                    others while the primary block is open; the stage note; the
+                    folded DialArchetypeSection; Worth exploring and the adjacent
+                    block under it, as before); 2. the coffee routine
+                    (BrewProfileMirror); 3. history, one switcher over Activity,
+                    Tasting journal, Brew cards (when there is one) and Your trail
+                    (when MapTrail reports content), one visible at a time, all four
+                    mounted. Then the Liam link and CompareOverlay. On a phone
+                    every block stacks and the switcher scrolls sideways (D5). */}
                 {showFullLayout && (
                   <div className="flex flex-col">
-                    {/* 1 — YOUR ARCHETYPE quotes + nudge (existing left-border-accent list). */}
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/40 mb-6">Your archetype</p>
-                      <ul className="flex flex-col gap-5">
-                        {(homepageState?.archetype?.features ?? []).map((f: string, i: number) => (
-                          <li key={i} className="flex items-start gap-5">
-                            <div className="w-[1px] h-8 shrink-0 opacity-40 mt-1" style={{ backgroundColor: 'var(--ab-mark-b)' }} />
-                            <span className="text-lg text-[var(--ab-ink)]/80 leading-relaxed">{f}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      {renderStageNote()}
-                    </div>
-
-                    {/* UC3 — feedback nudge. Independent of stageCode, same as Home.tsx/
-                        FlavorIntelligencePage.tsx already treat it — pendingFeedback is its
-                        own orthogonal flag (classifyStage() has no FIRST_ORDER_FEEDBACK_PENDING
-                        branch; a subscriber or repeat customer can still have an unanswered
-                        feedback ask sitting out there from an early order). Part 3: clicking it
-                        now expands the pending order's form inline in the tasting journal below
-                        (the journal supersedes the Past-Orders-tab detour Part 1 used). */}
                     {homepageState?.pendingFeedback && !feedbackNudgeDismissed && (
-                      <div className="mt-6 p-5 border border-[var(--ab-ink)]/15 bg-white/40 flex items-center justify-between gap-4 flex-wrap">
+                      <div className="mb-9 p-5 border border-[var(--ab-ink)]/15 bg-white/40 flex items-center justify-between gap-4 flex-wrap">
                         <p className="text-sm text-[var(--ab-ink)]">How was {homepageState.pendingFeedback.blendName ?? 'your last coffee'}?</p>
                         <div className="flex items-center gap-4">
                           <button
-                            onClick={() => setExpandedJournalOrderId(homepageState.pendingFeedback!.orderId)}
-                            className="text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/40 pb-1 hover:border-[var(--ab-mark-b)] hover:text-[var(--ab-mark-b)] transition-colors"
+                            onClick={() => { setHistorySegment('journal'); setExpandedJournalOrderId(homepageState.pendingFeedback!.orderId); }}
+                            className="min-h-[44px] text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)] border-b border-[var(--ab-ink)]/40 pb-1 hover:border-[var(--ab-mark-b)] hover:text-[var(--ab-mark-b)] transition-colors"
                           >
                             Leave feedback
                           </button>
@@ -519,6 +505,29 @@ export default function Profile() {
                         </div>
                       </div>
                     )}
+
+
+                    {/* 1 — palate */}
+                    <div data-testid="memory-palate">
+                      <div className="flex items-baseline justify-between gap-4 flex-wrap mb-6">
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/40">Your archetype</p>
+                        <Link
+                          to="/find-my-flavor?retake=1"
+                          className="min-h-[44px] flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/50 hover:text-[var(--ab-ink)] transition-colors"
+                          data-testid="memory-retake"
+                        >
+                          {retakeCopy} <ArrowRight size={12} />
+                        </Link>
+                      </div>
+                      <ul className="flex flex-col gap-5">
+                        {(homepageState?.archetype?.features ?? []).filter((_: string, i: number) => i === 0 || openBlock === 'primary').map((f: string, i: number) => (
+                          <li key={i} className="flex items-start gap-5">
+                            <div className="w-[1px] h-8 shrink-0 opacity-40 mt-1" style={{ backgroundColor: 'var(--ab-mark-b)' }} />
+                            <span className="text-lg text-[var(--ab-ink)]/80 leading-relaxed">{f}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {renderStageNote()}
 
                     {/* 2 — archetype block: name + NO. baseline row (rendered by
                         DialArchetypeSection itself in breakout mode) + the folded
@@ -551,8 +560,7 @@ export default function Profile() {
                       </div>
                     )}
 
-                    <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
-
+                      <div className="mt-9">
                     {/* 3 — Worth exploring, one row. Part 6: chips expand the adjacent
                         archetype in place (below) rather than navigating away. */}
                     {matchArchetypeId && archetypesList.length > 0 && (
@@ -615,45 +623,50 @@ export default function Profile() {
                       </div>
                     )}
 
-                    <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
-
-                    {/* 4 — the only two-up row: flavor activity (left) / tasting journal
-                        (right), 50/50, stacking under ~720px. Both components already
-                        render their own micro-label header + content internally.
-                        Nothing renders here for NEW_NO_QUIZ (showFullLayout is already
-                        false for that stage). */}
-                    {flavorMemory && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-11">
-                        <ActivityTimeline entries={flavorMemory.activity} retakeCopy={retakeCopy} onRemoved={loadFlavorMemory} />
-                        <TastingJournal
-                          entries={flavorMemory.journal}
-                          contributionCount={flavorMemory.contributionCount}
-                          expandedOrderId={expandedJournalOrderId}
-                          onExpandOrder={setExpandedJournalOrderId}
-                          onFeedbackSubmitted={loadFlavorMemory}
-                        />
                       </div>
-                    )}
-
-                    {/* HOME_TASK_6 (§3.2) — brew cards, read-only v1. Renders nothing
-                        (returns null) until flavorMemory has loaded and at least one card
-                        exists — same pre-existing empty-hairline quirk as before this pass
-                        (the hairline shows even when BrewCards itself renders nothing). */}
-                    {flavorMemory && (
-                      <>
-                        <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
-                        <BrewCards cards={flavorMemory.brewCards} />
-                      </>
-                    )}
-
-                    {/* Ella's Bloom Map 3 (C3): "Your trail", only when the profile_trail surface says map (brings its own hairline) */}
-                    <MapTrail />
+                    </div>
 
                     <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
 
-                    {/* 5 — HOME_TASK_4 (§4.5 write rule 2): "what Liam knows about your
-                        setup," full column width. */}
+                    {/* 2 — the coffee routine (Usual Drink 2, D3) */}
                     <BrewProfileMirror />
+
+                    <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
+
+                    {/* 3 — history: one switcher; a hidden segment stays mounted (MapTrail's own fetch runs) */}
+                    <div data-testid="memory-history">
+                      <div role="tablist" aria-label="History" className="flex gap-6 overflow-x-auto whitespace-nowrap border-b border-[var(--ab-ink)]/15 mb-6 -mx-1 px-1">
+                        {historySegments.map(seg => (
+                          <button key={seg.key} type="button" role="tab" aria-selected={historySegment === seg.key}
+                            onClick={() => setHistorySegment(seg.key)}
+                            className={`min-h-[44px] shrink-0 text-[11px] uppercase tracking-[0.2em] border-b -mb-px transition-colors ${historySegment === seg.key ? 'border-[var(--ab-mark-b)] text-[var(--ab-mark-b)]' : 'border-transparent text-[var(--ab-ink)]/40 hover:text-[var(--ab-ink)]/70'}`}
+                            data-testid={`history-tab-${seg.key}`}>
+                            {seg.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div hidden={historySegment !== 'activity'} data-testid="history-activity">
+                        {flavorMemory && <ActivityTimeline entries={flavorMemory.activity} onRemoved={loadFlavorMemory} hideHeading />}
+                      </div>
+                      <div hidden={historySegment !== 'journal'} data-testid="history-journal">
+                        {flavorMemory && (
+                          <TastingJournal
+                            entries={flavorMemory.journal}
+                            contributionCount={flavorMemory.contributionCount}
+                            expandedOrderId={expandedJournalOrderId}
+                            onExpandOrder={setExpandedJournalOrderId}
+                            onFeedbackSubmitted={loadFlavorMemory}
+                            hideHeading
+                          />
+                        )}
+                      </div>
+                      <div hidden={historySegment !== 'cards'} data-testid="history-cards">
+                        {flavorMemory && <BrewCards cards={flavorMemory.brewCards} hideHeading />}
+                      </div>
+                      <div hidden={historySegment !== 'trail'} data-testid="history-trail">
+                        <MapTrail hideHeading onContent={(has, title) => setTrail({ has, title })} />
+                      </div>
+                    </div>
 
                     <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
 
@@ -672,16 +685,6 @@ export default function Profile() {
                         </div>
                       )}
 
-                      {/* Fallback retake link while flavorMemory hasn't loaded yet — once it
-                          has, ActivityTimeline above owns this link (Part 3 §3, superseded by Part 7 Task 4). */}
-                      {!flavorMemory && (
-                        <Link
-                          to="/find-my-flavor?retake=1"
-                          className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[var(--ab-ink)]/40 border-b border-[var(--ab-ink)]/20 pb-1 hover:text-[var(--ab-ink)] hover:border-[var(--ab-ink)]/40 transition-colors w-fit"
-                        >
-                          {retakeCopy} <ArrowRight size={12} />
-                        </Link>
-                      )}
                     </div>
 
                     <CompareOverlay

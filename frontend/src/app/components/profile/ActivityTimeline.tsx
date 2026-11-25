@@ -1,15 +1,18 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
-import { ArrowRight } from 'lucide-react';
 import { ARCHETYPE_COLOR } from '../coffee-info/archetypeConstants';
 import { removeFlavorMemoryEntry, type FlavorMemoryActivityEntry } from '../../lib/api';
 import { reportError } from '../../lib/errorReporter';
 import { deriveReadingLine } from '../../lib/deriveReadingLine';
 
+// Usual Drink 2 (D4): the heading exists once, here; the Profile's history
+// switcher reads it. The retake link moved to the palate block (D8).
+export const ACTIVITY_HEADING = 'Flavor activity';
+
 interface Props {
   entries: FlavorMemoryActivityEntry[];
-  retakeCopy: string;
   onRemoved: () => void;
+  /** set inside the Profile's history switcher, which shows the heading as its segment */
+  hideHeading?: boolean;
 }
 
 const COLLAPSED_COUNT = 3;
@@ -48,7 +51,7 @@ function substance(entry: FlavorMemoryActivityEntry): string {
  * (quiz, order, save, accepted Liam recipe) instead of quiz history alone.
  * `entries` already arrive newest-first from the API (Task 3 sorts server-side)
  * — unlike PalateTimeline's journey prop, no client-side reverse needed. */
-export default function ActivityTimeline({ entries, retakeCopy, onRemoved }: Props) {
+export default function ActivityTimeline({ entries, onRemoved, hideHeading }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -76,7 +79,7 @@ export default function ActivityTimeline({ entries, retakeCopy, onRemoved }: Pro
       {readingLine && (
         <p className="text-sm text-[#a33726]/70 italic leading-relaxed">{readingLine}</p>
       )}
-      <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">Flavor activity</p>
+      {!hideHeading && <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">{ACTIVITY_HEADING}</p>}
       <div className="flex flex-col gap-5">
         {visibleEntries.map(entry => (
           <div key={entry.id} className="group flex items-start gap-3">
@@ -130,12 +133,6 @@ export default function ActivityTimeline({ entries, retakeCopy, onRemoved }: Pro
           {expanded ? 'Show recent only' : `Show full history (${entries.length})`}
         </button>
       )}
-      <Link
-        to="/find-my-flavor?retake=1"
-        className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 border-b border-[#a33726]/20 pb-1 hover:text-[#a33726] hover:border-[#a33726]/40 transition-colors w-fit mt-2"
-      >
-        {retakeCopy} <ArrowRight size={12} />
-      </Link>
     </div>
   );
 }

@@ -32,6 +32,8 @@ import {
   incrementBrewProfileCounter,
   formatBrewProfileSummary,
   normalizeFieldName,
+  answerList,
+  checkValuesFrom,
   type BrewProfileDoc,
 } from '../services/brewProfile.js';
 import {
@@ -453,7 +455,17 @@ export async function resolveRemember(
   // Ops dropped by validation never reach this list — they never became a fact.
   const accepted: Array<{ field: string; op: 'add' | 'set'; value: unknown; words: string | null }> = [];
 
-  for (const rawOp of rememberOps) {
+  // Usual Drink 2 (B5): a values_from field (main_drink) is checked against its
+  // source's answers after this batch, so it is resolved after every other op.
+  const isDependent = (f: string) => !!fieldsCfg[normalizeFieldName(f)]?.valuesFrom;
+  const ordered = [...rememberOps.filter(o => !isDependent(o.field)), ...rememberOps.filter(o => isDependent(o.field))];
+  const answersAfterBatch = (code: string): unknown => {
+    const op = [...accepted].reverse().find(a => a.field === code);
+    if (!op) return current[code]?.value;
+    return op.op === 'set' ? op.value : [...answerList(current[code]?.value), op.value];
+  };
+
+  for (const rawOp of ordered) {
     // Defense-in-depth: a plausible singular/plural near-miss (e.g. the model
     // saying "brew_method" for "brew_methods") is normalized before whitelist
     // lookup — see normalizeFieldName()'s own comment for why this exists.
@@ -487,7 +499,23 @@ export async function resolveRemember(
     }
 
     if (fieldCfg.type === 'array' || fieldCfg.type === 'array_freeform') {
-      const existingArr = Array.isArray(current[field]?.value) ? (current[field]!.value as string[]) : [];
+      // Usual Drink 2 (B6): a single stored value (takes_it before the Part C
+      // conversion) reads as a one-item list.
+      const storedValue = current[field]?.value;
+      const existingArr = answerList(storedValue);
+      const storedSingle = storedValue !== undefined && storedValue !== null && !Array.isArray(storedValue);
+      const isExclusive = (code: string) => fieldCfg.values.find(v => v.code === code)?.exclusive === true;
+      // B5: an exclusive value arriving replaces the list; a value arriving
+      // while an exclusive one is stored replaces it too.
+      if (isExclusive(validated as string)) {
+        if (existingArr.length === 1 && existingArr[0] === validated && !storedSingle) continue; // already known
+        accepted.push({ field, op: 'set', value: [validated], words });
+        continue;
+      }
+      if (existingArr.some(isExclusive)) {
+        accepted.push({ field, op: 'set', value: [validated], words });
+        continue;
+      }
       if (existingArr.includes(validated as string)) continue; // already known — nothing new to write
       // Usual Drink 1: an add past max_items is rejected and counted (was uncapped).
       if (fieldCfg.maxLength !== undefined && existingArr.length >= fieldCfg.maxLength) {
@@ -495,8 +523,19 @@ export async function resolveRemember(
         await incrementBrewProfileCounter('failures');
         continue;
       }
-      accepted.push({ field, op: 'add', value: validated, words });
+      // Dana 2026-11-24 (Task 0 answer 2): over a single stored value an add
+      // would fold to the new item alone, so the whole list is set instead.
+      if (storedSingle) accepted.push({ field, op: 'set', value: [...existingArr, validated], words });
+      else accepted.push({ field, op: 'add', value: validated, words });
     } else {
+      // Usual Drink 2 (B5, B1 b): a values_from marker must be one of the
+      // source's answers; a failed check is dropped and counted.
+      const fromProblem = checkValuesFrom(fieldCfg, validated, answersAfterBatch(fieldCfg.valuesFrom ?? ''));
+      if (fromProblem) {
+        console.warn(`[resolveRemember] ${fromProblem}; dropped for uid=${uid}`);
+        await incrementBrewProfileCounter('failures');
+        continue;
+      }
       // Liam L2, Part 0 — a re-affirmed fact is not a new fact (D14): the
       // model sometimes re-emits a <<remember:...>> marker for a scalar field
       // on a turn where the customer didn't restate it (the exact "two

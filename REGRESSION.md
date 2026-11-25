@@ -418,6 +418,13 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **Unknown funnel events are dropped:** `POST /api/quiz/event` with a code not in `quiz_funnel_event_type` answers ok with `dropped`, writes nothing.
 - [ ] **Nothing reads the three fields for matching:** the quiz result, the first match, the map, the dial and Liam's recommendation are unchanged.
 
+## Usual Drink 2: the coffee routine (2026-11-24)
+
+- [ ] **The kitchen box can always be saved:** type a listed brand and press Save without tapping a row: the highlighted row is saved. Type a brand that is not listed: it is saved as `other` with the typed words and shows as typed after a reload. Save never closes the editor without writing or showing `routine_save_error`; clicking Save while the list is open still saves (the list is an overlay).
+- [ ] **Most days follows the drinks:** "Which one most days?" shows only with two or more drinks picked (card and Profile); removing that drink clears `main_drink` in the same save (one `clear` row, same request).
+- [ ] **"Nothing, black" stands alone:** milk and sugar save together; picking black clears them and picking another clears black; the door (`checkBrewProfileChange`) refuses `["black", …]` from any writer; Liam's `takes_it=black` is `set ["black"]`.
+- [ ] **Three blocks on the Flavor Memory tab:** palate (retake link beside "Your archetype", always), routine, history (Activity and Tasting journal always; Brew cards only with a card; Your trail only when `MapTrail` reports content); "Leave feedback" opens the journal; a failed save shows `routine_save_error`, never the server's text; at 390 px nothing scrolls sideways, every routine button is 44 px or taller, inputs are 16 px.
+
 ## Ella's Bloom Map 9: the reasons on `/map` become personal (2026-11-20)
 
 - [ ] **Only approved words, composed at read:** every sentence on `/map` is a `dial_customer_copy`, `dial_said_back`, start-rule or step row joined with the customer's own facts in `matchService.steps`; nothing composed is stored and no model or Liam call writes a customer sentence.

@@ -3,7 +3,15 @@
 // max_items), chips (one value as chips; 2026-11-14), typeahead, toggle (the
 // field's two values), freeform_list (comma-separated). A picked value that takes the customer's own words
 // reveals a short text box capped at max_item_len. Shared by the post-result
-// card and the Profile mirror; no field code appears here.
+// card and the Profile routine; no field code appears here.
+//
+// Usual Drink 2 (2026-11-24), D2: an exclusive value (exclusive in the
+// payload) clears the others and is cleared by them. A field whose values come
+// from another field (valuesFrom) renders that field's picked values as
+// single-choice chips, only when two or more are picked (fieldApplies, the one
+// helper the card and the Profile use); otherwise it renders nothing and reads
+// as unanswered. The typeahead takes the customer's words itself (its "use as
+// I typed it" row). Every control is at least 44 px tall; text inputs use 16 px.
 import type { BrewOptionField } from '../../lib/api';
 import BrewTypeahead from './BrewTypeahead';
 
@@ -16,12 +24,34 @@ export function emptyDraft(field: BrewOptionField): BrewDraft {
   return null;
 }
 
-/** A stored value as a draft. */
+/** A stored value as a draft. A single stored value on an array field is a one-item list (Usual Drink 2). */
 export function draftFromValue(field: BrewOptionField, value: unknown): BrewDraft {
-  if (field.type === 'array') return Array.isArray(value) ? value.map(String) : [];
+  if (field.type === 'array') return Array.isArray(value) ? value.map(String) : value === undefined || value === null ? [] : [String(value)];
   if (field.type === 'array_freeform') return Array.isArray(value) ? value.join(', ') : '';
   if (value === undefined || value === null) return null;
   return String(value);
+}
+
+/** The answers a draft or a stored value holds, as a list. */
+export function answerCodes(value: unknown): string[] {
+  if (value === undefined || value === null || value === '') return [];
+  return (Array.isArray(value) ? value : [value]).map(String);
+}
+
+/**
+ * Does a field apply, given its source field's draft or stored value? A field
+ * with no valuesFrom always applies; a valuesFrom field only while its source
+ * holds two or more answers (Usual Drink 2, D1/D2).
+ */
+export function fieldApplies(field: BrewOptionField, sourceValue: unknown): boolean {
+  return !field.valuesFrom || answerCodes(sourceValue).length >= 2;
+}
+
+/** The draft as it counts: a dependent field's answer no longer among its source's answers counts as none. */
+export function effectiveDraft(field: BrewOptionField, draft: BrewDraft, sourceValue: unknown): BrewDraft {
+  if (!field.valuesFrom) return draft;
+  if (!fieldApplies(field, sourceValue)) return null;
+  return typeof draft === 'string' && answerCodes(sourceValue).includes(draft) ? draft : null;
 }
 
 /** The draft as the API value, or undefined when nothing is picked. */
@@ -41,29 +71,54 @@ export function draftTakesWords(field: BrewOptionField, draft: BrewDraft): boole
   return codes.some(c => field.values.find(v => v.code === c)?.acceptsWords);
 }
 
-const chip = (on: boolean) =>
-  `text-xs px-3 py-1 rounded-full border transition-colors ${on ? 'border-[#a33726] text-[#a33726]' : 'border-[#a33726]/20 text-[#6b5c54]/70'}`;
+/** Multi-select toggle with the exclusive rule: an exclusive value stands alone. */
+export function toggleMulti(field: BrewOptionField, picked: string[], code: string): string[] {
+  if (picked.includes(code)) return picked.filter(x => x !== code);
+  const isExclusive = (c: string) => field.values.find(v => v.code === c)?.exclusive === true;
+  if (isExclusive(code)) return [code];
+  return [...picked.filter(x => !isExclusive(x)), code];
+}
 
-export default function BrewFieldControl({ field, draft, words, onChange, onWords, copy }: {
+const chip = (on: boolean) =>
+  `min-h-[44px] text-sm px-4 py-2 rounded-full border transition-colors ${on ? 'border-[#a33726] text-[#a33726]' : 'border-[#a33726]/20 text-[#6b5c54]/70'}`;
+
+export default function BrewFieldControl({ field, draft, words, onChange, onWords, copy, sourceDraft, maxRows }: {
   field: BrewOptionField;
   draft: BrewDraft;
   words: string;
   onChange: (draft: BrewDraft) => void;
   onWords: (words: string) => void;
   copy: Record<string, string>;
+  /** the source field's draft, for a valuesFrom field */
+  sourceDraft?: BrewDraft;
+  /** limits.typeaheadMaxRows from the payload */
+  maxRows?: number;
 }) {
   const tid = `brew-field-${field.code}`;
   let control: JSX.Element;
-  if (field.picker === 'multi_select') {
+  if (field.valuesFrom) {
+    if (!fieldApplies(field, sourceDraft)) return null;
+    const offered = answerCodes(sourceDraft);
+    const current = effectiveDraft(field, draft, sourceDraft);
+    control = (
+      <div className="flex flex-wrap gap-2" role="group" aria-label={field.prompt ?? field.label} data-testid={tid}>
+        {field.values.filter(v => offered.includes(v.code)).map(v => (
+          <button key={v.code} type="button" aria-pressed={current === v.code} onClick={() => onChange(current === v.code ? null : v.code)}
+            className={chip(current === v.code)} data-testid={`${tid}-option-${v.code}`}>{v.label}</button>
+        ))}
+      </div>
+    );
+  } else if (field.picker === 'multi_select') {
     const picked = Array.isArray(draft) ? draft : [];
     const full = field.maxItems !== null && picked.length >= field.maxItems;
     control = (
       <div className="flex flex-wrap gap-2" data-testid={tid}>
         {field.values.map(v => {
           const on = picked.includes(v.code);
+          // an exclusive value can always be picked: it replaces the others
           return (
-            <button key={v.code} type="button" aria-pressed={on} disabled={!on && full}
-              onClick={() => onChange(on ? picked.filter(x => x !== v.code) : [...picked, v.code])}
+            <button key={v.code} type="button" aria-pressed={on} disabled={!on && full && !v.exclusive}
+              onClick={() => onChange(toggleMulti(field, picked, v.code))}
               className={`${chip(on)} disabled:opacity-40`} data-testid={`${tid}-option-${v.code}`}>
               {v.label}
             </button>
@@ -72,8 +127,12 @@ export default function BrewFieldControl({ field, draft, words, onChange, onWord
       </div>
     );
   } else if (field.picker === 'typeahead') {
-    control = <BrewTypeahead values={field.values} value={typeof draft === 'string' ? draft : null} onChange={onChange}
-      placeholder={copy.search_placeholder} testId={tid} />;
+    return (
+      <BrewTypeahead values={field.values} value={typeof draft === 'string' ? draft : null} words={words}
+        onChange={(code, w) => { onChange(code); onWords(w ?? ''); }}
+        placeholder={copy.search_placeholder} useTypedText={copy.typeahead_use_typed} clearLabel={copy.typeahead_clear}
+        maxRows={maxRows ?? field.values.length} maxItemLen={field.maxItemLen} testId={tid} />
+    );
   } else if (field.picker === 'toggle' || field.picker === 'chips') {
     // one value; picking the picked chip again clears it
     control = (
@@ -88,7 +147,7 @@ export default function BrewFieldControl({ field, draft, words, onChange, onWord
   } else if (field.picker === 'freeform_list') {
     control = (
       <input type="text" value={typeof draft === 'string' ? draft : ''} onChange={e => onChange(e.target.value)}
-        aria-label={field.label} className="text-sm border border-[#a33726]/20 rounded px-3 py-1.5 bg-white" data-testid={tid} />
+        aria-label={field.label} className="min-h-[44px] text-base border border-[#a33726]/20 rounded px-3 py-2 bg-white" data-testid={tid} />
     );
   } else {
     // select, as the Profile mirror has always rendered an enum; the empty
@@ -96,7 +155,7 @@ export default function BrewFieldControl({ field, draft, words, onChange, onWord
     control = (
       <select value={typeof draft === 'string' ? draft : ''} onChange={e => onChange(e.target.value || null)}
         aria-label={field.prompt ?? field.label} data-testid={tid}
-        className="text-sm border border-[#a33726]/20 rounded px-3 py-1.5 bg-white">
+        className="min-h-[44px] text-base border border-[#a33726]/20 rounded px-3 py-2 bg-white">
         <option value="" />
         {field.values.map(v => <option key={v.code} value={v.code}>{v.label}</option>)}
       </select>
@@ -108,7 +167,7 @@ export default function BrewFieldControl({ field, draft, words, onChange, onWord
       {draftTakesWords(field, draft) && (
         <input type="text" value={words} onChange={e => onWords(e.target.value)} maxLength={field.maxItemLen ?? undefined}
           placeholder={copy.words_placeholder} aria-label={copy.words_placeholder}
-          className="text-sm border border-[#a33726]/20 rounded px-3 py-1.5 bg-white" data-testid={`${tid}-words`} />
+          className="min-h-[44px] text-base border border-[#a33726]/20 rounded px-3 py-2 bg-white" data-testid={`${tid}-words`} />
       )}
     </div>
   );

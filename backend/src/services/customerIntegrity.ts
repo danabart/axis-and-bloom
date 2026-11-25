@@ -688,6 +688,7 @@ export async function runCustomerIntegrityChecks(scope: CheckScope = {}): Promis
     await checkGuestsKeptForFacts(scope),
     await checkTakesItVsUsualDrink(scope),
     await checkBrewProfileRowShape(scope),
+    await checkArrayFieldsHoldArrays(scope),
   ];
   return {
     ranAt: new Date().toISOString(),
@@ -719,7 +720,9 @@ export const USUAL_DRINK_SEED_CODES: Record<string, string[]> = {
   brew_profile_value_kind: ['enum', 'array', 'bool', 'array_freeform'],
   brew_profile_picker: ['select', 'multi_select', 'typeahead', 'toggle', 'freeform_list', 'chips'],
   brew_profile_op: ['set', 'add', 'remove', 'clear', 'declined'],
-  brew_profile_field: ['brew_methods', 'grinder', 'takes_it', 'decaf_constraint', 'aversions', 'usual_drink', 'cupboard_coffee', 'coffee_feeling'],
+  brew_profile_field: ['brew_methods', 'grinder', 'takes_it', 'decaf_constraint', 'aversions', 'usual_drink', 'cupboard_coffee', 'coffee_feeling', 'main_drink', 'cupboard_roast'],
+  // Usual Drink 2 (A1)
+  brew_profile_group: ['make', 'gear', 'adds', 'kitchen', 'more'],
   brew_drink_base_method: ['espresso', 'filter', 'immersion', 'cold_brew', 'stovetop', 'pod', 'none'],
   brew_drink_dilution: ['none', 'water', 'ice'],
   brew_drink_milk: ['none', 'cold', 'steamed'],
@@ -727,12 +730,14 @@ export const USUAL_DRINK_SEED_CODES: Record<string, string[]> = {
   quiz_funnel_event_type: ['quiz_start', 'quiz_complete', 'email_submitted', 'quiz_final', 'post_result_shown', 'post_result_saved', 'post_result_skipped'],
 };
 export const USUAL_DRINK_SEED_VALUE_COUNTS: Record<string, number> = {
-  brew_methods: 8, grinder: 5, takes_it: 4, decaf_constraint: 2, usual_drink: 16, cupboard_coffee: 59, coffee_feeling: 4,
+  brew_methods: 8, grinder: 5, takes_it: 6, decaf_constraint: 2, usual_drink: 16, cupboard_coffee: 59, coffee_feeling: 4,
+  cupboard_roast: 5, // Usual Drink 2 (A6); takes_it 4 -> 6 (plant_milk, syrup_creamer)
 };
 const UD_REFERENCE_TABLES = [
   'brew_profile_value_kind', 'brew_profile_picker', 'brew_profile_op', 'brew_profile_field', 'brew_profile_field_value',
   'brew_drink', 'brew_drink_base_method', 'brew_drink_dilution', 'brew_drink_milk', 'brew_cupboard_brand',
   'brew_cupboard_brand_kind', 'brew_cupboard_brand_alias', 'brew_coffee_feeling', 'quiz_funnel_event_type',
+  'brew_profile_group',
 ];
 
 /** 22 — every fact's field and op is a lookup row; inactive fields still carrying facts are listed (allowed). */
@@ -764,7 +769,8 @@ export async function checkBrewProfileValueRows(scope: CheckScope = {}): Promise
             count(v.id) FILTER (WHERE v.is_active AND v.pinned)::int AS pinned,
             COALESCE(array_agg(v.code ORDER BY v.code) FILTER (WHERE v.id IS NOT NULL), ARRAY[]::text[]) AS codes
      FROM brew_profile_field f JOIN brew_profile_value_kind k ON k.id = f.value_kind_id JOIN brew_profile_picker p ON p.id = f.picker_id
-     LEFT JOIN brew_profile_field_value v ON v.field_id = f.id
+     -- Usual Drink 2: a values_from field (main_drink) offers its source field's value rows
+     LEFT JOIN brew_profile_field_value v ON v.field_id = COALESCE(f.values_from_field_id, f.id)
      WHERE f.is_active GROUP BY f.code, k.code, p.code ORDER BY f.code`
   );
   const problems: string[] = [];
@@ -791,7 +797,7 @@ export async function checkBrewProfileValuesResolve(scope: CheckScope = {}): Pro
        WHERE jsonb_typeof(v) <> 'array' OR e.item IS NOT NULL
      )
      SELECT i.id::text, i.field, i.item FROM items i
-     WHERE NOT EXISTS (SELECT 1 FROM brew_profile_field f JOIN brew_profile_field_value fv ON fv.field_id = f.id
+     WHERE NOT EXISTS (SELECT 1 FROM brew_profile_field f JOIN brew_profile_field_value fv ON fv.field_id = COALESCE(f.values_from_field_id, f.id)
                        WHERE f.code = i.field AND fv.code = i.item)
      ORDER BY i.field, i.item LIMIT 50`
   );
@@ -908,17 +914,22 @@ export async function checkGuestsKeptForFacts(scope: CheckScope = {}): Promise<C
 }
 
 /** 31 — takes_it vs usual_drink, and an empty kitchen with no buy_out (informational). */
+// Usual Drink 2 (B6): takes_it is an array; a single stored value (before the
+// Part C conversion) reads as a one-item list.
 export async function checkTakesItVsUsualDrink(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
   const runner = scope.tx ?? db;
   const r = await runner.query<{ canonical_user_id: string; note: string }>(
-    `WITH t AS (SELECT canonical_user_id, value_jsonb #>> '{}' AS takes_it FROM v_customer_brew_profile WHERE field = 'takes_it'),
+    `WITH t AS (SELECT canonical_user_id,
+                       CASE WHEN jsonb_typeof(value_jsonb) = 'array' THEN ARRAY(SELECT jsonb_array_elements_text(value_jsonb))
+                            ELSE ARRAY[value_jsonb #>> '{}'] END AS takes_it
+                FROM v_customer_brew_profile WHERE field = 'takes_it'),
           d AS (SELECT canonical_user_id, bool_or(milk <> 'none') AS any_milk, bool_and(milk <> 'none') AS all_milk,
                        bool_or(code = 'buy_out') AS buys_out FROM v_customer_usual_drink GROUP BY canonical_user_id)
-     SELECT t.canonical_user_id::text, 'takes it ' || t.takes_it || ' but no drink has milk' AS note FROM t JOIN d USING (canonical_user_id)
-       WHERE t.takes_it IN ('milk', 'milk_and_sugar') AND NOT d.any_milk
+     SELECT t.canonical_user_id::text, 'takes it with ' || array_to_string(t.takes_it, ', ') || ' but no drink has milk' AS note FROM t JOIN d USING (canonical_user_id)
+       WHERE t.takes_it && ARRAY['milk', 'plant_milk', 'milk_and_sugar'] AND NOT d.any_milk
      UNION ALL
      SELECT t.canonical_user_id::text, 'takes it black but every drink has milk' FROM t JOIN d USING (canonical_user_id)
-       WHERE t.takes_it = 'black' AND d.all_milk
+       WHERE 'black' = ANY(t.takes_it) AND d.all_milk
      UNION ALL
      SELECT k.canonical_user_id::text, 'nothing in the kitchen and buy_out not among the drinks' FROM v_customer_cupboard_coffee k
        LEFT JOIN d USING (canonical_user_id) WHERE k.code = 'nothing' AND COALESCE(d.buys_out, false) = false`
@@ -945,17 +956,34 @@ export async function checkBrewProfileRowShape(scope: CheckScope = {}): Promise<
      SELECT c.id::text, 'words on a value that does not accept them' FROM customer_brew_profile_change c
        JOIN brew_profile_field f ON f.code = c.field
        WHERE c.customer_words IS NOT NULL AND NOT EXISTS (
-         SELECT 1 FROM brew_profile_field_value fv WHERE fv.field_id = f.id AND fv.accepts_words
+         SELECT 1 FROM brew_profile_field_value fv WHERE fv.field_id = COALESCE(f.values_from_field_id, f.id) AND fv.accepts_words
            AND (fv.code = c.value::jsonb #>> '{}' OR (jsonb_typeof(c.value::jsonb) = 'array' AND c.value::jsonb ? fv.code)))
      UNION ALL
      SELECT c.id::text, 'array set is not a JSON array, has duplicates or is over max_items' FROM customer_brew_profile_change c
        JOIN brew_profile_field f ON f.code = c.field JOIN brew_profile_value_kind k ON k.id = f.value_kind_id
        WHERE c.op = 'set' AND k.code IN ('array', 'array_freeform') AND c.value IS NOT NULL
-         AND CASE WHEN jsonb_typeof(c.value::jsonb) <> 'array' THEN true
+         -- Usual Drink 2: a single value written while takes_it was single-choice
+         -- stays as written (G2.20); it is a finding only until a later set
+         -- (the Part C conversion) supersedes it
+         AND CASE WHEN jsonb_typeof(c.value::jsonb) <> 'array' THEN NOT EXISTS (
+                    SELECT 1 FROM customer_brew_profile_change n WHERE n.user_id = c.user_id AND n.field = c.field
+                      AND n.op = 'set' AND n.occurred_at > c.occurred_at)
                   ELSE (f.max_items IS NOT NULL AND jsonb_array_length(c.value::jsonb) > f.max_items)
                     OR (SELECT count(*) FROM jsonb_array_elements_text(c.value::jsonb)) <> (SELECT count(DISTINCT x) FROM jsonb_array_elements_text(c.value::jsonb) x)
              END
      LIMIT 50`
   );
   return udCheck(32, 'customer_brew_profile_change rows have the right shape (quiz session, declined, words, arrays)', r.rows.map(x => `${x.problem} (row ${x.id})`), '0 findings', 'all rows fit');
+}
+
+/** 33 — Usual Drink 2 (B6): an array field whose current value is not an array (informational; 0 after the Part C conversion). */
+export async function checkArrayFieldsHoldArrays(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ canonical_user_id: string; field: string }>(
+    `SELECT b.canonical_user_id::text, b.field FROM v_customer_brew_profile b
+       JOIN brew_profile_field f ON f.code = b.field JOIN brew_profile_value_kind k ON k.id = f.value_kind_id
+      WHERE k.code IN ('array', 'array_freeform') AND jsonb_typeof(b.value_jsonb) <> 'array'
+      ORDER BY 2, 1 LIMIT 50`
+  );
+  return udCheck(33, 'array brew-profile fields hold arrays (single values left from before Usual Drink 2: 0 after its conversion)', r.rows.map(x => `${x.canonical_user_id}: ${x.field}`), '0 findings', 'all arrays');
 }

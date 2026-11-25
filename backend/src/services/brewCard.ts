@@ -2,7 +2,8 @@ import { db } from '../db/client.js';
 import { getSommelierConfig, type SommelierConfig } from './sommelierConfig.js';
 import { getCoffee } from './catalogReads.js';
 import { getMergedRanges } from './cuppingReads.js';
-import type { BrewProfileDoc } from './brewProfile.js';
+import { getBrewProfileFieldsConfig, answerList, type BrewProfileDoc } from './brewProfile.js';
+import { brewTextParams } from './brewParameters.js';
 
 // HOME_TASK_6 (§3.2, §3.1) — "Your Uganda · V60 · 1:16 · medium-coarse · 94°C —
 // adjusted after you found it bitter." The recipe generator is deterministic
@@ -70,11 +71,23 @@ function getBrewDefaults(): NonNullable<SommelierConfig['brewDefaults']> {
   return getSommelierConfig()?.brewDefaults ?? FALLBACK_BREW_DEFAULTS;
 }
 
-const TAKES_IT_PHRASE: Record<string, string> = {
-  milk: 'You take it with milk.',
-  sugar: 'You take it with sugar.',
-  milk_and_sugar: 'You take it with milk and sugar.',
-};
+// Usual Drink 2 (B6): the takes-it sentence is brew_parameter brew_card_takes_it
+// with {list} = the labels of the picked non-exclusive values (value rows,
+// inactive included, so an old milk_and_sugar still reads), lower-cased,
+// joined with "and"; nothing for an exclusive value (black) or no answer. A
+// single stored value (before the Part C conversion) is a one-item list.
+// Replaces the TAKES_IT_PHRASE map.
+export function takesItSentence(brewProfile: BrewProfileDoc | null, template: string | undefined): string | undefined {
+  if (!template) return undefined;
+  const cfg = getBrewProfileFieldsConfig()['takes_it'];
+  if (!cfg) return undefined;
+  const labels = answerList(brewProfile?.takes_it?.value)
+    .map(code => cfg.values.find(v => v.code === code))
+    .filter((v): v is NonNullable<typeof v> => !!v && !v.exclusive)
+    .map(v => v.label.toLowerCase());
+  if (!labels.length) return undefined;
+  return template.replace('{list}', labels.join(' and '));
+}
 
 export interface DimensionAverage {
   dimensionName: string;
@@ -104,7 +117,9 @@ export async function getCuppingDimensionAverages(coffeeId: number): Promise<Dim
 export function computeRecipe(
   methodKey: string,
   dimensionAverages: DimensionAverage[],
-  brewProfile: BrewProfileDoc | null
+  brewProfile: BrewProfileDoc | null,
+  // Usual Drink 2: the brew_card_takes_it text, read by the caller (keeps this pure)
+  takesItTemplate?: string
 ): BrewCardParams {
   const defaults = getBrewDefaults();
   const base = defaults.methods[methodKey] ?? defaults.methods.other;
@@ -132,8 +147,7 @@ export function computeRecipe(
   grindIndex = Math.max(0, Math.min(grindScale.length - 1, grindIndex));
   const grindLabel = grindScale[grindIndex];
 
-  const takesIt = brewProfile?.takes_it?.value;
-  const takesItPhrase = typeof takesIt === 'string' ? TAKES_IT_PHRASE[takesIt] : undefined;
+  const takesItPhrase = takesItSentence(brewProfile, takesItTemplate);
 
   const noteParts: string[] = [];
   if (dimensionNotes.length) {
@@ -202,7 +216,7 @@ export async function generateCard(
   if (existing.rows.length) return rowToCard(existing.rows[0]);
 
   const dimensionAverages = await getCuppingDimensionAverages(coffeeId);
-  const params = computeRecipe(method, dimensionAverages, brewProfile);
+  const params = computeRecipe(method, dimensionAverages, brewProfile, (await brewTextParams()).brew_card_takes_it);
 
   const inserted = await db.query(
     `INSERT INTO user_brew_card (user_id, coffee_id, method, params, origin)
@@ -235,7 +249,7 @@ export async function createArrivalCard(
   if (existing.rows.length) return { card: rowToCard(existing.rows[0]), isNewCard: false };
 
   const dimensionAverages = await getCuppingDimensionAverages(coffeeId);
-  const params = computeRecipe(method, dimensionAverages, brewProfile);
+  const params = computeRecipe(method, dimensionAverages, brewProfile, (await brewTextParams()).brew_card_takes_it);
   const { deliveryDelayDays } = getArrivalNoteConfig();
   const scheduledFor = new Date(Date.now() + deliveryDelayDays * 86_400_000);
 

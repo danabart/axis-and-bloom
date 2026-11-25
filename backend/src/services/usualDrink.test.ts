@@ -35,7 +35,11 @@ beforeAll(async () => { await brew.loadBrewProfileFields(); });
 afterAll(async () => { await db.end(); });
 
 type C = pg.PoolClient;
-const CARD = ['usual_drink', 'cupboard_coffee', 'coffee_feeling'];
+// Usual Drink 2: the card is the rows with is_on_card (five); most days
+// (main_drink) is offered only once two drinks are picked, so a card with no
+// drinks shows the other four.
+const CARD = ['usual_drink', 'main_drink', 'cupboard_coffee', 'cupboard_roast', 'coffee_feeling'];
+const CARD_SHOWN = CARD.filter(c => c !== 'main_drink');
 
 async function guest(c: C, opts: { quiz?: boolean; proxyBy?: string; createdDaysAgo?: number; quizDaysAgo?: number } = {}) {
   const uid = `zzz-ud1-${randomUUID()}`;
@@ -65,15 +69,16 @@ async function liamSession(c: C, uid: string): Promise<number> {
 }
 
 describe('the field list (B1)', () => {
-  it('serves the eight seeded fields synchronously, the card gets the three with a prompt in order', async () => {
+  it('serves the seeded fields synchronously, the card gets the is_on_card ones in order', async () => {
     const cfg = brew.getBrewProfileFieldsConfig();
     expect(Object.keys(cfg)).toEqual(expect.arrayContaining(['brew_methods', 'grinder', 'takes_it', 'decaf_constraint', 'aversions', ...CARD]));
     const card = await brewProfileOptions('card');
     expect(card.fields.map(f => f.code)).toEqual(CARD);
-    expect(card.fields[0].picker).toBe('multi_select');
-    expect(card.fields[1].picker).toBe('typeahead');
-    expect(card.fields[2].picker).toBe('chips');
-    expect(card.fields[1].values.filter(v => v.pinned).map(v => v.code)).toEqual(['dont_know', 'nothing', 'pods_unknown', 'other']);
+    const by = Object.fromEntries(card.fields.map(f => [f.code, f]));
+    expect(by.usual_drink.picker).toBe('multi_select');
+    expect(by.cupboard_coffee.picker).toBe('typeahead');
+    expect(by.coffee_feeling.picker).toBe('chips');
+    expect(by.cupboard_coffee.values.filter(v => v.pinned).map(v => v.code)).toEqual(['dont_know', 'nothing', 'pods_unknown', 'other']);
     expect(card.copy.post_result_save).toBeTruthy();
     expect(card.copy.post_result_skip).toBeTruthy();
   });
@@ -84,7 +89,7 @@ describe('three writers, all three fields, the views (Part E 1)', () => {
     await withRollback(async ({ client: c }) => {
       // quiz: the card
       const g1 = await guest(c);
-      await recordPostResultCard({ uid: g1.uid, quizSessionId: g1.sessionId, shown: CARD, answers: [
+      await recordPostResultCard({ uid: g1.uid, quizSessionId: g1.sessionId, shown: CARD_SHOWN, answers: [
         { field: 'usual_drink', value: ['latte', 'drip_black'] }, { field: 'cupboard_coffee', value: 'counter_culture' }, { field: 'coffee_feeling', value: 'bolder' },
       ] }, c);
       // onsite: the Profile PATCH path (validateFullValue + the door, as users.ts)
@@ -126,24 +131,24 @@ describe('three writers, all three fields, the views (Part E 1)', () => {
 });
 
 describe('the post-result card (B2)', () => {
-  it('one answer of three shown: one set and two declined rows', async () => {
+  it('one answer of the shown fields: one set and the others declined', async () => {
     await withRollback(async ({ client: c }) => {
       const g = await guest(c);
-      const r = await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: CARD, answers: [{ field: 'coffee_feeling', value: 'different' }] }, c);
-      expect(r.inserted).toBe(3);
+      const r = await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: CARD_SHOWN, answers: [{ field: 'coffee_feeling', value: 'different' }] }, c);
+      expect(r.inserted).toBe(CARD_SHOWN.length);
       const all = await rows(c, g.userId);
       expect(all.filter(x => x.op === 'set').map(x => x.field)).toEqual(['coffee_feeling']);
-      expect(all.filter(x => x.op === 'declined').map(x => x.field).sort()).toEqual(['cupboard_coffee', 'usual_drink']);
+      expect(all.filter(x => x.op === 'declined').map(x => x.field).sort()).toEqual(CARD_SHOWN.filter(f => f !== 'coffee_feeling').sort());
       expect(all.filter(x => x.op === 'declined').every(x => x.value === null && x.quiz_session_id === g.sessionId)).toBe(true);
     });
   });
 
-  it('Skip declines all three; resubmitting inserts nothing', async () => {
+  it('Skip declines every shown field; resubmitting inserts nothing', async () => {
     await withRollback(async ({ client: c }) => {
       const g = await guest(c);
-      expect((await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: CARD, answers: [] }, c)).inserted).toBe(3);
-      expect((await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: CARD, answers: [] }, c)).inserted).toBe(0);
-      expect((await rows(c, g.userId)).map(x => x.op)).toEqual(['declined', 'declined', 'declined']);
+      expect((await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: CARD_SHOWN, answers: [] }, c)).inserted).toBe(CARD_SHOWN.length);
+      expect((await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: CARD_SHOWN, answers: [] }, c)).inserted).toBe(0);
+      expect((await rows(c, g.userId)).map(x => x.op)).toEqual(CARD_SHOWN.map(() => 'declined'));
     });
   });
 
@@ -161,10 +166,10 @@ describe('the post-result card (B2)', () => {
   it('declined rows change no view: value, captured_at and source stay', async () => {
     await withRollback(async ({ client: c }) => {
       const g = await guest(c);
-      await record.brewProfileChange({ userId: g.userId, source: 'onsite', sourceId: `t-${randomUUID()}`, field: 'takes_it', op: 'set', value: JSON.stringify('black') }, c);
+      await record.brewProfileChange({ userId: g.userId, source: 'onsite', sourceId: `t-${randomUUID()}`, field: 'takes_it', op: 'set', value: JSON.stringify(['black']) }, c);
       const before = (await c.query(`SELECT b.* FROM v_customer_brew_profile b JOIN v_customer_identity vi ON vi.canonical_user_id = b.canonical_user_id WHERE vi.user_id = $1`, [g.userId])).rows;
       await record.brewProfileChange({ userId: g.userId, source: 'quiz', sourceId: `${g.sessionId}:takes_it:declined`, quizSessionId: g.sessionId, field: 'takes_it', op: 'declined', value: null }, c);
-      await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: CARD, answers: [] }, c);
+      await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: CARD_SHOWN, answers: [] }, c);
       const after = (await c.query(`SELECT b.* FROM v_customer_brew_profile b JOIN v_customer_identity vi ON vi.canonical_user_id = b.canonical_user_id WHERE vi.user_id = $1`, [g.userId])).rows;
       expect(after).toEqual(before);
       expect(await reads.getUsualDrinks(g.uid, c)).toEqual([]);
@@ -207,13 +212,13 @@ describe('the post-result card (B2)', () => {
     await withRollback(async ({ client: c }) => {
       const actor = await guest(c, { quiz: false });
       const member = await guest(c, { proxyBy: actor.userId });
-      await expect(recordPostResultCard({ uid: actor.uid, quizSessionId: member.sessionId, shown: CARD, answers: [] }, c))
+      await expect(recordPostResultCard({ uid: actor.uid, quizSessionId: member.sessionId, shown: CARD_SHOWN, answers: [] }, c))
         .rejects.toSatisfy((e: unknown) => e instanceof PostResultCardError && e.status === 409);
-      await expect(recordPostResultCard({ uid: member.uid, quizSessionId: member.sessionId, shown: CARD, answers: [] }, c))
+      await expect(recordPostResultCard({ uid: member.uid, quizSessionId: member.sessionId, shown: CARD_SHOWN, answers: [] }, c))
         .rejects.toSatisfy((e: unknown) => e instanceof PostResultCardError && e.status === 409);
       const other = await guest(c);
       const stranger = await guest(c, { quiz: false });
-      await expect(recordPostResultCard({ uid: stranger.uid, quizSessionId: other.sessionId, shown: CARD, answers: [] }, c))
+      await expect(recordPostResultCard({ uid: stranger.uid, quizSessionId: other.sessionId, shown: CARD_SHOWN, answers: [] }, c))
         .rejects.toSatisfy((e: unknown) => e instanceof PostResultCardError && e.status === 403);
       expect(await rows(c, member.userId)).toEqual([]);
       expect(await rows(c, other.userId)).toEqual([]);
@@ -223,7 +228,7 @@ describe('the post-result card (B2)', () => {
   it('a guest answers the card, then signs up: the canonical profile shows the guest\'s values', async () => {
     await withRollback(async ({ client: c }) => {
       const g = await guest(c);
-      await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: CARD, answers: [{ field: 'usual_drink', value: ['latte'] }, { field: 'coffee_feeling', value: 'happy' }] }, c);
+      await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: CARD_SHOWN, answers: [{ field: 'usual_drink', value: ['latte'] }, { field: 'coffee_feeling', value: 'happy' }] }, c);
       const account = await guest(c, { quiz: false });
       await record.identityLink({ userId: g.userId, fromUserId: g.userId, toUserId: account.userId, how: 'email_match', source: 'onsite', sourceId: `t-${randomUUID()}` }, c);
       expect((await reads.getUsualDrinks(account.uid, c)).map(d => d.code)).toEqual(['latte']);
@@ -244,7 +249,7 @@ describe('the field rows are the switch (A4, B2 kill switch)', () => {
       try {
         await brew.loadBrewProfileFields(c);
         const card = await brewProfileOptions('card', c);
-        expect(card.fields.map(f => f.code)).toEqual(['usual_drink', 'cupboard_coffee']);
+        expect(card.fields.map(f => f.code)).toEqual(CARD.filter(c => c !== 'coffee_feeling'));
         const mirror = await brewProfileOptions('mirror', c);
         const kitchen = mirror.fields.find(f => f.code === 'cupboard_coffee')!;
         expect(kitchen.values.map(v => v.code)).not.toContain('wawa');
@@ -307,7 +312,7 @@ describe('the purge guard (A8, D13; Dana 2026-11-12: the empty-guest rule only)'
       await record.brewProfileChange({ userId: kept.userId, source: 'onsite', sourceId: `t-${randomUUID()}`, field: 'grinder', op: 'set', value: JSON.stringify('blade') }, c);
       const empty = await guest(c, { quiz: false, createdDaysAgo: 30 });
       const staleWithFacts = await guest(c, { quizDaysAgo: 91 });
-      await recordPostResultCard({ uid: staleWithFacts.uid, quizSessionId: staleWithFacts.sessionId, shown: CARD, answers: [] }, c);
+      await recordPostResultCard({ uid: staleWithFacts.uid, quizSessionId: staleWithFacts.sessionId, shown: CARD_SHOWN, answers: [] }, c);
       const cands = await staleGuestCandidates(c);
       expect(cands.empty).not.toContain(kept.uid);
       expect(cands.empty).toContain(empty.uid);

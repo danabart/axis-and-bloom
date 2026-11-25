@@ -496,6 +496,8 @@ export interface BrewProfileFieldEntry {
   value: string | boolean | string[];
   source: 'conversation' | 'profile_page' | null;
   capturedAt: string | null;
+  /** Usual Drink 2: the customer's own words on a value that accepts them */
+  words?: string | null;
 }
 export type BrewProfileData = Record<string, BrewProfileFieldEntry>;
 
@@ -507,29 +509,23 @@ export async function getBrewProfile(): Promise<BrewProfileData> {
   return res.json();
 }
 
-export async function setBrewProfileField(field: string, value: string | boolean | string[], words?: string | null) {
-  const res = await fetch(`${BASE}/users/brew-profile`, {
-    method: 'PATCH',
-    headers: await getHeaders(),
-    body: JSON.stringify(words ? { field, value, words } : { field, value }),
-  });
-  if (!res.ok) {
-    // Error responses aren't guaranteed to be valid JSON (e.g. a raw 500
-    // from an intermediary) — fall back to a generic message rather than
-    // letting a parse failure mask the real error being thrown below.
-    const j = await res.json().catch(() => ({}));
-    throw new Error(j.error ?? 'Failed to save field');
+// Usual Drink 2 (B3): the routine's one save, every answer of the form plus
+// the cleared fields. The PATCH / DELETE per-field routes are no longer called
+// (OPEN_TASKS). A failure throws BrewRoutineSaveError; the server's message is
+// for the log (reportError), never shown: the page shows routine_save_error.
+export class BrewRoutineSaveError extends Error {
+  constructor(public status: number, public serverMessage: string) {
+    super(`routine save failed (${status}): ${serverMessage}`);
+    this.name = 'BrewRoutineSaveError';
   }
-  return res.json();
 }
-
-export async function deleteBrewProfileField(field: string) {
-  const res = await fetch(`${BASE}/users/brew-profile`, {
-    method: 'DELETE',
-    headers: await getHeaders(),
-    body: JSON.stringify({ field }),
-  });
-  if (!res.ok) throw new Error('Failed to delete field');
+export async function saveBrewRoutine(body: { answers: Array<{ field: string; value: unknown; words?: string | null }>; cleared: string[] }) {
+  const res = await fetch(`${BASE}/users/brew-profile`, { method: 'PUT', headers: await getHeaders(), body: JSON.stringify(body) });
+  if (!res.ok) {
+    // error bodies are not guaranteed JSON (a raw 500 from an intermediary)
+    const j = await res.json().catch(() => ({}));
+    throw new BrewRoutineSaveError(res.status, j.error ?? res.statusText);
+  }
   return res.json();
 }
 
@@ -642,12 +638,16 @@ export async function resolveQrToken(token?: string): Promise<QrResolveResult> {
 // fields in sort order, each with its picker, caps, prompt and active values,
 // the labels of every value for display, and the card's words. Nothing about a
 // field is typed in the frontend (G4.2).
-export interface BrewOptionValue { code: string; label: string; pinned: boolean; acceptsWords: boolean; aliases: string[] }
+// Usual Drink 2: each field's routine group and the field its values come
+// from (valuesFrom), each value's exclusive flag, and the autocomplete limit.
+export interface BrewOptionValue { code: string; label: string; pinned: boolean; acceptsWords: boolean; aliases: string[]; exclusive?: boolean }
+export interface BrewOptionGroup { code: string; label: string; sortOrder: number }
 export interface BrewOptionField {
   code: string; label: string; prompt: string | null; type: 'enum' | 'array' | 'bool' | 'array_freeform'; picker: string;
   maxItems: number | null; maxItemLen: number | null; values: BrewOptionValue[]; displayLabels: Record<string, string>;
+  group?: BrewOptionGroup | null; valuesFrom?: string | null;
 }
-export interface BrewProfileOptions { fields: BrewOptionField[]; copy: Record<string, string> }
+export interface BrewProfileOptions { fields: BrewOptionField[]; copy: Record<string, string>; limits?: { typeaheadMaxRows: number } }
 
 export async function getBrewProfileOptions(): Promise<BrewProfileOptions> {
   const res = await fetch(`${BASE}/users/brew-profile/options`, { headers: await getHeaders() });

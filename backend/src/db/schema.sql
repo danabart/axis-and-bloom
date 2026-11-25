@@ -12426,10 +12426,147 @@ DO $$ DECLARE n int; BEGIN
   END IF;
 END $$;
 
+-- ── USUAL DRINK 2 (2026-11-24): the coffee routine ─────────────────────────
+-- backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_2_ROUTINE_AND_PROFILE.md (Rev 2)
+-- Groups, a "values come from another field" link, a card flag, an
+-- exclusive-value flag; main_drink and cupboard_roast; takes_it becomes several
+-- choices. No successor table (Dana 2026-11-24, Task 0 answer 3). Changes to
+-- existing rows are one-time moves, made in the same block that adds the new
+-- columns and only while each row still has its seeded value; an owner edit
+-- made after that boot is kept (G2.8).
+
+-- A1. groups of the routine card
+CREATE TABLE IF NOT EXISTS brew_profile_group (
+  id         SERIAL PRIMARY KEY,
+  code       TEXT NOT NULL UNIQUE,
+  label      TEXT NOT NULL,
+  sort_order INT NOT NULL,
+  is_active  BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO brew_profile_group (code, label, sort_order) VALUES
+  ('make', 'What you make', 1), ('gear', 'What you brew with', 2), ('adds', 'What goes in it', 3),
+  ('kitchen', 'In your kitchen now', 4), ('more', 'Good to know', 5)
+ON CONFLICT (code) DO NOTHING;
+
+-- G2.9 amendment: the two tables this brief touches get now() defaults.
+ALTER TABLE brew_profile_field ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE brew_profile_field ALTER COLUMN updated_at SET DEFAULT now();
+ALTER TABLE brew_profile_field_value ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE brew_profile_field_value ALTER COLUMN updated_at SET DEFAULT now();
+
+-- A2 / A3 / A5 / A6. New columns and the one-time moves of existing rows.
+-- Runs once: skipped as soon as brew_profile_field.group_id exists.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'brew_profile_field' AND column_name = 'group_id') THEN
+    ALTER TABLE brew_profile_field ADD COLUMN group_id INT REFERENCES brew_profile_group(id);
+    ALTER TABLE brew_profile_field ADD COLUMN IF NOT EXISTS values_from_field_id INT REFERENCES brew_profile_field(id);
+    ALTER TABLE brew_profile_field ADD COLUMN IF NOT EXISTS is_on_card BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE brew_profile_field_value ADD COLUMN IF NOT EXISTS is_exclusive BOOLEAN NOT NULL DEFAULT false;
+
+    -- what the card shows today (A2)
+    UPDATE brew_profile_field SET is_on_card = true, updated_at = now()
+     WHERE code IN ('usual_drink', 'cupboard_coffee', 'coffee_feeling');
+
+    -- groups and sort orders (A5); the sort moves only from the seeded sort
+    UPDATE brew_profile_field f SET group_id = g.id, updated_at = now()
+      FROM (VALUES ('usual_drink', 'make'), ('brew_methods', 'gear'), ('grinder', 'gear'), ('takes_it', 'adds'),
+                   ('cupboard_coffee', 'kitchen'), ('coffee_feeling', 'kitchen'), ('decaf_constraint', 'more'), ('aversions', 'more')) AS v(code, grp)
+      JOIN brew_profile_group g ON g.code = v.grp
+     WHERE f.code = v.code;
+    UPDATE brew_profile_field f SET sort_order = v.new_sort, updated_at = now()
+      FROM (VALUES ('usual_drink', 6, 1), ('brew_methods', 1, 3), ('grinder', 2, 4), ('takes_it', 3, 5),
+                   ('cupboard_coffee', 7, 6), ('coffee_feeling', 8, 8), ('decaf_constraint', 4, 9), ('aversions', 5, 10)) AS v(code, old_sort, new_sort)
+     WHERE f.code = v.code AND f.sort_order = v.old_sort;
+
+    -- labels and prompts (A5), only while still the seeded text
+    UPDATE brew_profile_field SET label = 'What you brew with', updated_at = now() WHERE code = 'brew_methods' AND label = 'Brew methods';
+    UPDATE brew_profile_field SET label = 'What goes in it', updated_at = now() WHERE code = 'takes_it' AND label = 'Takes it';
+    UPDATE brew_profile_field f SET prompt = v.prompt, updated_at = now()
+      FROM (VALUES ('brew_methods', 'What do you brew with? Pick all that apply.'), ('grinder', 'Do you grind at home?'),
+                   ('takes_it', 'What goes in it? Pick all that apply.'), ('decaf_constraint', 'Do you need decaf?'),
+                   ('aversions', 'Anything you never want to taste?')) AS v(code, prompt)
+     WHERE f.code = v.code AND f.prompt IS NULL;
+
+    -- grinder: select -> chips; takes_it: enum/select -> array/multi_select, at most 4 (D3)
+    UPDATE brew_profile_field SET picker_id = (SELECT id FROM brew_profile_picker WHERE code = 'chips'), updated_at = now()
+     WHERE code = 'grinder' AND picker_id = (SELECT id FROM brew_profile_picker WHERE code = 'select');
+    UPDATE brew_profile_field
+       SET value_kind_id = (SELECT id FROM brew_profile_value_kind WHERE code = 'array'),
+           picker_id = (SELECT id FROM brew_profile_picker WHERE code = 'multi_select'), max_items = 4, updated_at = now()
+     WHERE code = 'takes_it'
+       AND value_kind_id = (SELECT id FROM brew_profile_value_kind WHERE code = 'enum')
+       AND picker_id = (SELECT id FROM brew_profile_picker WHERE code = 'select');
+
+    -- takes_it values (A6): relabel, reorder, black stands alone, milk_and_sugar retired (never deleted)
+    UPDATE brew_profile_field_value fv SET label = v.new_label, updated_at = now()
+      FROM brew_profile_field f, (VALUES ('black', 'Black', 'Nothing, black'), ('milk', 'With milk', 'Milk'), ('sugar', 'With sugar', 'Sugar')) AS v(code, old_label, new_label)
+     WHERE f.code = 'takes_it' AND fv.field_id = f.id AND fv.code = v.code AND fv.label = v.old_label;
+    UPDATE brew_profile_field_value fv SET sort_order = v.new_sort, updated_at = now()
+      FROM brew_profile_field f, (VALUES ('sugar', 3, 4), ('milk_and_sugar', 4, 6)) AS v(code, old_sort, new_sort)
+     WHERE f.code = 'takes_it' AND fv.field_id = f.id AND fv.code = v.code AND fv.sort_order = v.old_sort;
+    UPDATE brew_profile_field_value fv SET is_exclusive = true, updated_at = now()
+      FROM brew_profile_field f WHERE f.code = 'takes_it' AND fv.field_id = f.id AND fv.code = 'black';
+    UPDATE brew_profile_field_value fv SET is_active = false, updated_at = now()
+      FROM brew_profile_field f WHERE f.code = 'takes_it' AND fv.field_id = f.id AND fv.code = 'milk_and_sugar';
+  END IF;
+END $$;
+
+-- A5. the two new fields (insert if missing)
+INSERT INTO brew_profile_field (code, label, prompt, value_kind_id, picker_id, max_items, max_item_len, liam_topic, ask_when_empty, sort_order, group_id, values_from_field_id, is_on_card)
+SELECT v.code, v.label, v.prompt, k.id, p.id, NULL, NULL, 'my_coffee', false, v.sort_order, g.id, src.id, true
+FROM (VALUES
+  ('main_drink',     'Most days',         'Which one most days?',         'make',    2, 'usual_drink'),
+  ('cupboard_roast', 'What the bag says', 'What roast does the bag say?', 'kitchen', 7, NULL)
+) AS v(code, label, prompt, grp, sort_order, values_from)
+JOIN brew_profile_value_kind k ON k.code = 'enum'
+JOIN brew_profile_picker p ON p.code = 'chips'
+JOIN brew_profile_group g ON g.code = v.grp
+LEFT JOIN brew_profile_field src ON src.code = v.values_from
+ON CONFLICT (code) DO NOTHING;
+
+-- A6. new value rows (insert if missing); main_drink has none of its own
+INSERT INTO brew_profile_field_value (field_id, code, label, sort_order, pinned, accepts_words)
+SELECT f.id, v.code, v.label, v.sort_order, false, false
+FROM (VALUES
+  ('takes_it', 'plant_milk', 'Oat or other plant milk', 3),
+  ('takes_it', 'syrup_creamer', 'Syrup or flavored creamer', 5),
+  ('cupboard_roast', 'light', 'Light', 1),
+  ('cupboard_roast', 'medium', 'Medium', 2),
+  ('cupboard_roast', 'medium_dark', 'Medium dark', 3),
+  ('cupboard_roast', 'dark', 'Dark', 4),
+  ('cupboard_roast', 'not_sure', 'Not sure', 5)
+) AS v(field, code, label, sort_order)
+JOIN brew_profile_field f ON f.code = v.field
+ON CONFLICT (field_id, code) DO NOTHING;
+
+-- A9. routine words and the autocomplete row cap (insert if missing)
+INSERT INTO brew_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('routine_title',       NULL::numeric, 'Your coffee routine', 'Heading of the coffee-routine block on the Flavor Memory tab (Usual Drink 2, D3). Format: short customer-facing text.'),
+  ('routine_sub',         NULL, 'The more we know, the closer your next bag.', 'Line under the routine heading. Format: one customer-facing sentence.'),
+  ('routine_progress',    NULL, '{answered} of {total} answered', 'Routine progress line. Format: customer-facing text with the placeholders {answered} and {total} (the questions that apply).'),
+  ('routine_missing',     NULL, 'Still to tell us', 'Label of the row of unanswered routine questions. Format: short customer-facing text.'),
+  ('routine_edit',        NULL, 'Edit your routine', 'Button that opens the routine edit view. Format: short customer-facing text.'),
+  ('routine_save',        NULL, 'Save', 'Save button of the routine edit view. Format: short customer-facing text.'),
+  ('routine_cancel',      NULL, 'Cancel', 'Cancel button of the routine edit view. Format: short customer-facing text.'),
+  ('routine_empty',       NULL, 'Tell us how you make your coffee.', 'Routine block line when nothing is answered yet. Format: one customer-facing sentence.'),
+  ('routine_saving',      NULL, 'Saving', 'Save button text while the routine is saving. Format: short customer-facing text.'),
+  ('routine_save_error',  NULL, 'Please try saving again.', 'Shown when a routine save fails; the server''s own message is logged, never shown. Format: one customer-facing sentence.'),
+  ('typeahead_use_typed', NULL, 'Use "{typed}" as I typed it', 'Last row of the autocomplete once something is typed; stores the answer that takes words, with the typed text as the words. Format: customer-facing text with the placeholder {typed}.'),
+  ('typeahead_clear',     NULL, 'Clear', 'Accessible label of the autocomplete''s clear button. Format: short customer-facing text.'),
+  ('brew_card_takes_it',  NULL, 'You take it with {list}.', 'Brew-card sentence about what goes in the coffee. Format: customer-facing sentence with the placeholder {list} (the picked non-exclusive labels, lower-cased, joined with "and").'),
+  ('typeahead_max_rows',  6::numeric, NULL, 'Most matching rows the autocomplete list shows (the use-as-typed row not counted). Range: integer 3 <= value <= 12.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM brew_parameter p WHERE p.key = v.key);
+
 -- ── A5. views ──────────────────────────────────────────────────────────────
 -- The field list: one row per field x allowed value (a field with no value
 -- rows, aversions, once with NULL value columns). Inactive rows included; the
--- one reader (brewProfile.getBrewProfileFieldsConfig) filters (A4).
+-- one reader (brewProfile.loadBrewProfileFields) filters (A4).
+-- Usual Drink 2 (A7): a field with values_from_field_id takes that field's
+-- value rows (main_drink offers the drinks); group, card and exclusive columns.
 DROP VIEW IF EXISTS v_brew_profile_field_current CASCADE;
 CREATE VIEW v_brew_profile_field_current AS
 SELECT f.id AS field_id, f.code AS field_code, f.label AS field_label, f.prompt,
@@ -12439,11 +12576,15 @@ SELECT f.id AS field_id, f.code AS field_code, f.label AS field_label, f.prompt,
        fv.pinned, fv.accepts_words,
        COALESCE((SELECT array_agg(a.alias ORDER BY a.alias) FROM brew_cupboard_brand b
                  JOIN brew_cupboard_brand_alias a ON a.brand_id = b.id WHERE b.field_value_id = fv.id), ARRAY[]::text[]) AS aliases,
-       fv.is_active AS value_is_active
+       fv.is_active AS value_is_active,
+       g.code AS group_code, g.label AS group_label, g.sort_order AS group_sort_order,
+       sf.code AS values_from_field_code, f.is_on_card, fv.is_exclusive
 FROM brew_profile_field f
 JOIN brew_profile_value_kind k ON k.id = f.value_kind_id
 JOIN brew_profile_picker p ON p.id = f.picker_id
-LEFT JOIN brew_profile_field_value fv ON fv.field_id = f.id;
+LEFT JOIN brew_profile_group g ON g.id = f.group_id
+LEFT JOIN brew_profile_field sf ON sf.id = f.values_from_field_id
+LEFT JOIN brew_profile_field_value fv ON fv.field_id = COALESCE(f.values_from_field_id, f.id);
 
 -- Per canonical customer: the latest non-declined row of a field (source,
 -- quiz session) and the latest row carrying the customer's own words.
@@ -12507,8 +12648,30 @@ LEFT JOIN LATERAL (
 ) l ON true
 WHERE b.field = 'coffee_feeling';
 
--- reporting_ro: the four new views only, no table grants (Dana 2026-11-12, Task 0 answer 3).
-GRANT SELECT ON v_brew_profile_field_current, v_customer_usual_drink, v_customer_cupboard_coffee, v_customer_coffee_feeling TO reporting_ro;
+-- Usual Drink 2 (A8): the customer's own words per field, field-generic (no
+-- field code in the body). The words of the latest row that set the field or
+-- carried words (a set without words drops them; a Liam add without words
+-- keeps them), only while the current value still holds a value that accepts
+-- words (a values_from field reads its source field's value rows).
+DROP VIEW IF EXISTS v_customer_brew_profile_words CASCADE;
+CREATE VIEW v_customer_brew_profile_words AS
+SELECT b.canonical_user_id, b.field, w.customer_words
+FROM v_customer_brew_profile b
+JOIN brew_profile_field f ON f.code = b.field
+JOIN LATERAL (
+  SELECT c.customer_words FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
+  WHERE vi.canonical_user_id = b.canonical_user_id AND c.field = b.field
+    AND (c.op = 'set' OR (c.op = 'add' AND c.customer_words IS NOT NULL))
+  ORDER BY c.occurred_at DESC LIMIT 1
+) w ON w.customer_words IS NOT NULL
+WHERE EXISTS (
+  SELECT 1 FROM brew_profile_field_value fv
+  WHERE fv.field_id = COALESCE(f.values_from_field_id, f.id) AND fv.accepts_words
+    AND CASE WHEN jsonb_typeof(b.value_jsonb) = 'array' THEN b.value_jsonb ? fv.code ELSE (b.value_jsonb #>> '{}') = fv.code END
+);
+
+-- reporting_ro: the views only, no table grants (Dana 2026-11-12, Task 0 answer 3).
+GRANT SELECT ON v_brew_profile_field_current, v_customer_usual_drink, v_customer_cupboard_coffee, v_customer_coffee_feeling, v_customer_brew_profile_words TO reporting_ro;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END USUAL DRINK 1 block
@@ -13664,7 +13827,7 @@ DO $$ DECLARE t text; BEGIN
       AND tablename IN ('brew_profile_value_kind', 'brew_profile_picker', 'brew_profile_op', 'brew_profile_field',
                         'brew_profile_field_value', 'brew_drink', 'brew_drink_base_method', 'brew_drink_dilution',
                         'brew_drink_milk', 'brew_cupboard_brand', 'brew_cupboard_brand_kind', 'brew_cupboard_brand_alias',
-                        'brew_coffee_feeling', 'quiz_funnel_event_type')
+                        'brew_coffee_feeling', 'quiz_funnel_event_type', 'brew_profile_group')
   LOOP
     EXECUTE format('REVOKE ALL ON %I FROM ab_app', t);
     EXECUTE format('GRANT SELECT ON %I TO ab_app', t);

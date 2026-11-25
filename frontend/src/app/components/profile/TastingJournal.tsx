@@ -1,7 +1,12 @@
 import OrderFeedbackForm from '../OrderFeedbackForm';
 import type { FlavorMemoryJournalEntry } from '../../lib/api';
 
+// Usual Drink 2 (D4): the heading exists once, here; the history switcher reads it.
+export const JOURNAL_HEADING = 'Tasting journal';
+
 interface Props {
+  /** set inside the Profile's history switcher */
+  hideHeading?: boolean;
   entries: FlavorMemoryJournalEntry[];
   contributionCount: number;
   expandedOrderId: string | null;
@@ -17,11 +22,11 @@ function monthYear(iso: string | null): string {
 /** Memory layer, main column (Profile Part 3 §2) — newest-first tasting journal.
  * Renders the seed line instead of an entry list when there's nothing to show
  * yet (no orders), rather than empty-list chrome. */
-export default function TastingJournal({ entries, contributionCount, expandedOrderId, onExpandOrder, onFeedbackSubmitted }: Props) {
+export default function TastingJournal({ entries, contributionCount, expandedOrderId, onExpandOrder, onFeedbackSubmitted, hideHeading }: Props) {
   if (entries.length === 0) {
     return (
       <div className="flex flex-col gap-4">
-        <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">Tasting journal</p>
+        {!hideHeading && <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">{JOURNAL_HEADING}</p>}
         <p className="text-sm text-[#a33726]/50 tracking-wide">Your journal starts with your first bag.</p>
       </div>
     );
@@ -29,7 +34,7 @@ export default function TastingJournal({ entries, contributionCount, expandedOrd
 
   return (
     <div className="flex flex-col gap-8">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">Tasting journal</p>
+      {!hideHeading && <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">{JOURNAL_HEADING}</p>}
       <div className="flex flex-col gap-6">
         {entries.map(entry => (
           <div key={entry.orderId} className="border-b border-[#a33726]/10 pb-6">

@@ -32,7 +32,12 @@ export interface BrewProfileValueDef {
   acceptsWords: boolean;
   aliases: string[];
   isActive: boolean;
+  /** Usual Drink 2 (A3): picking it clears the other values of an array field */
+  exclusive: boolean;
 }
+
+/** Usual Drink 2 (A1): the routine group a field is shown in. */
+export interface BrewProfileGroupDef { code: string; label: string; sortOrder: number }
 
 export interface BrewProfileFieldConfig {
   id: number;
@@ -53,6 +58,12 @@ export interface BrewProfileFieldConfig {
   allowedValues?: string[];
   /** every value row, inactive included (display of stored values, A4) */
   values: BrewProfileValueDef[];
+  /** Usual Drink 2 (A2): routine group, or null */
+  group: BrewProfileGroupDef | null;
+  /** Usual Drink 2 (A2): the field whose answers this field's value is one of (main_drink <- usual_drink), or null */
+  valuesFrom: string | null;
+  /** Usual Drink 2 (A2): asked on the post-result card */
+  isOnCard: boolean;
 }
 
 interface FieldRow {
@@ -61,6 +72,9 @@ interface FieldRow {
   field_sort_order: number; field_is_active: boolean;
   value_id: number | null; value_code: string | null; value_label: string | null; value_sort_order: number | null;
   pinned: boolean | null; accepts_words: boolean | null; aliases: string[] | null; value_is_active: boolean | null;
+  // Usual Drink 2 (A7); optional so fixtures built before it still type-check
+  group_code?: string | null; group_label?: string | null; group_sort_order?: number | null;
+  values_from_field_code?: string | null; is_on_card?: boolean | null; is_exclusive?: boolean | null;
 }
 
 /** Pure: view rows -> field definitions in sort order. */
@@ -73,6 +87,8 @@ export function buildBrewProfileFields(rows: FieldRow[]): BrewProfileFieldConfig
         id: r.field_id, code: r.field_code, label: r.field_label, prompt: r.prompt, type: r.value_kind, picker: r.picker,
         maxLength: r.max_items ?? undefined, maxItemLength: r.max_item_len ?? undefined,
         liamTopic: r.liam_topic, askWhenEmpty: r.ask_when_empty, sortOrder: r.field_sort_order, isActive: r.field_is_active, values: [],
+        group: r.group_code ? { code: r.group_code, label: r.group_label ?? r.group_code, sortOrder: r.group_sort_order ?? 0 } : null,
+        valuesFrom: r.values_from_field_code ?? null, isOnCard: r.is_on_card === true,
       };
       byId.set(r.field_id, f);
     }
@@ -80,6 +96,7 @@ export function buildBrewProfileFields(rows: FieldRow[]): BrewProfileFieldConfig
       f.values.push({
         id: r.value_id, code: r.value_code, label: r.value_label ?? r.value_code, sortOrder: r.value_sort_order ?? 0,
         pinned: r.pinned === true, acceptsWords: r.accepts_words === true, aliases: r.aliases ?? [], isActive: r.value_is_active !== false,
+        exclusive: r.is_exclusive === true,
       });
     }
   }
@@ -100,7 +117,7 @@ export async function loadBrewProfileFields(runner: Runner = db): Promise<number
   const r = await runner.query<FieldRow>(
     `SELECT field_id, field_code, field_label, prompt, value_kind, picker, max_items, max_item_len, liam_topic, ask_when_empty,
             field_sort_order, field_is_active, value_id, value_code, value_label, value_sort_order, pinned, accepts_words,
-            aliases, value_is_active
+            aliases, value_is_active, group_code, group_label, group_sort_order, values_from_field_code, is_on_card, is_exclusive
      FROM v_brew_profile_field_current`
   );
   fieldCache = buildBrewProfileFields(r.rows);
@@ -236,6 +253,8 @@ export function validateFullValue(fieldCfg: BrewProfileFieldConfig, value: unkno
     if (fieldCfg.maxLength !== undefined && items.length > fieldCfg.maxLength) {
       return { ok: false, error: `${fieldCfg.code} takes at most ${fieldCfg.maxLength} values` };
     }
+    const exclusiveProblem = checkExclusive(fieldCfg, items);
+    if (exclusiveProblem) return { ok: false, error: exclusiveProblem };
     stored = items;
   } else {
     const raw = typeof value === 'boolean' ? String(value) : value;
@@ -252,6 +271,47 @@ export function validateFullValue(fieldCfg: BrewProfileFieldConfig, value: unkno
     }
   }
   return { ok: true, value: stored, words: w || null };
+}
+
+// ── Usual Drink 2 (B1): one rule set, one place ─────────────────────────────
+// Used by the Profile save (brewProfileCard.saveRoutine), the card
+// (recordPostResultCard), Liam (resolveRemember) and the door
+// (customerFacts.checkBrewProfileChange). (a) lives inside validateFullValue;
+// (b) needs the customer's answer to the source field, so it is its own call.
+
+/** (a) An exclusive value stands alone: an array holding one and any other value is rejected. */
+export function checkExclusive(fieldCfg: BrewProfileFieldConfig, items: unknown[]): string | null {
+  if (items.length < 2) return null;
+  const exclusive = items.find(i => fieldCfg.values.find(v => v.code === i)?.exclusive);
+  return exclusive !== undefined ? `${fieldCfg.code}: ${String(exclusive)} stands alone` : null;
+}
+
+/** The answers a stored or submitted value holds, as a list (a single stored value is a one-item list). */
+export function answerList(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  return (Array.isArray(value) ? value : [value]).map(String);
+}
+
+/**
+ * Does a field apply, given the customer's answer to its source field? A field
+ * with no source always applies; a values_from field applies only while its
+ * source holds two or more answers (D1).
+ */
+export function fieldApplies(fieldCfg: BrewProfileFieldConfig, sourceValue: unknown): boolean {
+  return !fieldCfg.valuesFrom || answerList(sourceValue).length >= 2;
+}
+
+/** (b) A values_from field's value must be one of the customer's answers to its source field, and the field must apply. */
+export function checkValuesFrom(fieldCfg: BrewProfileFieldConfig, value: unknown, sourceValue: unknown): string | null {
+  if (!fieldCfg.valuesFrom) return null;
+  if (!fieldApplies(fieldCfg, sourceValue)) return `${fieldCfg.code} is asked only when ${fieldCfg.valuesFrom} holds two or more answers`;
+  const source = answerList(sourceValue);
+  return answerList(value).every(v => source.includes(v)) ? null : `${fieldCfg.code} must be one of the ${fieldCfg.valuesFrom} answers`;
+}
+
+/** The field codes whose values come from this field (main_drink for usual_drink). */
+export function dependentFieldCodes(sourceCode: string): string[] {
+  return getBrewProfileFieldDefs().filter(f => f.isActive && f.valuesFrom === sourceCode).map(f => f.code);
 }
 
 // Write rule 3 (§4.5) — every write attempt, success or failure, increments

@@ -1,6 +1,6 @@
 import { db, whoAmI, type Tx } from '../db/client.js';
 import { getCatalogVersion } from './catalogReads.js';
-import { getBrewProfileFieldsConfig, incrementBrewProfileCounter } from './brewProfile.js';
+import { getBrewProfileFieldsConfig, incrementBrewProfileCounter, checkExclusive } from './brewProfile.js';
 
 // ── Customer Blueprint · brief C1, Part C (2026-09-27) ────────────────────────
 // The only INSERT path onto any customer_* table (plus the customer_-less
@@ -34,8 +34,11 @@ interface CommonFields {
 }
 
 interface BackfillFields {
-  occurredAt: Date;
-  recordedAt?: Date;
+  // Usual Drink 2 (Dana 2026-11-24, Task 0 answer 1): a timestamp text computed
+  // in SQL is passed through as is, so its microseconds survive (a JS Date
+  // holds milliseconds only).
+  occurredAt: Date | string;
+  recordedAt?: Date | string;
 }
 
 async function resolveCatalogVersion(runner: Runner, provided?: string): Promise<string | null> {
@@ -209,6 +212,9 @@ export function checkBrewProfileChange(input: BrewProfileChangeInput): string | 
   if (input.op === 'set' && isArray) {
     if (cfg.maxLength !== undefined && items.length > cfg.maxLength) return `${cfg.code} takes at most ${cfg.maxLength} values`;
     if (new Set(items.map(String)).size !== items.length) return `${cfg.code} has a duplicate value`;
+    // Usual Drink 2 (B1 a): an exclusive value stands alone, whoever writes
+    const exclusive = checkExclusive(cfg, items);
+    if (exclusive) return exclusive;
   }
   for (const item of items) {
     if (cfg.type === 'array_freeform') {

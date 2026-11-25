@@ -7,10 +7,13 @@
 // and button word comes from GET /api/quiz/post-result/options; an empty
 // field list renders nothing (the data kill switch). Save sends every shown
 // field; the server records a declined row for each one left unanswered.
+// Usual Drink 2 (D6): the fields come from the payload as before (now the rows
+// with is_on_card); a valuesFrom field (most days) shows only once its source
+// holds two or more answers (fieldApplies), and is sent in shown only then.
 import { useEffect, useRef, useState } from 'react';
 import { getPostResultOptions, savePostResultCard, logQuizFunnelEvent, type BrewProfileOptions } from '../../lib/api';
 import { reportError } from '../../lib/errorReporter';
-import BrewFieldControl, { emptyDraft, valueFromDraft, draftTakesWords, type BrewDraft } from './BrewFieldControl';
+import BrewFieldControl, { emptyDraft, valueFromDraft, draftTakesWords, fieldApplies, effectiveDraft, type BrewDraft } from './BrewFieldControl';
 
 export default function PostResultCard({ quizSessionId, funnelSessionKey }: { quizSessionId: string; funnelSessionKey: string }) {
   const [options, setOptions] = useState<BrewProfileOptions | null>(null);
@@ -40,15 +43,18 @@ export default function PostResultCard({ quizSessionId, funnelSessionKey }: { qu
   }, [options, funnelSessionKey]);
 
   if (!options || options.fields.length === 0 || state === 'done') return null;
-  const { fields, copy } = options;
+  const { fields: allFields, copy } = options;
+  const sourceDraft = (f: (typeof allFields)[number]) => (f.valuesFrom ? drafts[f.valuesFrom] ?? null : undefined);
+  const fields = allFields.filter(f => fieldApplies(f, sourceDraft(f)));
 
   async function submit(skip: boolean) {
     setState('saving');
     setError('');
     const answers = skip ? [] : fields.flatMap(f => {
-      const value = valueFromDraft(f, drafts[f.code] ?? null);
+      const draft = effectiveDraft(f, drafts[f.code] ?? null, sourceDraft(f));
+      const value = valueFromDraft(f, draft);
       if (value === undefined) return [];
-      const w = draftTakesWords(f, drafts[f.code] ?? null) ? (words[f.code] ?? '').trim() : '';
+      const w = draftTakesWords(f, draft) ? (words[f.code] ?? '').trim() : '';
       return [w ? { field: f.code, value, words: w } : { field: f.code, value }];
     });
     try {
@@ -70,6 +76,7 @@ export default function PostResultCard({ quizSessionId, funnelSessionKey }: { qu
           <div key={f.code} className="flex flex-col gap-2">
             <p className="text-sm text-[#3a2e28]">{f.prompt}</p>
             <BrewFieldControl field={f} draft={drafts[f.code] ?? null} words={words[f.code] ?? ''} copy={copy}
+              sourceDraft={sourceDraft(f)} maxRows={options.limits?.typeaheadMaxRows}
               onChange={d => setDrafts(x => ({ ...x, [f.code]: d }))}
               onWords={w => setWords(x => ({ ...x, [f.code]: w }))} />
           </div>

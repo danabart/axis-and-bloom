@@ -17,13 +17,16 @@ const METHOD_LABEL: Record<string, string> = {
  * (Phase 2) — cards update only through conversation via <<card:adjust>>.
  * Same quiet register and archetype-color-adjacent styling as
  * ActivityTimeline, since this sits right beside it on the Flavor Memory tab. */
-export default function BrewCards({ cards }: Props) {
+// Usual Drink 2 (D4): the heading exists once, here; the history switcher reads it.
+export const BREW_CARDS_HEADING = 'Brew cards';
+
+export default function BrewCards({ cards, hideHeading }: Props & { hideHeading?: boolean }) {
   const { hasLiamAccess } = useAuth();
   if (cards.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">Brew cards</p>
+      {!hideHeading && <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">{BREW_CARDS_HEADING}</p>}
       <div className="flex flex-col gap-5">
         {cards.map(card => (
           <div key={card.id} className="flex flex-col gap-1.5">

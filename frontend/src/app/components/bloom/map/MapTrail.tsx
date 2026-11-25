@@ -6,14 +6,21 @@
 // Ella map 7 (C2): the list as on page 4 of Dana's PDF: each chosen coffee in
 // order, the word of the published step that led to it, the date, and the
 // customer's own words about it when they left some.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import EllaMapFace from './EllaMapFace';
 import { getMapSurfaces, getMapMe, getMapFace, useMapFetch, type MapMe, type MapFaceData } from '../../../lib/mapCustomer';
 
-export default function MapTrail() {
+// Usual Drink 2 (D4): onContent(hasContent, title) is called once the fetch
+// settles (also when the surface says lane or the fetch fails), so the
+// Profile's history switcher knows whether the segment exists and its label
+// (trail_title from the API); the fetch stays here. hideHeading drops the
+// heading and the hairline inside the switcher.
+export default function MapTrail({ onContent, hideHeading }: { onContent?: (hasContent: boolean, title: string | null) => void; hideHeading?: boolean } = {}) {
   const apiFetch = useMapFetch();
   const [me, setMe] = useState<MapMe | null>(null);
   const [face, setFace] = useState<MapFaceData | null>(null);
+  const onContentRef = useRef(onContent);
+  onContentRef.current = onContent;
 
   useEffect(() => {
     if (!apiFetch) return;
@@ -21,10 +28,13 @@ export default function MapTrail() {
     (async () => {
       try {
         const s = await getMapSurfaces(apiFetch);
-        if (s.profile_trail !== 'map') return;
+        if (s.profile_trail !== 'map') { if (live) onContentRef.current?.(false, null); return; }
         const [m, f] = await Promise.all([getMapMe(apiFetch), getMapFace(apiFetch)]);
-        if (live) { setMe(m); setFace(f); }
-      } catch { /* optional section */ }
+        if (live) {
+          setMe(m); setFace(f);
+          onContentRef.current?.(m.trail.length > 0, m.copy.trail_title ?? null);
+        }
+      } catch { if (live) onContentRef.current?.(false, null); /* optional section */ }
     })();
     return () => { live = false; };
   }, [apiFetch]);
@@ -32,8 +42,8 @@ export default function MapTrail() {
   if (!me || !face || me.trail.length === 0) return null;
   return (
     <div data-testid="map-trail">
-      <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />
-      <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-4">{me.copy.trail_title}</p>
+      {!hideHeading && <hr className="border-0 border-t border-[var(--ab-ink-hairline)] my-[34px]" />}
+      {!hideHeading && <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-4">{me.copy.trail_title}</p>}
       <div className="flex flex-col md:flex-row gap-6 items-start">
         <ol className="flex flex-col gap-2 text-sm text-[#3f3a36] flex-1">
           {me.trail.map(t => (
