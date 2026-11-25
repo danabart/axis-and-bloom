@@ -18,8 +18,8 @@ const values = [
 ];
 
 describe('filterTypeahead', () => {
-  it('shows the pinned values before typing', () => {
-    expect(filterTypeahead(values, '').map(x => x.code)).toEqual(['dont_know', 'other']);
+  it('shows every value before typing, pinned first (Usual Drink 3, D3)', () => {
+    expect(filterTypeahead(values, '').map(x => x.code)).toEqual(['dont_know', 'other', 'counter_culture', 'kirkland', 'devocion', 'bustelo']);
   });
   it('matches a label prefix, case-insensitive ("count" → Counter Culture)', () => {
     expect(filterTypeahead(values, 'count').map(x => x.code)).toEqual(['counter_culture']);

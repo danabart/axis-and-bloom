@@ -425,6 +425,18 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **"Nothing, black" stands alone:** milk and sugar save together; picking black clears them and picking another clears black; the door (`checkBrewProfileChange`) refuses `["black", …]` from any writer; Liam's `takes_it=black` is `set ["black"]`.
 - [ ] **Three blocks on the Flavor Memory tab:** palate (retake link beside "Your archetype", always), routine, history (Activity and Tasting journal always; Brew cards only with a card; Your trail only when `MapTrail` reports content); "Leave feedback" opens the journal; a failed save shows `routine_save_error`, never the server's text; at 390 px nothing scrolls sideways, every routine button is 44 px or taller, inputs are 16 px.
 
+## Usual Drink 3: routine fixes (2026-11-25)
+
+- [ ] **Black goes with milk:** `["black","milk"]` saves on `takes_it` (Profile, card, door) and reads back as two chips. The brew card still leaves black out of its sentence (`brew_card_takes_it_skip`).
+- [ ] **Up to three coffees in the kitchen:**
+  - On focus with an empty box, the list shows every value, pinned first, and scrolls inside the overlay.
+  - "star" offers Starbucks. A name not on the list saves as typed.
+  - After a reload both show as chips. A fourth is refused, and the box is gone at three.
+  - "Which one do you drink most?" shows only at two or more and offers a typed-in coffee by its words. Its answer is the filled chip. Removing that coffee clears it in the same save.
+  - "Nothing right now", "I don't know" and pods stand alone.
+- [ ] **Cards and chips:** the read view is one white card and every answer is a chip, the kitchen included (no line of text). In the edit view each question is its own white card, full width at 390 px, with no sideways scroll.
+- [ ] **The coffee they drink most is the kitchen fact:** `v_customer_cupboard_coffee` (and so `/map`'s "You have … in your kitchen") reads `main_cupboard` while it is in the list, else the only coffee, else nothing.
+
 ## Ella's Bloom Map 9: the reasons on `/map` become personal (2026-11-20)
 
 - [ ] **Only approved words, composed at read:** every sentence on `/map` is a `dial_customer_copy`, `dial_said_back`, start-rule or step row joined with the customer's own facts in `matchService.steps`; nothing composed is stored and no model or Liam call writes a customer sentence.

@@ -12561,6 +12561,70 @@ SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
 ) AS v(key, value_numeric, value_text, note)
 WHERE NOT EXISTS (SELECT 1 FROM brew_parameter p WHERE p.key = v.key);
 
+-- ── USUAL DRINK 3 (2026-11-25): routine fixes ──────────────────────────────
+-- backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_3_ROUTINE_FIXES.md
+-- Black can go with milk (D2); the grinder question reworded (D3); the kitchen
+-- takes up to three coffees and asks which one they drink most (D4). Every
+-- change to an existing row is guarded on its brief 1 / brief 2 value, so an
+-- owner edit made after that boot is kept (G2.8). No new table, column or view.
+
+-- A1. takes_it black: no longer exclusive, labelled "Black"
+UPDATE brew_profile_field_value fv SET is_exclusive = false, label = 'Black', updated_at = now()
+  FROM brew_profile_field f
+ WHERE f.code = 'takes_it' AND fv.field_id = f.id AND fv.code = 'black' AND fv.label = 'Nothing, black';
+
+-- A2. grinder: one answer, reworded
+UPDATE brew_profile_field SET prompt = 'What do you grind with most?', updated_at = now()
+ WHERE code = 'grinder' AND prompt = 'Do you grind at home?';
+
+-- A3. cupboard_coffee: up to three coffees. The kind, the cap and the three
+-- stand-alone answers move together, once, while the field is still single.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM brew_profile_field f JOIN brew_profile_value_kind k ON k.id = f.value_kind_id
+              WHERE f.code = 'cupboard_coffee' AND k.code = 'enum') THEN
+    UPDATE brew_profile_field
+       SET value_kind_id = (SELECT id FROM brew_profile_value_kind WHERE code = 'array'), max_items = 3, updated_at = now()
+     WHERE code = 'cupboard_coffee' AND max_items IS NULL;
+    UPDATE brew_profile_field_value fv SET is_exclusive = true, updated_at = now()
+      FROM brew_profile_field f
+     WHERE f.code = 'cupboard_coffee' AND fv.field_id = f.id AND fv.code IN ('dont_know', 'nothing', 'pods_unknown');
+  END IF;
+END $$;
+UPDATE brew_profile_field SET prompt = 'Which coffees are in your kitchen right now? Up to three.', updated_at = now()
+ WHERE code = 'cupboard_coffee' AND prompt = 'Which coffee is in your kitchen right now?';
+
+-- A4. main_cupboard: which one they drink most, offered from the kitchen
+-- answers (values_from), asked only when two or more are named. Inserted once;
+-- the fields after the kitchen box move down one, from their brief 2 sorts.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM brew_profile_field WHERE code = 'main_cupboard') THEN
+    UPDATE brew_profile_field f SET sort_order = v.new_sort, updated_at = now()
+      FROM (VALUES ('aversions', 10, 11), ('decaf_constraint', 9, 10), ('coffee_feeling', 8, 9), ('cupboard_roast', 7, 8)) AS v(code, old_sort, new_sort)
+     WHERE f.code = v.code AND f.sort_order = v.old_sort;
+    INSERT INTO brew_profile_field (code, label, prompt, value_kind_id, picker_id, max_items, max_item_len, liam_topic, ask_when_empty, sort_order, group_id, values_from_field_id, is_on_card)
+    SELECT 'main_cupboard', 'Drink most', 'Which one do you drink most?', k.id, p.id, NULL, NULL, 'my_coffee', false, src.sort_order + 1, g.id, src.id, true
+      FROM brew_profile_field src
+      JOIN brew_profile_value_kind k ON k.code = 'enum'
+      JOIN brew_profile_picker p ON p.code = 'chips'
+      JOIN brew_profile_group g ON g.code = 'kitchen'
+     WHERE src.code = 'cupboard_coffee'
+    ON CONFLICT (code) DO NOTHING;
+  END IF;
+END $$;
+
+-- A5. cupboard_roast: about the one they drink most
+UPDATE brew_profile_field SET prompt = 'What roast does the bag say? If you have several, the one you drink most.', updated_at = now()
+ WHERE code = 'cupboard_roast' AND prompt = 'What roast does the bag say?';
+
+-- A7. the remove button of a picked autocomplete answer (insert if missing)
+INSERT INTO brew_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('typeahead_remove', NULL::numeric, 'Remove {name}', 'Accessible label of the remove button on a picked autocomplete answer (Usual Drink 3, D3). Format: short customer-facing text with the placeholder {name} (the answer as shown).'),
+  ('brew_card_takes_it_skip', NULL, 'black', 'takes_it answers the brew-card sentence (brew_card_takes_it) leaves out, now that black goes with milk (Usual Drink 3, D2). Format: comma-separated takes_it value codes.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM brew_parameter p WHERE p.key = v.key);
+-- ── END USUAL DRINK 3 rows (its view body is v_customer_cupboard_coffee below) ──
+
 -- ── A5. views ──────────────────────────────────────────────────────────────
 -- The field list: one row per field x allowed value (a field with no value
 -- rows, aversions, once with NULL value columns). Inactive rows included; the
@@ -12615,22 +12679,52 @@ LEFT JOIN LATERAL (
 WHERE b.field = 'usual_drink';
 
 DROP VIEW IF EXISTS v_customer_cupboard_coffee CASCADE;
+-- Usual Drink 3 (A6): one row per customer, the coffee they drink most. The
+-- kitchen holds up to three (an array; a single value stored before the
+-- conversion reads as a one-item list). The main one is the answer to the
+-- field whose values come from the kitchen (main_cupboard, found by its
+-- values_from link) while it is still among the kitchen answers, else the only
+-- kitchen answer; several with no main give no row. Words: the latest set row,
+-- or an add that carries words (as v_customer_brew_profile_words).
 CREATE VIEW v_customer_cupboard_coffee AS
-SELECT b.canonical_user_id, fv.id AS field_value_id, fv.code, fv.label,
-       k.code AS brand_kind, cb.roaster_id,
-       CASE WHEN fv.accepts_words THEN l.customer_words END AS customer_words,
-       b.captured_at, b.source, l.quiz_session_id
-FROM v_customer_brew_profile b
-JOIN brew_profile_field f ON f.code = b.field
-JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = (b.value_jsonb #>> '{}')
+WITH k AS (
+  SELECT b.canonical_user_id, b.field, b.captured_at, b.source,
+         CASE WHEN jsonb_typeof(b.value_jsonb) = 'array' THEN ARRAY(SELECT jsonb_array_elements_text(b.value_jsonb))
+              ELSE ARRAY[b.value_jsonb #>> '{}'] END AS codes
+  FROM v_customer_brew_profile b
+  WHERE b.field = 'cupboard_coffee'
+), pick AS (
+  SELECT k.*, CASE WHEN m.code = ANY(k.codes) THEN m.code WHEN cardinality(k.codes) = 1 THEN k.codes[1] END AS code
+  FROM k
+  LEFT JOIN LATERAL (
+    SELECT mb.value_jsonb #>> '{}' AS code
+    FROM v_customer_brew_profile mb
+    JOIN brew_profile_field mf ON mf.code = mb.field
+    JOIN brew_profile_field sf ON sf.id = mf.values_from_field_id AND sf.code = k.field
+    WHERE mb.canonical_user_id = k.canonical_user_id AND jsonb_typeof(mb.value_jsonb) = 'string'
+    ORDER BY mf.sort_order LIMIT 1
+  ) m ON true
+)
+SELECT p.canonical_user_id, fv.id AS field_value_id, fv.code, fv.label,
+       bk.code AS brand_kind, cb.roaster_id,
+       CASE WHEN fv.accepts_words THEN w.customer_words END AS customer_words,
+       p.captured_at, p.source, l.quiz_session_id
+FROM pick p
+JOIN brew_profile_field f ON f.code = p.field
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = p.code
 JOIN brew_cupboard_brand cb ON cb.field_value_id = fv.id
-JOIN brew_cupboard_brand_kind k ON k.id = cb.brand_kind_id
+JOIN brew_cupboard_brand_kind bk ON bk.id = cb.brand_kind_id
 LEFT JOIN LATERAL (
-  SELECT c.quiz_session_id, c.customer_words FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
-  WHERE vi.canonical_user_id = b.canonical_user_id AND c.field = b.field AND c.op <> 'declined'
+  SELECT c.quiz_session_id FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
+  WHERE vi.canonical_user_id = p.canonical_user_id AND c.field = p.field AND c.op <> 'declined'
   ORDER BY c.occurred_at DESC LIMIT 1
 ) l ON true
-WHERE b.field = 'cupboard_coffee';
+LEFT JOIN LATERAL (
+  SELECT c.customer_words FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
+  WHERE vi.canonical_user_id = p.canonical_user_id AND c.field = p.field
+    AND (c.op = 'set' OR (c.op = 'add' AND c.customer_words IS NOT NULL))
+  ORDER BY c.occurred_at DESC LIMIT 1
+) w ON true;
 
 DROP VIEW IF EXISTS v_customer_coffee_feeling CASCADE;
 CREATE VIEW v_customer_coffee_feeling AS

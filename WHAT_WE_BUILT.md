@@ -7127,3 +7127,30 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
 - **What changes on `/map`:** a step card picks its supporting answer in two passes, first among answers not yet used on the page, then among answers already used (same support kinds, same order). "Your answers point elsewhere." appears only when no answer, used or not, supports the step. The top card and the lead are unchanged.
 - **A parameter, not a constant:** `dial_step_reuse_answer` in `evidence_parameter` (seeded 1 in the Ella map 10 block of `schema.sql`, insert if missing; Range integer 0 to 1; editable on the admin parameters card). 0 gives brief 10's one-use rule back. Read by `matchService.steps`; listed in data-catalog check 10.
 - **Pinned pages that changed** (`dialMap10.test.ts`): Dana's account, Geometric now "You'd like a change from what you drink now. More fruit, and sweeter."; 85, Geometric "You're still discovering coffee. Bright fruit over caramel, with more weight."; 23, Tiger Stripe "Coffee is a daily ritual for you, and you're particular about it. More chocolate and body." 33 and 81 unchanged. A new check: with the parameter at 0, the two reusing cards read no_support again. `dialMap9.test.ts` (85, Geometric) now checks both settings. Found on the way: `dialMap7.test.ts` fails 3 tests since Ella map 11, unrelated to this change (OT-176).
+
+### 286. Usual Drink 3: routine fixes (cards and chips, black with milk, up to three coffees in the kitchen, the autocomplete list) (2026-11-25)
+
+`backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_3_ROUTINE_FIXES.md` · `CLOSING_REPORT_3.md`. Test mode; capture and layout only (matching, the map, the dial and Liam's recommendation are unchanged). Dana's decisions after using the live page.
+
+- **Data (rows only; no new table, column or view):**
+  - `takes_it` black is no longer exclusive and reads "Black".
+  - The grinder asks "What do you grind with most?" and stays one answer.
+  - `cupboard_coffee` becomes an array of up to three. "I don't know", "Nothing right now" and "Pods, not sure of the brand" stand alone.
+  - New field `main_cupboard`, "Which one do you drink most?", takes its values from the kitchen and is asked at two or more. The roast prompt now says "the one you drink most".
+  - New `brew_parameter` rows: `typeahead_remove` and `brew_card_takes_it_skip` (`black`, so the brew-card sentence still leaves black out).
+  - `v_customer_cupboard_coffee` keeps its grain: one row per customer, the coffee they drink most, else the only one.
+- **Backend:**
+  - One rule: a list holds at most one answer in the customer's own words (`checkOneWordsValue`, validator and door).
+  - Liam adds kitchen brands under the cap. A new typed name replaces the old one, and a Liam set keeps the stored words.
+  - The conversion script `usualDrink2TakesIt_2026_11_24.ts` gets `--field`/`--tag`. `getLatestSingleValueSets` returns the row's words and skips a customer whose field a later `clear` emptied; declined rows are ignored (Dana).
+  - `backfill` carries `customer_words`.
+  - Check 31 flags "black but every drink has milk" only when black is the only answer (Dana).
+- **Frontend:**
+  - The routine's read view is one white card with every answer as a chip, the kitchen included. The coffee they drink most is the filled chip ("… · Drink most").
+  - In the edit view each question is its own white card.
+  - The autocomplete, in place:
+    - Browse: on focus every value shows, pinned first, scrolling in the overlay.
+    - Replace: typing over a shown answer replaces it.
+    - Several answers: chips with 44 px remove buttons, and the box empties after each pick until three. Picked values aren't offered again.
+    - The "as I typed it" row shows only while the list holds no typed name.
+  - "Which one do you drink most?" shows a typed-in coffee by the customer's words, in the order the customer named them.

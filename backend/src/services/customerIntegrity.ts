@@ -720,7 +720,8 @@ export const USUAL_DRINK_SEED_CODES: Record<string, string[]> = {
   brew_profile_value_kind: ['enum', 'array', 'bool', 'array_freeform'],
   brew_profile_picker: ['select', 'multi_select', 'typeahead', 'toggle', 'freeform_list', 'chips'],
   brew_profile_op: ['set', 'add', 'remove', 'clear', 'declined'],
-  brew_profile_field: ['brew_methods', 'grinder', 'takes_it', 'decaf_constraint', 'aversions', 'usual_drink', 'cupboard_coffee', 'coffee_feeling', 'main_drink', 'cupboard_roast'],
+  brew_profile_field: ['brew_methods', 'grinder', 'takes_it', 'decaf_constraint', 'aversions', 'usual_drink', 'cupboard_coffee', 'coffee_feeling', 'main_drink', 'cupboard_roast',
+    'main_cupboard'], // Usual Drink 3 (A4)
   // Usual Drink 2 (A1)
   brew_profile_group: ['make', 'gear', 'adds', 'kitchen', 'more'],
   brew_drink_base_method: ['espresso', 'filter', 'immersion', 'cold_brew', 'stovetop', 'pod', 'none'],
@@ -928,8 +929,9 @@ export async function checkTakesItVsUsualDrink(scope: CheckScope = {}): Promise<
      SELECT t.canonical_user_id::text, 'takes it with ' || array_to_string(t.takes_it, ', ') || ' but no drink has milk' AS note FROM t JOIN d USING (canonical_user_id)
        WHERE t.takes_it && ARRAY['milk', 'plant_milk', 'milk_and_sugar'] AND NOT d.any_milk
      UNION ALL
+     -- Usual Drink 3 (Dana 2026-11-25): black goes with milk now, so only black alone is a finding
      SELECT t.canonical_user_id::text, 'takes it black but every drink has milk' FROM t JOIN d USING (canonical_user_id)
-       WHERE 'black' = ANY(t.takes_it) AND d.all_milk
+       WHERE t.takes_it = ARRAY['black'] AND d.all_milk
      UNION ALL
      SELECT k.canonical_user_id::text, 'nothing in the kitchen and buy_out not among the drinks' FROM v_customer_cupboard_coffee k
        LEFT JOIN d USING (canonical_user_id) WHERE k.code = 'nothing' AND COALESCE(d.buys_out, false) = false`

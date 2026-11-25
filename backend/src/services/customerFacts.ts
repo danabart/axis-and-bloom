@@ -1,6 +1,6 @@
 import { db, whoAmI, type Tx } from '../db/client.js';
 import { getCatalogVersion } from './catalogReads.js';
-import { getBrewProfileFieldsConfig, incrementBrewProfileCounter, checkExclusive } from './brewProfile.js';
+import { getBrewProfileFieldsConfig, incrementBrewProfileCounter, checkExclusive, checkOneWordsValue } from './brewProfile.js';
 
 // ── Customer Blueprint · brief C1, Part C (2026-09-27) ────────────────────────
 // The only INSERT path onto any customer_* table (plus the customer_-less
@@ -213,7 +213,7 @@ export function checkBrewProfileChange(input: BrewProfileChangeInput): string | 
     if (cfg.maxLength !== undefined && items.length > cfg.maxLength) return `${cfg.code} takes at most ${cfg.maxLength} values`;
     if (new Set(items.map(String)).size !== items.length) return `${cfg.code} has a duplicate value`;
     // Usual Drink 2 (B1 a): an exclusive value stands alone, whoever writes
-    const exclusive = checkExclusive(cfg, items);
+    const exclusive = checkExclusive(cfg, items) ?? checkOneWordsValue(cfg, items);
     if (exclusive) return exclusive;
   }
   for (const item of items) {
@@ -253,8 +253,10 @@ async function brewProfileChangeBackfill(input: BrewProfileChangeInput & Backfil
   await assertOwner(runner);
   const catalogVersion = await resolveCatalogVersion(runner, input.catalogVersion);
   return insertFact(runner, 'customer_brew_profile_change',
-    ['user_id', 'occurred_at', 'recorded_at', 'source', 'source_id', 'catalog_version', 'field', 'value', 'op', 'session_id'],
-    [input.userId, input.occurredAt, input.recordedAt ?? input.occurredAt, input.source, input.sourceId, catalogVersion, input.field, input.value ?? null, input.op, input.sessionId ?? null]);
+    // Usual Drink 3 (Part C): customer_words rides along, so a converted typed-in answer keeps its name
+    ['user_id', 'occurred_at', 'recorded_at', 'source', 'source_id', 'catalog_version', 'field', 'value', 'op', 'session_id', 'customer_words'],
+    [input.userId, input.occurredAt, input.recordedAt ?? input.occurredAt, input.source, input.sourceId, catalogVersion, input.field, input.value ?? null, input.op, input.sessionId ?? null,
+     input.customerWords ?? null]);
 }
 const brewProfileChange = Object.assign(brewProfileChangeFn, { backfill: brewProfileChangeBackfill });
 

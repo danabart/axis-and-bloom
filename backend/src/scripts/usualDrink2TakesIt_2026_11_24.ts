@@ -13,7 +13,14 @@
 // customer is not selected again; the source_id is unique besides.
 // backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_2_ROUTINE_AND_PROFILE.md
 //
-//   DATABASE_URL=<url> npx tsx src/scripts/usualDrink2TakesIt_2026_11_24.ts [--dry-run | --apply] [--expect-db <name>]
+// Usual Drink 3 (2026-11-25, Part C): the same conversion for any field that
+// became several answers (cupboard_coffee): --field <code> --tag <tag> gives
+// source_id <tag>:<field>:<user_id>; the defaults (takes_it, ud2) are brief 2's
+// run. The row's customer_words are carried onto the new row, and a customer
+// whose field a later clear emptied is not converted (Dana 2026-11-25).
+// backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_3_ROUTINE_FIXES.md
+//
+//   DATABASE_URL=<url> npx tsx src/scripts/usualDrink2TakesIt_2026_11_24.ts [--dry-run | --apply] [--expect-db <name>] [--field <code>] [--tag <tag>]
 //
 // --dry-run is the default and writes nothing (one READ ONLY transaction).
 // --apply writes in one transaction.
@@ -25,7 +32,12 @@ import { pathToFileURL } from 'node:url';
 import type { Tx } from '../db/client.js';
 
 export const FIELD = 'takes_it';
+export const TAG = 'ud2';
+/** brief 2's prefix (takes_it, ud2) */
 export const SOURCE_ID_PREFIX = 'ud2:takes_it:';
+
+export interface ConversionTarget { field: string; tag: string }
+const DEFAULT_TARGET: ConversionTarget = { field: FIELD, tag: TAG };
 
 export interface TakesItRow {
   userId: string;
@@ -33,39 +45,42 @@ export interface TakesItRow {
   occurredAt: string;
   nextAt: string;
   value: unknown;
+  customerWords: string | null;
   action: 'convert' | 'skip';
   why?: string;
 }
 
-/** Read-only: every customer whose latest takes_it set row holds a single value, and what --apply does with it. */
-export async function planTakesIt(tx: Tx): Promise<TakesItRow[]> {
+/** Read-only: every customer whose latest set row of the field holds a single value, and what --apply does with it. */
+export async function planTakesIt(tx: Tx, target: ConversionTarget = DEFAULT_TARGET): Promise<TakesItRow[]> {
   const { loadBrewProfileFields, getBrewProfileFieldsConfig } = await import('../services/brewProfile.js');
   await loadBrewProfileFields(tx);
-  const cfg = getBrewProfileFieldsConfig()[FIELD];
-  if (!cfg) throw new Error(`no ${FIELD} field row`);
+  const cfg = getBrewProfileFieldsConfig()[target.field];
+  if (!cfg) throw new Error(`no ${target.field} field row`);
+  if (cfg.type !== 'array') throw new Error(`${target.field} is not a field of several answers`);
   const { getLatestSingleValueSets } = await import('../services/customerReads.js');
-  const { rows } = await getLatestSingleValueSets(FIELD, tx);
+  const { rows } = await getLatestSingleValueSets(target.field, tx);
   return rows.map(row => {
     const value = JSON.parse(row.value) as unknown;
     const def = cfg.values.find(v => v.code === value);
-    const base = { userId: row.userId, setRowId: row.id, occurredAt: row.occurredAt, nextAt: row.nextAt, value };
-    if (!def) return { ...base, action: 'skip' as const, why: 'not a takes_it value' };
+    const base = { userId: row.userId, setRowId: row.id, occurredAt: row.occurredAt, nextAt: row.nextAt, value, customerWords: row.customerWords };
+    if (!def) return { ...base, action: 'skip' as const, why: `not a ${target.field} value` };
     if (!def.isActive) return { ...base, action: 'skip' as const, why: `retired value ${def.code}: reported, no mapping` };
     return { ...base, action: 'convert' as const };
   });
 }
 
 /** Writes the conversion rows in the caller's transaction; returns the plan and how many rows were inserted. */
-export async function applyTakesIt(tx: Tx): Promise<{ plan: TakesItRow[]; written: number }> {
+export async function applyTakesIt(tx: Tx, target: ConversionTarget = DEFAULT_TARGET): Promise<{ plan: TakesItRow[]; written: number }> {
   const { record } = await import('../services/customerFacts.js');
-  const plan = await planTakesIt(tx);
+  const plan = await planTakesIt(tx, target);
   const recordedAt = new Date();
   let written = 0;
   for (const p of plan) {
     if (p.action !== 'convert') continue;
     const r = await record.brewProfileChange.backfill({
-      userId: p.userId, source: 'backfill', sourceId: `${SOURCE_ID_PREFIX}${p.userId}`,
-      field: FIELD, op: 'set', value: JSON.stringify([p.value]),
+      userId: p.userId, source: 'backfill', sourceId: `${target.tag}:${target.field}:${p.userId}`,
+      field: target.field, op: 'set', value: JSON.stringify([p.value]),
+      customerWords: p.customerWords,
       occurredAt: p.nextAt, recordedAt,
     }, tx);
     if (r.inserted) written++;
@@ -75,8 +90,8 @@ export async function applyTakesIt(tx: Tx): Promise<{ plan: TakesItRow[]; writte
 
 export function formatPlan(plan: TakesItRow[]): string {
   const out = [`${plan.filter(p => p.action === 'convert').length} to convert, ${plan.filter(p => p.action === 'skip').length} skipped`, '',
-    '| user | latest set row | occurred_at | value | new row occurred_at | action |', '|---|---|---|---|---|---|'];
-  for (const p of plan) out.push(`| ${p.userId} | ${p.setRowId} | ${p.occurredAt} | ${JSON.stringify(p.value)} | ${p.action === 'convert' ? p.nextAt : ''} | ${p.action}${p.why ? ` (${p.why})` : ''} |`);
+    '| user | latest set row | occurred_at | value | words | new row occurred_at | action |', '|---|---|---|---|---|---|---|'];
+  for (const p of plan) out.push(`| ${p.userId} | ${p.setRowId} | ${p.occurredAt} | ${JSON.stringify(p.value)} | ${p.customerWords ?? ''} | ${p.action === 'convert' ? p.nextAt : ''} | ${p.action}${p.why ? ` (${p.why})` : ''} |`);
   return out.join('\n');
 }
 
@@ -84,11 +99,12 @@ function parseArgs(argv: string[]) {
   const apply = argv.includes('--apply');
   if (apply && argv.includes('--dry-run')) throw new Error('pass --dry-run or --apply, not both');
   const at = (k: string) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : undefined; };
-  return { apply, expectDb: at('--expect-db') ?? 'axisandbloom_test' };
+  return { apply, expectDb: at('--expect-db') ?? 'axisandbloom_test', target: { field: at('--field') ?? FIELD, tag: at('--tag') ?? TAG } };
 }
 
 async function main() {
-  const { apply, expectDb } = parseArgs(process.argv.slice(2));
+  const { apply, expectDb, target } = parseArgs(process.argv.slice(2));
+  const FIELD = target.field;
   const urlDb = (process.env.DATABASE_URL ?? '').split('?')[0].split('/').pop() ?? '';
   if (urlDb !== expectDb) {
     console.error(`REFUSING: DATABASE_URL points at '${urlDb || '(unset)'}', expected '${expectDb}'. Nothing was connected to.`);
@@ -104,14 +120,14 @@ async function main() {
       const client = await db.connect();
       try {
         await client.query('BEGIN READ ONLY');
-        console.log(`# Usual Drink 2 takes_it conversion, DRY RUN on ${cur} (${new Date().toISOString()}); ${FIELD} rows now: ${await count()}\n`);
-        console.log(formatPlan(await planTakesIt(client as unknown as Tx)));
+        console.log(`# ${FIELD} conversion (${target.tag}), DRY RUN on ${cur} (${new Date().toISOString()}); ${FIELD} rows now: ${await count()}\n`);
+        console.log(formatPlan(await planTakesIt(client as unknown as Tx, target)));
       } finally { await client.query('ROLLBACK'); client.release(); }
       return;
     }
     const before = await count();
-    const result = await withTransaction(tx => applyTakesIt(tx));
-    console.log(`# Usual Drink 2 takes_it conversion, APPLIED on ${cur} (${new Date().toISOString()}): ${result.written} row(s) written; ${FIELD} rows ${before} -> ${await count()}\n`);
+    const result = await withTransaction(tx => applyTakesIt(tx, target));
+    console.log(`# ${FIELD} conversion (${target.tag}), APPLIED on ${cur} (${new Date().toISOString()}): ${result.written} row(s) written; ${FIELD} rows ${before} -> ${await count()}\n`);
     console.log(formatPlan(result.plan));
   } finally {
     await db.end();

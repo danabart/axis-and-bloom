@@ -4,6 +4,10 @@
 // brew-card sentence, the words view (A8), the payload (B4) and the seed lists.
 // backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_2_ROUTINE_AND_PROFILE.md
 //
+// Usual Drink 3 (2026-11-25, D2/D4): black goes with milk and the kitchen takes
+// up to three coffees, so the exclusive cases run on the kitchen's stand-alone
+// answers (nothing, dont_know) and kitchen answers are lists.
+//
 // Test DB only. Every write sits in a rolled-back transaction (withRollback):
 // fact rows are insert-only. Field and value codes are the brief's own.
 import 'dotenv/config';
@@ -54,13 +58,13 @@ const setRaw = (c: C, userId: string, field: string, value: unknown, occurredAt?
 
 describe('the one rule set (B1)', () => {
   it('(a) an exclusive value stands alone, in the validator and at the door', async () => {
-    expect(brew.validateFullValue(cfg('takes_it'), ['milk', 'sugar']).ok).toBe(true);
-    expect(brew.validateFullValue(cfg('takes_it'), ['black']).ok).toBe(true);
-    expect(brew.validateFullValue(cfg('takes_it'), ['black', 'milk']).ok).toBe(false);
+    expect(brew.validateFullValue(cfg('cupboard_coffee'), ['wawa', 'starbucks']).ok).toBe(true);
+    expect(brew.validateFullValue(cfg('cupboard_coffee'), ['nothing']).ok).toBe(true);
+    expect(brew.validateFullValue(cfg('cupboard_coffee'), ['nothing', 'wawa']).ok).toBe(false);
     expect(brew.validateFullValue(cfg('takes_it'), ['milk_and_sugar']).ok).toBe(false); // retired: off the pickers
     await withRollback(async ({ client: c }) => {
       const g = await customer(c);
-      await expect(setRaw(c, g.userId, 'takes_it', ['black', 'sugar'])).rejects.toBeInstanceOf(BrewProfileChangeRejected);
+      await expect(setRaw(c, g.userId, 'cupboard_coffee', ['dont_know', 'wawa'])).rejects.toBeInstanceOf(BrewProfileChangeRejected);
     });
   });
   it('(b) a values_from answer must be one of two or more source answers', () => {
@@ -82,12 +86,13 @@ describe('the payload (B4)', () => {
     expect(by.usual_drink.group?.code).toBe('make');
     expect(by.main_drink.valuesFrom).toBe('usual_drink');
     expect(by.main_drink.values.map(v => v.code)).toEqual(by.usual_drink.values.map(v => v.code));
-    expect(by.takes_it.values.find(v => v.code === 'black')?.exclusive).toBe(true);
+    expect(by.takes_it.values.find(v => v.code === 'black')?.exclusive).toBe(false);
+    expect(by.cupboard_coffee.values.find(v => v.code === 'nothing')?.exclusive).toBe(true);
     expect(by.takes_it.values.map(v => v.code)).not.toContain('milk_and_sugar');
     expect(by.takes_it.displayLabels.milk_and_sugar).toBeTruthy();
     expect(mirror.limits.typeaheadMaxRows).toBe(6);
     expect(mirror.copy.routine_save_error).toBeTruthy();
-    expect((await brewProfileOptions('card')).fields.map(f => f.code)).toEqual(['usual_drink', 'main_drink', 'cupboard_coffee', 'cupboard_roast', 'coffee_feeling']);
+    expect((await brewProfileOptions('card')).fields.map(f => f.code)).toEqual(['usual_drink', 'main_drink', 'cupboard_coffee', 'main_cupboard', 'cupboard_roast', 'coffee_feeling']);
   });
   it('the card refuses a dependent it did not offer, accepts it at two drinks', async () => {
     await withRollback(async ({ client: c }) => {
@@ -165,16 +170,16 @@ describe('saveRoutine (B2)', () => {
   it('words are saved with the value that takes them and read back (A8)', async () => {
     await withRollback(async ({ client: c }) => {
       const g = await customer(c);
-      await saveRoutine({ uid: g.uid, answers: [{ field: 'cupboard_coffee', value: 'other', words: 'Café du Monde' }], cleared: [] }, `ev-${randomUUID()}`, c);
-      expect((await current(c, g.uid)).cupboard_coffee).toMatchObject({ value: 'other', words: 'Café du Monde' });
+      await saveRoutine({ uid: g.uid, answers: [{ field: 'cupboard_coffee', value: ['other'], words: 'Café du Monde' }], cleared: [] }, `ev-${randomUUID()}`, c);
+      expect((await current(c, g.uid)).cupboard_coffee).toMatchObject({ value: ['other'], words: 'Café du Monde' });
       // the same value with new words is a change
-      const r = await saveRoutine({ uid: g.uid, answers: [{ field: 'cupboard_coffee', value: 'other', words: 'Lavazza Oro' }], cleared: [] }, `ev-${randomUUID()}`, c);
+      const r = await saveRoutine({ uid: g.uid, answers: [{ field: 'cupboard_coffee', value: ['other'], words: 'Lavazza Oro' }], cleared: [] }, `ev-${randomUUID()}`, c);
       expect(r.rows).toHaveLength(1);
       expect((await current(c, g.uid)).cupboard_coffee?.words).toBe('Lavazza Oro');
       // a listed brand drops the words
-      await saveRoutine({ uid: g.uid, answers: [{ field: 'cupboard_coffee', value: 'wawa' }], cleared: [] }, `ev-${randomUUID()}`, c);
-      expect((await current(c, g.uid)).cupboard_coffee).toMatchObject({ value: 'wawa', words: null });
-      await expect(saveRoutine({ uid: g.uid, answers: [{ field: 'cupboard_coffee', value: 'wawa', words: 'nope' }], cleared: [] }, `ev-${randomUUID()}`, c))
+      await saveRoutine({ uid: g.uid, answers: [{ field: 'cupboard_coffee', value: ['wawa'] }], cleared: [] }, `ev-${randomUUID()}`, c);
+      expect((await current(c, g.uid)).cupboard_coffee).toMatchObject({ value: ['wawa'], words: null });
+      await expect(saveRoutine({ uid: g.uid, answers: [{ field: 'cupboard_coffee', value: ['wawa'], words: 'nope' }], cleared: [] }, `ev-${randomUUID()}`, c))
         .rejects.toBeInstanceOf(RoutineSaveError);
     });
   });
@@ -185,14 +190,14 @@ describe('Liam on takes_it and most days (B5, B6)', () => {
     await withRollback(async ({ client: c }) => {
       const g = await customer(c);
       const s = await liamSession(c, g.uid);
-      await setRaw(c, g.userId, 'takes_it', ['milk', 'sugar']);
-      await resolveRemember(g.uid, [{ field: 'takes_it', rawValue: 'black' }], s, 1, c);
-      expect((await current(c, g.uid)).takes_it?.value).toEqual(['black']);
-      await resolveRemember(g.uid, [{ field: 'takes_it', rawValue: 'milk' }], s, 2, c);
-      expect((await current(c, g.uid)).takes_it?.value).toEqual(['milk']);
-      await resolveRemember(g.uid, [{ field: 'takes_it', rawValue: 'sugar' }], s, 3, c);
-      expect((await current(c, g.uid)).takes_it?.value).toEqual(['milk', 'sugar']);
-      const ops = (await rows(c, g.userId, 'takes_it')).filter(r => r.source === 'liam').map(r => r.op);
+      await setRaw(c, g.userId, 'cupboard_coffee', ['wawa', 'starbucks']);
+      await resolveRemember(g.uid, [{ field: 'cupboard_coffee', rawValue: 'nothing' }], s, 1, c);
+      expect((await current(c, g.uid)).cupboard_coffee?.value).toEqual(['nothing']);
+      await resolveRemember(g.uid, [{ field: 'cupboard_coffee', rawValue: 'wawa' }], s, 2, c);
+      expect((await current(c, g.uid)).cupboard_coffee?.value).toEqual(['wawa']);
+      await resolveRemember(g.uid, [{ field: 'cupboard_coffee', rawValue: 'starbucks' }], s, 3, c);
+      expect((await current(c, g.uid)).cupboard_coffee?.value).toEqual(['wawa', 'starbucks']);
+      const ops = (await rows(c, g.userId, 'cupboard_coffee')).filter(r => r.source === 'liam').map(r => r.op);
       expect(ops).toEqual(['set', 'set', 'add']);
     });
   });
@@ -272,7 +277,9 @@ describe('the brew-card sentence (B6)', () => {
   it('one and two additions; none for black or no answer; a single stored value reads as a list', () => {
     expect(takesItSentence(p(['milk']), tpl)).toBe('You take it with milk.');
     expect(takesItSentence(p(['milk', 'sugar']), tpl)).toBe('You take it with milk and sugar.');
-    expect(takesItSentence(p(['black']), tpl)).toBeUndefined();
+    // Usual Drink 3: black is left out by brew_card_takes_it_skip, not by an exclusive flag
+    expect(takesItSentence(p(['black']), tpl, 'black')).toBeUndefined();
+    expect(takesItSentence(p(['black', 'milk']), tpl, 'black')).toBe('You take it with milk.');
     expect(takesItSentence(null, tpl)).toBeUndefined();
     expect(takesItSentence(p('sugar'), tpl)).toBe('You take it with sugar.');
     expect(takesItSentence(p(['milk']), undefined)).toBeUndefined();

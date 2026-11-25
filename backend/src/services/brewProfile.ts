@@ -253,7 +253,7 @@ export function validateFullValue(fieldCfg: BrewProfileFieldConfig, value: unkno
     if (fieldCfg.maxLength !== undefined && items.length > fieldCfg.maxLength) {
       return { ok: false, error: `${fieldCfg.code} takes at most ${fieldCfg.maxLength} values` };
     }
-    const exclusiveProblem = checkExclusive(fieldCfg, items);
+    const exclusiveProblem = checkExclusive(fieldCfg, items) ?? checkOneWordsValue(fieldCfg, items);
     if (exclusiveProblem) return { ok: false, error: exclusiveProblem };
     stored = items;
   } else {
@@ -284,6 +284,16 @@ export function checkExclusive(fieldCfg: BrewProfileFieldConfig, items: unknown[
   if (items.length < 2) return null;
   const exclusive = items.find(i => fieldCfg.values.find(v => v.code === i)?.exclusive);
   return exclusive !== undefined ? `${fieldCfg.code}: ${String(exclusive)} stands alone` : null;
+}
+
+/**
+ * Usual Drink 3 (B1): a list holds at most one value that accepts words, since
+ * the fact row carries one customer_words text (a second unlisted coffee uses
+ * the list's own row for it).
+ */
+export function checkOneWordsValue(fieldCfg: BrewProfileFieldConfig, items: unknown[]): string | null {
+  const n = items.filter(i => fieldCfg.values.find(v => v.code === i)?.acceptsWords).length;
+  return n > 1 ? `${fieldCfg.code}: one answer in the list can be in your own words` : null;
 }
 
 /** The answers a stored or submitted value holds, as a list (a single stored value is a one-item list). */
@@ -346,6 +356,8 @@ interface BrewProfileFieldEntry {
   value: unknown;
   source: 'conversation' | 'profile_page';
   capturedAt: unknown; // Firestore Timestamp once read back
+  /** the customer's own words on a value that accepts them (getBrewProfileCurrent, Usual Drink 2) */
+  words?: string | null;
 }
 export type BrewProfileDoc = Record<string, BrewProfileFieldEntry | undefined>;
 

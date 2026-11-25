@@ -12,6 +12,11 @@
 // helper the card and the Profile use); otherwise it renders nothing and reads
 // as unanswered. The typeahead takes the customer's words itself (its "use as
 // I typed it" row). Every control is at least 44 px tall; text inputs use 16 px.
+//
+// Usual Drink 3 (2026-11-25), D3/D4: an array field with the typeahead picker
+// (the kitchen, up to three) uses the typeahead's several-answers mode. A
+// valuesFrom field offers its source's picked values by their display text:
+// the customer's words (sourceWords) on the value that takes them.
 import type { BrewOptionField } from '../../lib/api';
 import BrewTypeahead from './BrewTypeahead';
 
@@ -82,7 +87,7 @@ export function toggleMulti(field: BrewOptionField, picked: string[], code: stri
 const chip = (on: boolean) =>
   `min-h-[44px] text-sm px-4 py-2 rounded-full border transition-colors ${on ? 'border-[#a33726] text-[#a33726]' : 'border-[#a33726]/20 text-[#6b5c54]/70'}`;
 
-export default function BrewFieldControl({ field, draft, words, onChange, onWords, copy, sourceDraft, maxRows }: {
+export default function BrewFieldControl({ field, draft, words, onChange, onWords, copy, sourceDraft, sourceWords, maxRows }: {
   field: BrewOptionField;
   draft: BrewDraft;
   words: string;
@@ -91,6 +96,8 @@ export default function BrewFieldControl({ field, draft, words, onChange, onWord
   copy: Record<string, string>;
   /** the source field's draft, for a valuesFrom field */
   sourceDraft?: BrewDraft;
+  /** the source field's words, for a valuesFrom field (a typed-in answer shows by them) */
+  sourceWords?: string;
   /** limits.typeaheadMaxRows from the payload */
   maxRows?: number;
 }) {
@@ -102,9 +109,12 @@ export default function BrewFieldControl({ field, draft, words, onChange, onWord
     const current = effectiveDraft(field, draft, sourceDraft);
     control = (
       <div className="flex flex-wrap gap-2" role="group" aria-label={field.prompt ?? field.label} data-testid={tid}>
-        {field.values.filter(v => offered.includes(v.code)).map(v => (
+        {/* in the order the customer gave them (Usual Drink 3) */}
+        {offered.map(code => field.values.find(v => v.code === code)).filter((v): v is NonNullable<typeof v> => !!v).map(v => (
           <button key={v.code} type="button" aria-pressed={current === v.code} onClick={() => onChange(current === v.code ? null : v.code)}
-            className={chip(current === v.code)} data-testid={`${tid}-option-${v.code}`}>{v.label}</button>
+            className={chip(current === v.code)} data-testid={`${tid}-option-${v.code}`}>
+            {v.acceptsWords && sourceWords?.trim() ? sourceWords.trim() : v.label}
+          </button>
         ))}
       </div>
     );
@@ -125,6 +135,15 @@ export default function BrewFieldControl({ field, draft, words, onChange, onWord
           );
         })}
       </div>
+    );
+  } else if (field.picker === 'typeahead' && field.type === 'array') {
+    const picked = Array.isArray(draft) ? draft : [];
+    return (
+      <BrewTypeahead values={field.values} value={null} words={words} onChange={() => undefined}
+        multi={{ picked, maxItems: field.maxItems, removeLabel: copy.typeahead_remove,
+          onChangeList: (codes, w) => { onChange(codes); onWords(w ?? ''); } }}
+        placeholder={copy.search_placeholder} useTypedText={copy.typeahead_use_typed} clearLabel={copy.typeahead_clear}
+        maxRows={maxRows ?? field.values.length} maxItemLen={field.maxItemLen} testId={tid} />
     );
   } else if (field.picker === 'typeahead') {
     return (

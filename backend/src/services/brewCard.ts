@@ -77,13 +77,17 @@ function getBrewDefaults(): NonNullable<SommelierConfig['brewDefaults']> {
 // joined with "and"; nothing for an exclusive value (black) or no answer. A
 // single stored value (before the Part C conversion) is a one-item list.
 // Replaces the TAKES_IT_PHRASE map.
-export function takesItSentence(brewProfile: BrewProfileDoc | null, template: string | undefined): string | undefined {
+// Usual Drink 3 (D2): black is no longer exclusive (it goes with milk), so the
+// answers the sentence leaves out are brew_parameter brew_card_takes_it_skip
+// (comma-separated takes_it codes); exclusive values are still left out.
+export function takesItSentence(brewProfile: BrewProfileDoc | null, template: string | undefined, skip?: string): string | undefined {
   if (!template) return undefined;
   const cfg = getBrewProfileFieldsConfig()['takes_it'];
   if (!cfg) return undefined;
+  const skipped = (skip ?? '').split(',').map(s => s.trim()).filter(Boolean);
   const labels = answerList(brewProfile?.takes_it?.value)
     .map(code => cfg.values.find(v => v.code === code))
-    .filter((v): v is NonNullable<typeof v> => !!v && !v.exclusive)
+    .filter((v): v is NonNullable<typeof v> => !!v && !v.exclusive && !skipped.includes(v.code))
     .map(v => v.label.toLowerCase());
   if (!labels.length) return undefined;
   return template.replace('{list}', labels.join(' and '));
@@ -119,7 +123,9 @@ export function computeRecipe(
   dimensionAverages: DimensionAverage[],
   brewProfile: BrewProfileDoc | null,
   // Usual Drink 2: the brew_card_takes_it text, read by the caller (keeps this pure)
-  takesItTemplate?: string
+  takesItTemplate?: string,
+  // Usual Drink 3: brew_card_takes_it_skip, read by the caller
+  takesItSkip?: string
 ): BrewCardParams {
   const defaults = getBrewDefaults();
   const base = defaults.methods[methodKey] ?? defaults.methods.other;
@@ -147,7 +153,7 @@ export function computeRecipe(
   grindIndex = Math.max(0, Math.min(grindScale.length - 1, grindIndex));
   const grindLabel = grindScale[grindIndex];
 
-  const takesItPhrase = takesItSentence(brewProfile, takesItTemplate);
+  const takesItPhrase = takesItSentence(brewProfile, takesItTemplate, takesItSkip);
 
   const noteParts: string[] = [];
   if (dimensionNotes.length) {
@@ -216,7 +222,8 @@ export async function generateCard(
   if (existing.rows.length) return rowToCard(existing.rows[0]);
 
   const dimensionAverages = await getCuppingDimensionAverages(coffeeId);
-  const params = computeRecipe(method, dimensionAverages, brewProfile, (await brewTextParams()).brew_card_takes_it);
+  const text = await brewTextParams();
+  const params = computeRecipe(method, dimensionAverages, brewProfile, text.brew_card_takes_it, text.brew_card_takes_it_skip);
 
   const inserted = await db.query(
     `INSERT INTO user_brew_card (user_id, coffee_id, method, params, origin)
@@ -249,7 +256,8 @@ export async function createArrivalCard(
   if (existing.rows.length) return { card: rowToCard(existing.rows[0]), isNewCard: false };
 
   const dimensionAverages = await getCuppingDimensionAverages(coffeeId);
-  const params = computeRecipe(method, dimensionAverages, brewProfile, (await brewTextParams()).brew_card_takes_it);
+  const text = await brewTextParams();
+  const params = computeRecipe(method, dimensionAverages, brewProfile, text.brew_card_takes_it, text.brew_card_takes_it_skip);
   const { deliveryDelayDays } = getArrivalNoteConfig();
   const scheduledFor = new Date(Date.now() + deliveryDelayDays * 86_400_000);
 

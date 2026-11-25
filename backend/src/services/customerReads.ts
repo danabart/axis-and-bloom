@@ -182,20 +182,25 @@ export async function getBrewProfileCurrent(uid: string, runner: Runner = db): P
 // answer 1), and the field's row count. The conversion script's only read of
 // customer_brew_profile_change; it lives here because every customer_* read
 // does (lint:customer rule 4).
-export interface LatestSingleSetRow { id: string; userId: string; value: string; occurredAt: string; nextAt: string }
+// Usual Drink 3 (Dana 2026-11-25): the row's customer_words come with it (a
+// typed-in kitchen coffee keeps its name), and a customer whose field a later
+// `clear` emptied is not selected; a later `declined` row is ignored.
+export interface LatestSingleSetRow { id: string; userId: string; value: string; customerWords: string | null; occurredAt: string; nextAt: string }
 export async function getLatestSingleValueSets(field: string, runner: Runner = db): Promise<{ rows: LatestSingleSetRow[]; fieldRowCount: number }> {
-  const r = await runner.query<{ id: string; user_id: string; value: string; occurred_at: string; next_at: string }>(
-    `SELECT id::text, user_id::text, value, occurred_at::text AS occurred_at,
+  const r = await runner.query<{ id: string; user_id: string; value: string; customer_words: string | null; occurred_at: string; next_at: string }>(
+    `SELECT id::text, user_id::text, value, customer_words, occurred_at::text AS occurred_at,
             (occurred_at + interval '1 microsecond')::text AS next_at
-     FROM (SELECT DISTINCT ON (user_id) id, user_id, value, occurred_at
+     FROM (SELECT DISTINCT ON (user_id) id, user_id, value, customer_words, occurred_at
            FROM customer_brew_profile_change
            WHERE field = $1 AND op = 'set'
            ORDER BY user_id, occurred_at DESC) latest
      WHERE jsonb_typeof(value::jsonb) <> 'array'
+       AND NOT EXISTS (SELECT 1 FROM customer_brew_profile_change c
+                       WHERE c.user_id = latest.user_id AND c.field = $1 AND c.op = 'clear' AND c.occurred_at > latest.occurred_at)
      ORDER BY occurred_at`, [field]);
   const n = await runner.query<{ n: number }>(`SELECT count(*)::int AS n FROM customer_brew_profile_change WHERE field = $1`, [field]);
   return {
-    rows: r.rows.map(x => ({ id: x.id, userId: x.user_id, value: x.value, occurredAt: x.occurred_at, nextAt: x.next_at })),
+    rows: r.rows.map(x => ({ id: x.id, userId: x.user_id, value: x.value, customerWords: x.customer_words, occurredAt: x.occurred_at, nextAt: x.next_at })),
     fieldRowCount: n.rows[0].n,
   };
 }

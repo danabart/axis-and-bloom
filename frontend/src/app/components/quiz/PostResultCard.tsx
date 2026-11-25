@@ -10,6 +10,8 @@
 // Usual Drink 2 (D6): the fields come from the payload as before (now the rows
 // with is_on_card); a valuesFrom field (most days) shows only once its source
 // holds two or more answers (fieldApplies), and is sent in shown only then.
+// Usual Drink 3: the kitchen takes several coffees, and "which one do you drink
+// most" shows a typed-in coffee by the customer's words (sourceWords).
 import { useEffect, useRef, useState } from 'react';
 import { getPostResultOptions, savePostResultCard, logQuizFunnelEvent, type BrewProfileOptions } from '../../lib/api';
 import { reportError } from '../../lib/errorReporter';
@@ -76,7 +78,8 @@ export default function PostResultCard({ quizSessionId, funnelSessionKey }: { qu
           <div key={f.code} className="flex flex-col gap-2">
             <p className="text-sm text-[#3a2e28]">{f.prompt}</p>
             <BrewFieldControl field={f} draft={drafts[f.code] ?? null} words={words[f.code] ?? ''} copy={copy}
-              sourceDraft={sourceDraft(f)} maxRows={options.limits?.typeaheadMaxRows}
+              sourceDraft={sourceDraft(f)} sourceWords={f.valuesFrom ? words[f.valuesFrom] ?? '' : undefined}
+              maxRows={options.limits?.typeaheadMaxRows}
               onChange={d => setDrafts(x => ({ ...x, [f.code]: d }))}
               onWords={w => setWords(x => ({ ...x, [f.code]: w }))} />
           </div>

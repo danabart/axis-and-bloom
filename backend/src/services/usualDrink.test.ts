@@ -38,8 +38,10 @@ type C = pg.PoolClient;
 // Usual Drink 2: the card is the rows with is_on_card (five); most days
 // (main_drink) is offered only once two drinks are picked, so a card with no
 // drinks shows the other four.
-const CARD = ['usual_drink', 'main_drink', 'cupboard_coffee', 'cupboard_roast', 'coffee_feeling'];
-const CARD_SHOWN = CARD.filter(c => c !== 'main_drink');
+// Usual Drink 3: drink most (main_cupboard) joins the card the same way, and
+// the kitchen answer is a list of up to three.
+const CARD = ['usual_drink', 'main_drink', 'cupboard_coffee', 'main_cupboard', 'cupboard_roast', 'coffee_feeling'];
+const CARD_SHOWN = CARD.filter(c => c !== 'main_drink' && c !== 'main_cupboard');
 
 async function guest(c: C, opts: { quiz?: boolean; proxyBy?: string; createdDaysAgo?: number; quizDaysAgo?: number } = {}) {
   const uid = `zzz-ud1-${randomUUID()}`;
@@ -90,11 +92,11 @@ describe('three writers, all three fields, the views (Part E 1)', () => {
       // quiz: the card
       const g1 = await guest(c);
       await recordPostResultCard({ uid: g1.uid, quizSessionId: g1.sessionId, shown: CARD_SHOWN, answers: [
-        { field: 'usual_drink', value: ['latte', 'drip_black'] }, { field: 'cupboard_coffee', value: 'counter_culture' }, { field: 'coffee_feeling', value: 'bolder' },
+        { field: 'usual_drink', value: ['latte', 'drip_black'] }, { field: 'cupboard_coffee', value: ['counter_culture'] }, { field: 'coffee_feeling', value: 'bolder' },
       ] }, c);
       // onsite: the Profile PATCH path (validateFullValue + the door, as users.ts)
       const g2 = await guest(c, { quiz: false });
-      for (const [field, value] of [['usual_drink', ['americano_milk']], ['cupboard_coffee', 'kirkland'], ['coffee_feeling', 'happy']] as const) {
+      for (const [field, value] of [['usual_drink', ['americano_milk']], ['cupboard_coffee', ['kirkland']], ['coffee_feeling', 'happy']] as const) {
         const check = brew.validateFullValue(brew.getBrewProfileFieldsConfig()[field], value);
         expect(check.ok).toBe(true);
         await record.brewProfileChange({ userId: g2.userId, source: 'onsite', sourceId: `t-${randomUUID()}`, field, op: 'set', value: JSON.stringify((check as { value: unknown }).value) }, c);
@@ -110,7 +112,7 @@ describe('three writers, all three fields, the views (Part E 1)', () => {
       expect(r1.every(r => r.source === 'quiz' && r.quiz_session_id === g1.sessionId)).toBe(true);
       expect((await rows(c, g2.userId)).every(r => r.quiz_session_id === null)).toBe(true);
       const r3 = await rows(c, g3.userId);
-      expect(r3.map(r => [r.field, r.op, r.source])).toEqual(expect.arrayContaining([['usual_drink', 'add', 'liam'], ['cupboard_coffee', 'set', 'liam'], ['coffee_feeling', 'set', 'liam']]));
+      expect(r3.map(r => [r.field, r.op, r.source])).toEqual(expect.arrayContaining([['usual_drink', 'add', 'liam'], ['cupboard_coffee', 'add', 'liam'], ['coffee_feeling', 'set', 'liam']]));
       expect(r3.every(r => r.quiz_session_id === null)).toBe(true);
 
       const d1 = await reads.getUsualDrinks(g1.uid, c);
@@ -197,13 +199,13 @@ describe('the post-result card (B2)', () => {
   it('words: kept on other, rejected on any other value, rejected over max_item_len', async () => {
     await withRollback(async ({ client: c }) => {
       const g = await guest(c);
-      await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: 'other', words: 'Café du Monde' }] }, c);
+      await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: ['other'], words: 'Café du Monde' }] }, c);
       const k = await reads.getCupboardCoffee({ uid: g.uid }, c);
       expect([k?.code, k?.customerWords]).toEqual(['other', 'Café du Monde']);
-      await expect(recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: 'starbucks', words: 'the blonde one' }] }, c))
+      await expect(recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: ['starbucks'], words: 'the blonde one' }] }, c))
         .rejects.toSatisfy((e: unknown) => e instanceof PostResultCardError && e.status === 400);
       const cap = brew.getBrewProfileFieldsConfig().cupboard_coffee.maxItemLength!;
-      await expect(recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: 'other', words: 'x'.repeat(cap + 1) }] }, c))
+      await expect(recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: ['other'], words: 'x'.repeat(cap + 1) }] }, c))
         .rejects.toSatisfy((e: unknown) => e instanceof PostResultCardError && e.status === 400);
     });
   });
@@ -243,7 +245,7 @@ describe('the field rows are the switch (A4, B2 kill switch)', () => {
   it('a deactivated value leaves the options while a customer who stored it still sees it; prompt NULL removes a question', async () => {
     await withRollback(async ({ client: c }) => {
       const g = await guest(c);
-      await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: 'wawa' }] }, c);
+      await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: ['wawa'] }] }, c);
       await c.query(`UPDATE brew_profile_field_value SET is_active = false WHERE code = 'wawa' AND field_id = (SELECT id FROM brew_profile_field WHERE code = 'cupboard_coffee')`);
       await c.query(`UPDATE brew_profile_field SET prompt = NULL WHERE code = 'coffee_feeling'`);
       try {

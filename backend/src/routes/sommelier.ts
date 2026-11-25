@@ -34,6 +34,7 @@ import {
   normalizeFieldName,
   answerList,
   checkValuesFrom,
+  checkOneWordsValue,
   type BrewProfileDoc,
 } from '../services/brewProfile.js';
 import {
@@ -505,27 +506,47 @@ export async function resolveRemember(
       const existingArr = answerList(storedValue);
       const storedSingle = storedValue !== undefined && storedValue !== null && !Array.isArray(storedValue);
       const isExclusive = (code: string) => fieldCfg.values.find(v => v.code === code)?.exclusive === true;
+      const acceptsWords = (code: string) => fieldCfg.values.find(v => v.code === code)?.acceptsWords === true;
+      // Usual Drink 3 (B3): a set carries the whole list, and the words view
+      // reads the latest set; a set that still holds the stored typed-in
+      // answer keeps the customer's stored words unless new ones came.
+      const storedWords = current[field]?.words ?? null;
+      const keepWords = (list: string[]) => words ?? (list.some(c => acceptsWords(c) && existingArr.includes(c)) ? storedWords : null);
       // B5: an exclusive value arriving replaces the list; a value arriving
       // while an exclusive one is stored replaces it too.
       if (isExclusive(validated as string)) {
         if (existingArr.length === 1 && existingArr[0] === validated && !storedSingle) continue; // already known
-        accepted.push({ field, op: 'set', value: [validated], words });
+        accepted.push({ field, op: 'set', value: [validated], words: keepWords([validated as string]) });
         continue;
       }
       if (existingArr.some(isExclusive)) {
-        accepted.push({ field, op: 'set', value: [validated], words });
+        accepted.push({ field, op: 'set', value: [validated], words: keepWords([validated as string]) });
         continue;
       }
-      if (existingArr.includes(validated as string)) continue; // already known — nothing new to write
+      if (existingArr.includes(validated as string)) {
+        // Usual Drink 3 (B3): new words for the typed-in answer already in the
+        // list replace the old ones; the list itself stays as it is.
+        if (words && acceptsWords(validated as string) && words !== storedWords) {
+          accepted.push({ field, op: 'set', value: existingArr, words });
+        }
+        continue; // otherwise already known — nothing new to write
+      }
       // Usual Drink 1: an add past max_items is rejected and counted (was uncapped).
       if (fieldCfg.maxLength !== undefined && existingArr.length >= fieldCfg.maxLength) {
         console.warn(`[resolveRemember] "${field}" already holds ${existingArr.length} of ${fieldCfg.maxLength}; add dropped for uid=${uid}`);
         await incrementBrewProfileCounter('failures');
         continue;
       }
+      // Usual Drink 3 (B1): one answer in the list takes the customer's words.
+      const wordsProblem = checkOneWordsValue(fieldCfg, [...existingArr, validated]);
+      if (wordsProblem) {
+        console.warn(`[resolveRemember] ${wordsProblem}; add dropped for uid=${uid}`);
+        await incrementBrewProfileCounter('failures');
+        continue;
+      }
       // Dana 2026-11-24 (Task 0 answer 2): over a single stored value an add
       // would fold to the new item alone, so the whole list is set instead.
-      if (storedSingle) accepted.push({ field, op: 'set', value: [...existingArr, validated], words });
+      if (storedSingle) accepted.push({ field, op: 'set', value: [...existingArr, validated], words: keepWords([...existingArr, validated as string]) });
       else accepted.push({ field, op: 'add', value: validated, words });
     } else {
       // Usual Drink 2 (B5, B1 b): a values_from marker must be one of the

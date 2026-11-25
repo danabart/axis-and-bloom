@@ -54,7 +54,8 @@ describe('the autocomplete (D1)', () => {
     expect(rows).toHaveLength(4);
     expect(rows[rows.length - 1]).toMatchObject({ code: 'other', words: 'co', text: 'Use "co" as I typed it' });
     expect(typeaheadRows(brands, 'co', { maxRows: 6, useTyped: 'x' })).toHaveLength(7);
-    expect(typeaheadRows(brands, '', { maxRows: 3, useTyped: 'x' }).map(r => r.code)).toEqual(['dont_know', 'other']);
+    // Usual Drink 3 (D3): before typing the whole list, pinned first; the cap applies only while typing
+    expect(typeaheadRows(brands, '', { maxRows: 3, useTyped: 'x' }).map(r => r.code)).toEqual(brands.map(b => b.code));
   });
 
   function draw(value: string | null = null, words: string | null = null) {
