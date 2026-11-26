@@ -118,6 +118,18 @@
 .bf-profile-stack .bf-profile { margin-bottom: 0; }
 .bf-profile-stack .bf-pcols { grid-template-columns: 1fr; gap: 20px; padding: 16px 0 4px; }
 .bf-profile-stack .bf-pfoot { display: none; }
+/* Ella map 13 (2026-11-26): the /map panel in the roaster's terms (RevealedPanel mapProfile): a heading over
+   each section, the roaster's methods as one quiet list, a caption under the ratings' heading. From lg the
+   /map panel spans the page (MapPage), so its sections sit in two columns there. */
+.bf-psec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.bf-shines { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 15px; font-weight: 300; line-height: 1.4; }
+.bf-pcaption { margin: -4px 0 4px; font-size: 12px; font-weight: 300; opacity: .75; line-height: 1.4; }
+.bf-psec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.bf-wheel-link { font-size: 10.5px; letter-spacing: .16em; white-space: nowrap; }
+.bf-notes { margin: 0; font-size: 15px; font-weight: 300; line-height: 1.5; }
+@media (min-width: 1024px) {
+  .bf-map-panel .bf-pcols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; }
+}
 
 /* ── lineup ──────────────────────────────────────────────────────────────── */
 .bf-lineup { padding-block: clamp(72px, 9vw, 136px); color: var(--ab-ink); }

@@ -13213,6 +13213,98 @@ WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = 'more_about'
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN ELLA'S BLOOM MAP 13 block (2026-11-26): /map on a laptop, "More about this coffee" in the roaster's terms
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_13_LAPTOP_LAYOUT_AND_ROASTER_PROFILE.md
+-- One table and its view (Dana 2026-11-26, Task 0 call 4): a roaster's 1 to 5
+-- on one portal dimension, held back from customers. A hold is an observation
+-- beside the roaster's answers, never a change to them (G2.20): nothing in
+-- roastery_portal_response_dimension is touched. Insert-only with one
+-- withdraw (withdrawn_at + withdrawn_by_uid + withdrawn_reason, set once from
+-- NULL), deletes raise: the cupping_score_dispute pattern. One open hold per
+-- roaster and dimension (partial unique index). Writer:
+-- roasteryPortalService.setDimensionHold (hold and withdraw). Read through
+-- v_roastery_portal_dimension_hold: GET /api/coffees/:id/roaster-profile
+-- leaves an open pair out; the switch is on the admin Calibration table.
+-- ═══════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS roastery_portal_dimension_hold (
+  id                 SERIAL PRIMARY KEY,
+  roaster_id         UUID NOT NULL REFERENCES roaster(id) ON DELETE RESTRICT,
+  dimension_id       INTEGER NOT NULL REFERENCES roastery_portal_dimension(dimension_id) ON DELETE RESTRICT,
+  reason             TEXT NOT NULL CHECK (btrim(reason) <> ''),
+  raised_by_uid      TEXT NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  withdrawn_at       TIMESTAMPTZ,
+  withdrawn_by_uid   TEXT,
+  withdrawn_reason   TEXT,
+  CONSTRAINT roastery_portal_dimension_hold_withdrawn_shape CHECK (
+    (withdrawn_at IS NULL AND withdrawn_by_uid IS NULL AND withdrawn_reason IS NULL)
+    OR (withdrawn_at IS NOT NULL AND withdrawn_by_uid IS NOT NULL AND btrim(COALESCE(withdrawn_reason, '')) <> ''))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS roastery_portal_dimension_hold_open_uq
+  ON roastery_portal_dimension_hold (roaster_id, dimension_id) WHERE withdrawn_at IS NULL;
+
+-- The one transition: withdraw, once. Anything else (an edited reason, a
+-- second withdraw, a DELETE) raises.
+CREATE OR REPLACE FUNCTION roastery_portal_dimension_hold_guard() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'roastery_portal_dimension_hold is insert-only (DELETE, id %); withdraw it instead', OLD.id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF OLD.withdrawn_at IS NULL AND NEW.withdrawn_at IS NOT NULL AND NEW.withdrawn_by_uid IS NOT NULL
+     AND (to_jsonb(OLD) - 'withdrawn_at' - 'withdrawn_by_uid' - 'withdrawn_reason')
+       = (to_jsonb(NEW) - 'withdrawn_at' - 'withdrawn_by_uid' - 'withdrawn_reason') THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'roastery_portal_dimension_hold is insert-only (UPDATE, id %): the only change allowed is one withdraw', OLD.id
+    USING ERRCODE = 'integrity_constraint_violation';
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS roastery_portal_dimension_hold_guard ON roastery_portal_dimension_hold;
+CREATE TRIGGER roastery_portal_dimension_hold_guard
+  BEFORE UPDATE OR DELETE ON roastery_portal_dimension_hold
+  FOR EACH ROW EXECUTE FUNCTION roastery_portal_dimension_hold_guard();
+
+-- One row per hold, open or withdrawn, with the roaster and the dimension's
+-- portal label and cupping-sheet name. Read by roasteryPortalReads
+-- (listDimensionHolds: the Calibration table; heldDimensionIdsForCoffee: the
+-- /map panel's read).
+DROP VIEW IF EXISTS v_roastery_portal_dimension_hold;
+CREATE VIEW v_roastery_portal_dimension_hold AS
+SELECT h.id, h.roaster_id, r.name AS roaster_name,
+       h.dimension_id, d.label AS dimension_label, cd.name AS dimension_name,
+       h.reason, h.raised_by_uid, h.created_at,
+       h.withdrawn_at, h.withdrawn_by_uid, h.withdrawn_reason,
+       (h.withdrawn_at IS NULL) AS is_open
+FROM roastery_portal_dimension_hold h
+JOIN roaster r                   ON r.id = h.roaster_id
+JOIN roastery_portal_dimension d ON d.dimension_id = h.dimension_id
+JOIN coffee_dimensions cd        ON cd.id = h.dimension_id;
+
+-- Parts A and C: the /map panel's headings (insert if missing; the script
+-- ellaMapRoasterProfile_2026_11_26 enters the same through the writer).
+INSERT INTO dial_customer_copy (code, text, decided_by)
+SELECT v.code, v.text, 'seed'
+FROM (VALUES
+  ('where_it_shines',       'Where it shines'),
+  ('roaster_rates',         'How the roaster rates it'),
+  ('roaster_rates_caption', 'Rated by the roaster, against their own coffees.'),
+  ('roaster_words_title',   'In the roaster’s words'),
+  ('notes_title',           'See the notes wheel'),
+  ('notes_heading',         'Notes')
+) AS v(code, text)
+WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = v.code AND c.superseded_at IS NULL);
+
+-- Fix (Dana 2026-11-26): the top of the roaster's scale is a row, not a constant in code
+-- (insert if missing; not versioned). It matches the CHECK on roastery_portal_response_dimension.value.
+INSERT INTO evidence_parameter (key, value, note)
+SELECT 'dial_roaster_rating_max', 5, 'Ella map 13: the top of the roaster''s portal scale (1 to this), as the /map panel draws each rating; must match the CHECK on roastery_portal_response_dimension.value (1 to 5). Range: integer 2 <= value <= 10.'
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = 'dial_roaster_rating_max');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END ELLA'S BLOOM MAP 13 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
 -- COMMERCE 5 block (2026-11-18) — reporting and bookkeeping.
 -- backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_5_REPORTING_AND_BOOKKEEPING.md
 -- One read path for every revenue, order count and "bags this customer has":
@@ -13850,6 +13942,8 @@ REVOKE UPDATE, DELETE, TRUNCATE ON cupping_score_values, cupping_score_descripto
 REVOKE DELETE, TRUNCATE ON cupping_scores FROM ab_app;
 -- brief 9 (2026-11-09): a dispute keeps UPDATE for its one withdraw (the guard trigger allows nothing else)
 REVOKE DELETE, TRUNCATE ON cupping_score_dispute FROM ab_app;
+-- Ella map 13 (2026-11-26): a dimension hold keeps UPDATE for its one withdraw (the guard trigger allows nothing else)
+REVOKE DELETE, TRUNCATE ON roastery_portal_dimension_hold FROM ab_app;
 REVOKE TRUNCATE ON cupping_brew_params FROM ab_app;
 -- Ella's Bloom Map 1 (2026-11-10): a map version's cuts and placements are
 -- insert-only (the guard trigger is the real lock); a version row is never

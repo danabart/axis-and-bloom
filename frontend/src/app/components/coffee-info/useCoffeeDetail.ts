@@ -14,14 +14,31 @@ import type { WheelRow } from './CollaborativeFlavorWheel';
  * description or bars). usePositionCardData (the Bloom page) and /map's card
  * both call this, so there is one copy of the fetching. `logTag` keeps each
  * caller's error tag as it was.
+ * Ella map 13 (2026-11-26): `withRoasterProfile` (/map only) also reads
+ * GET /api/coffees/:id/roaster-profile: where it shines and the roaster's own
+ * ratings. The Bloom page never sets it, so its reads are as they were.
  */
-export function useCoffeeDetail(coffeeId: number | null, opts: { withDimensions: boolean; logTag: string; readContent?: boolean }) {
+export interface RoasterProfile {
+  whereItShines: string[];
+  scale: number;
+  ratings: Array<{ label: string; lowLabel: string; highLabel: string; value: number }>;
+}
+
+export function useCoffeeDetail(coffeeId: number | null, opts: { withDimensions: boolean; logTag: string; readContent?: boolean; withRoasterProfile?: boolean }) {
   const [content, setContent] = useState<ContentData | null>(null);
   const [dimensions, setDimensions] = useState<DimensionRow[]>([]);
   const [wheelRows, setWheelRows] = useState<WheelRow[]>([]);
   const [dimensionsLoaded, setDimensionsLoaded] = useState(false);
+  const [roasterProfile, setRoasterProfile] = useState<RoasterProfile | null>(null);
   // readContent false holds the content and notes back (the Bloom page: a slot that is not a real position)
-  const { withDimensions, logTag, readContent = true } = opts;
+  const { withDimensions, logTag, readContent = true, withRoasterProfile = false } = opts;
+
+  useEffect(() => {
+    if (!coffeeId || !withRoasterProfile) return;
+    fetch(`/api/coffees/${coffeeId}/roaster-profile`).then(r => r.json())
+      .then(p => setRoasterProfile({ whereItShines: p?.whereItShines ?? [], scale: Number(p?.scale) || 0, ratings: p?.ratings ?? [] }))
+      .catch(err => reportError(`[${logTag}/roaster-profile]`, err));
+  }, [coffeeId, withRoasterProfile, logTag]);
 
   useEffect(() => {
     if (!coffeeId || !readContent) return;
@@ -38,5 +55,5 @@ export function useCoffeeDetail(coffeeId: number | null, opts: { withDimensions:
       .catch(err => reportError(`[${logTag}/dimensions]`, err));
   }, [withDimensions, dimensionsLoaded, coffeeId, logTag]);
 
-  return { content, dimensions, wheelRows, dimensionsLoaded };
+  return { content, dimensions, wheelRows, dimensionsLoaded, roasterProfile };
 }

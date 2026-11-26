@@ -964,3 +964,40 @@ export async function roasterFactsForCoffees(coffeeIds: number[], runner: Runner
     `SELECT coffee_id, submitted_at, dimensions, notes FROM v_roastery_portal_coffee_hint WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
   return r.rows.map((x: any) => ({ coffeeId: x.coffee_id, submittedAt: x.submitted_at, dimensions: x.dimensions, notes: x.notes }));
 }
+
+// ── Ella's Bloom Map 13 (2026-11-26): a roaster's dimension held back on /map ──
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_13_LAPTOP_LAYOUT_AND_ROASTER_PROFILE.md
+// Both read v_roastery_portal_dimension_hold; the writer is roasteryPortalService.setDimensionHold.
+
+export interface DimensionHold {
+  id: number; roasterId: string; dimensionId: number; dimensionLabel: string; dimensionName: string;
+  reason: string; raisedByUid: string; createdAt: string;
+  withdrawnAt: string | null; withdrawnByUid: string | null; withdrawnReason: string | null; isOpen: boolean;
+}
+
+/** A roaster's holds, open and withdrawn, newest first (the admin Calibration table's switch). */
+export async function listDimensionHolds(roasterId: string, runner: Runner = db): Promise<DimensionHold[]> {
+  const r = await runner.query(
+    `SELECT id, roaster_id, dimension_id, dimension_label, dimension_name, reason, raised_by_uid, created_at,
+            withdrawn_at, withdrawn_by_uid, withdrawn_reason, is_open
+       FROM v_roastery_portal_dimension_hold WHERE roaster_id = $1 ORDER BY created_at DESC, id DESC`, [roasterId]);
+  return r.rows.map((x: any) => ({
+    id: x.id, roasterId: x.roaster_id, dimensionId: x.dimension_id, dimensionLabel: x.dimension_label, dimensionName: x.dimension_name,
+    reason: x.reason, raisedByUid: x.raised_by_uid, createdAt: x.created_at,
+    withdrawnAt: x.withdrawn_at, withdrawnByUid: x.withdrawn_by_uid, withdrawnReason: x.withdrawn_reason, isOpen: x.is_open,
+  }));
+}
+
+/**
+ * The portal dimensions held back for a catalog coffee: the open holds of the
+ * roaster whose lineup coffee is linked to it (v_roastery_portal_coffee).
+ * Ids only, so nothing about the roaster reaches the caller.
+ */
+export async function heldDimensionIdsForCoffee(coffeeId: number, runner: Runner = db): Promise<number[]> {
+  const r = await runner.query<{ dimension_id: number }>(
+    `SELECT DISTINCT h.dimension_id
+       FROM v_roastery_portal_dimension_hold h
+       JOIN v_roastery_portal_coffee pc ON pc.roaster_id = h.roaster_id
+      WHERE pc.coffee_id = $1 AND h.is_open`, [coffeeId]);
+  return r.rows.map(x => x.dimension_id);
+}

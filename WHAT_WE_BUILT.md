@@ -7179,3 +7179,42 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
   - New `dialMap12.test.ts` has 8 tests; `mapMoreAbout.test.tsx` has 3.
 - **Open tasks:** OT-180 ("award-winning" in Tiger Stripe's description), OT-181 (Tiger Stripe's roaster notes vs. its panel notes) and OT-182 (the six coffees with no description).
 - **After deploy:** run `catalog:md` against prod and commit CATALOG.md.
+
+### 288. Ella's Bloom Map 13: `/map` on a laptop, "More about this coffee" in the roaster's terms (2026-11-26)
+
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_13_LAPTOP_LAYOUT_AND_ROASTER_PROFILE.md` · `CLOSING_REPORT_13.md`. Built on the test DB 2026-11-26; not pushed.
+
+- **Laptop layout (`MapPage.tsx`, from `lg`):**
+  - The map sits beside the top card.
+  - The steps run in two columns, with the lead across both.
+  - An open step card spans both columns; the top card's open panel spans the page.
+  - Below `lg`, the page is as before.
+- **The panel in the roaster's terms:**
+  - `RevealedPanel` gets a `mapProfile` prop (field variant). The order is description → "Where it shines" → notes → "How the roaster rates it" with its caption.
+  - `DimensionBars` gets `pointScale`: each rating is one step on the roaster's 1 to 5 track, never converted and never mixed with A&B's cupping.
+  - `/map` no longer reads `/dimensions`.
+  - The Bloom page's panel is unchanged: its snapshot was written from the pre-brief code, and the screenshots are identical.
+- **Read:**
+  - `GET /api/coffees/:id/roaster-profile` (`roasterVoiceReads.getRoasterProfile`).
+  - Where it shines is the best method first, then the lookup order.
+  - The ratings are the latest submitted portal answers with the portal's labels, held dimensions left out.
+  - No roaster name or id in the response.
+  - `useCoffeeDetail` gains `withRoasterProfile`, set by `/map` only.
+- **Hold:**
+  - New table `roastery_portal_dimension_hold` (insert-only, one withdraw, guard trigger) and its view, `v_roastery_portal_dimension_hold`.
+  - Writer `roasteryPortalService.setDimensionHold`; readers `listDimensionHolds` and `heldDimensionIdsForCoffee`.
+  - Admin routes `…/roasteries/:roasterId/dimension-holds`, plus the "On /map" switch on the Calibration table.
+  - Mouthfeel is held for both map roasters.
+- **Copy rows:** `where_it_shines`, `roaster_rates`, `roaster_rates_caption`, `roaster_words_title`, `notes_title`, `notes_heading`.
+- **Fixes (Dana, 2026-11-26):**
+  - The notes are a plain line under "Notes", with the wheel as a link beside it.
+  - On the customer face, coffee names keep clear of family names (`EllaMapFace` `quietOthers` only; the admin face is unchanged, snapshot).
+  - The top of the roaster's scale is the evidence parameter `dial_roaster_rating_max` (5), not a constant.
+  - New test `mapFace.test.tsx`.
+- **Seed:** `ellaMapRoasterProfile_2026_11_26.ts` (dry run by default; a rerun writes 0).
+- **Tests:** `dialMap13.test.ts` (11); `mapMoreAbout.test.tsx` (now 11, including the Bloom page snapshot).
+- **Open tasks:**
+  - OT-183: every map coffee now has a panel; six still have no description.
+  - OT-184: Mouthfeel is held, with its numbers.
+  - OT-185: Joe Bean's Bitterness is 3 on all seven coffees.
+  - OT-186: the ratings are not comparable across roasters.

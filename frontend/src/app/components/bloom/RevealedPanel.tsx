@@ -1,4 +1,5 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
+import { teaserFor } from '../../lib/signatureLine';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
@@ -41,6 +42,78 @@ interface RevealedPanelProps {
    * (/map passes them; the Bloom page passes none and is unchanged). Only kind 'brew' is ever drawn:
    * an award tag passed here is dropped (G4.5). Additive, default none. */
   brewTags?: CardTag[];
+  /** Ella map 13 (2026-11-26), variant="field", /map only: the panel in the roaster's terms. Order: the
+   * description, where it shines (every method the roaster named, best first), the notes (a plain line
+   * under its heading, the notes wheel as a link beside it; 2026-11-26 fix), then the
+   * roaster's own ratings on their 1 to `scale` track. Every heading comes from copy rows (passed in).
+   * A&B's cupping bars (`dimensions`) and `brewTags` are not drawn: never a mix of the two in one chart.
+   * Absent (the Bloom page), the panel renders exactly as before. */
+  mapProfile?: MapPanelProfile;
+}
+
+export interface MapPanelProfile {
+  headings: { roasterWords?: string; whereItShines?: string; notesHeading?: string; notes?: string; roasterRates?: string; roasterRatesCaption?: string };
+  whereItShines: string[];
+  scale: number;
+  ratings: Array<{ label: string; lowLabel: string; highLabel: string; value: number }>;
+}
+
+/** Ella map 13: the roaster's ratings in DimensionBars' row shape; avg_max carries the value (pointScale). */
+const ratingRows = (p: MapPanelProfile): DimensionRow[] => p.ratings.map(r => ({
+  dimension: r.label, scale_min_label: r.lowLabel, scale_max_label: r.highLabel, avg_min: String(r.value), avg_max: String(r.value),
+}));
+
+/** Ella map 13: the /map columns of the field panel (see mapProfile). */
+function MapProfileCols({ profile, content, wheelRows }: { profile: MapPanelProfile; content: ContentData | null; wheelRows: WheelRow[] }) {
+  const h = profile.headings;
+  const story = content?.threeVoiceStory ?? null;
+  const hasWheel = wheelRows.length > 0;
+  const hasRatings = profile.ratings.length > 0 && profile.scale > 0;
+  // the notes as one plain line (the collapsed card's teaser); the wheel opens beside its heading
+  const notesLine = hasWheel ? teaserFor(wheelRows) : null;
+  const [wheelOpen, setWheelOpen] = useState(false);
+  return (
+    <div className="bf-pcols" data-testid="map-profile">
+      <div className="bf-pcol">
+        {story && (
+          <div className="bf-psec" data-testid="map-profile-words">
+            {h.roasterWords && <Titled style={{ alignSelf: 'flex-start' }}>{h.roasterWords}</Titled>}
+            <TastingNotes content={content} contentLoading={false} variant="field" />
+          </div>
+        )}
+        {profile.whereItShines.length > 0 && (
+          <div className="bf-psec" data-testid="where-it-shines">
+            {h.whereItShines && <Titled style={{ alignSelf: 'flex-start' }}>{h.whereItShines}</Titled>}
+            <ul className="bf-shines">{profile.whereItShines.map(m => <li key={m}>{m}</li>)}</ul>
+          </div>
+        )}
+      </div>
+      {(hasWheel || hasRatings) && (
+        <div className="bf-pcol">
+          {hasWheel && (
+            <div className="bf-psec" data-testid="map-profile-notes">
+              <div className="bf-psec-head">
+                {h.notesHeading && <Titled style={{ alignSelf: 'flex-start' }}>{h.notesHeading}</Titled>}
+                {h.notes && (
+                  <button type="button" className="ab-caps bf-ulink bf-wheel-link" aria-expanded={wheelOpen}
+                    onClick={() => setWheelOpen(o => !o)} data-testid="notes-wheel-link">{h.notes}</button>
+                )}
+              </div>
+              {notesLine && <p className="bf-notes" data-testid="notes-line">{notesLine}</p>}
+              {wheelOpen && <CollaborativeFlavorWheel wheelRows={wheelRows} variant="signature" />}
+            </div>
+          )}
+          {hasRatings && (
+            <div className="bf-psec" data-testid="roaster-bars">
+              {h.roasterRates && <Titled style={{ alignSelf: 'flex-start' }}>{h.roasterRates}</Titled>}
+              {h.roasterRatesCaption && <p className="bf-pcaption">{h.roasterRatesCaption}</p>}
+              <DimensionBars dimensions={ratingRows(profile)} variant="field" pointScale={profile.scale} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const RULE_STYLE: CSSProperties = { border: 'none', borderTop: '1px solid #deded1', margin: '32px 0' };
@@ -71,7 +144,7 @@ export const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[
  * every breakpoint and every evidence-presence combination without a
  * JS-computed template per case.
  */
-export function RevealedPanel({ isRevealed, archetype, coffeeId, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false, prelaunch = false, variant = 'default', onCompare, panelId, brewTags }: RevealedPanelProps) {
+export function RevealedPanel({ isRevealed, archetype, coffeeId, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false, prelaunch = false, variant = 'default', onCompare, panelId, brewTags, mapProfile }: RevealedPanelProps) {
   const isField = variant === 'field';
   const { compat, dimCompText } = useCompatibility(archetype, userArchetype, isRevealed && !isField ? coffeeId : null);
   const { hasLiamAccess } = useAuth();
@@ -93,6 +166,7 @@ export function RevealedPanel({ isRevealed, archetype, coffeeId, dialSortOrder, 
             className="bf-profile"
             data-testid="field-reveal"
           >
+            {mapProfile ? <MapProfileCols profile={mapProfile} content={content} wheelRows={wheelRows} /> : (
             <div className="bf-pcols">
               <div className="bf-pcol">
                 <Titled style={{ alignSelf: 'flex-start' }}>In the roaster’s words</Titled>
@@ -116,6 +190,7 @@ export function RevealedPanel({ isRevealed, archetype, coffeeId, dialSortOrder, 
                 </div>
               )}
             </div>
+            )}
             <div className="bf-pfoot">
               <div className="bf-plinks">
                 {onCompare && <button type="button" className="ab-caps bf-ulink" onClick={onCompare}>Compare with the neighbour ↗</button>}

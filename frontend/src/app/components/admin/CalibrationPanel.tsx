@@ -1,14 +1,65 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { reportError } from '../../lib/errorReporter';
 
 // Cupping evidence brief 3, B2 (2026-10-18): the Calibration tab under
 // Roastery Feedback, per roastery. Read-only: GET /api/admin/evidence/roastery/:id
 // (v_evidence_roastery_calibration, v_evidence_cupper_calibration,
 // v_evidence_coverage, the stale-decision count from v_evidence_archetype,
-// through evidenceReads). Nothing here writes.
+// through evidenceReads). Nothing here writes, except the one switch below.
+// Ella map 13 (2026-11-26): the "On /map" column, a switch per portal
+// dimension that holds the roaster's ratings on it back from the /map panel
+// (POST /api/admin/roastery-portal/roasteries/:id/dimension-holds,
+// roasteryPortalService.setDimensionHold; a reason each way). The roaster's
+// answers never change. Read through v_roastery_portal_dimension_hold.
 
 type Row = Record<string, any>;
 interface RoasteryEvidence { calibration: Row[]; cuppers: Row[]; coverage: Row[]; staleDecisions: number }
+interface DimensionHold { id: number; dimensionId: number; reason: string; createdAt: string; withdrawnAt: string | null; isOpen: boolean }
+type ApiFetch = (url: string, options?: RequestInit) => Promise<Response>;
+
+/** Ella map 13: one row's "On /map" switch. Holding or showing again asks for a reason first. */
+function HoldSwitch({ roasterId, dimensionId, label, hold, apiFetch, onChanged }: {
+  roasterId: string; dimensionId: number; label: string; hold: DimensionHold | null; apiFetch: ApiFetch; onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const held = !!hold;
+  const save = async () => {
+    setBusy(true); setErr('');
+    try {
+      const res = await apiFetch(`/api/admin/roastery-portal/roasteries/${roasterId}/dimension-holds`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dimensionId, hold: !held, reason }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.message ?? 'Failed to save');
+      setEditing(false); setReason(''); onChanged();
+    } catch (e) {
+      reportError('[CalibrationPanel/hold]', e);
+      setErr(e instanceof Error ? e.message : 'Failed to save');
+    } finally { setBusy(false); }
+  };
+  return (
+    <div data-testid={`hold-${dimensionId}`}>
+      <span className={held ? 'text-amber-700' : ''}>{held ? `hidden (${label})` : 'shown'}</span>
+      {held && <span className="block text-stone-400">{hold!.reason}</span>}
+      {!editing ? (
+        <button type="button" className="ml-2 underline text-stone-500 hover:text-stone-800" onClick={() => setEditing(true)} data-testid="hold-toggle">
+          {held ? 'Show on /map' : 'Hide on /map'}
+        </button>
+      ) : (
+        <span className="flex gap-2 mt-1">
+          <input className="border border-stone-300 px-1 py-0.5 text-xs flex-1 min-w-[12rem]" placeholder="Reason" value={reason}
+            onChange={e => setReason(e.target.value)} data-testid="hold-reason" />
+          <button type="button" disabled={busy || !reason.trim()} className="underline disabled:opacity-40" onClick={save} data-testid="hold-save">Save</button>
+          <button type="button" className="text-stone-400" onClick={() => { setEditing(false); setErr(''); }}>Cancel</button>
+        </span>
+      )}
+      {err && <span className="block text-red-700">{err}</span>}
+    </div>
+  );
+}
 
 function num(v: unknown, digits = 2): string {
   if (v === null || v === undefined || v === '') return '—';
@@ -26,6 +77,26 @@ export default function CalibrationPanel({ roasterId, roasterName, apiFetch, onB
   const [data, setData] = useState<RoasteryEvidence | null>(null);
   const [error, setError] = useState('');
   const [blind, setBlind] = useState<'all' | 'blind' | 'not_blind'>('all');
+  // Ella map 13: the portal's dimensions (label by id) and this roaster's holds
+  const [portalDims, setPortalDims] = useState<Map<number, string> | null>(null);
+  const [holds, setHolds] = useState<DimensionHold[]>([]);
+  const loadHolds = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/api/admin/roastery-portal/roasteries/${roasterId}/dimension-holds`);
+      if (res.ok) setHolds(await res.json());
+    } catch (err) { reportError('[CalibrationPanel/holds]', err); }
+  }, [apiFetch, roasterId]);
+  useEffect(() => {
+    void loadHolds();
+    (async () => {
+      try {
+        const res = await apiFetch('/api/admin/roastery-portal/vocabulary');
+        if (!res.ok) return;
+        const v = await res.json();
+        setPortalDims(new Map((v.dimensions ?? []).map((d: { dimensionId: number; label: string }) => [d.dimensionId, d.label])));
+      } catch (err) { reportError('[CalibrationPanel/vocabulary]', err); }
+    })();
+  }, [apiFetch, loadHolds]);
 
   useEffect(() => {
     (async () => {
@@ -55,7 +126,7 @@ export default function CalibrationPanel({ roasterId, roasterName, apiFetch, onB
         <button className="text-xs uppercase tracking-wide text-stone-500 mb-2" onClick={onBack}>← Back to {name ?? 'the roastery'}</button>
         <h2 className="text-lg">Calibration{name ? `: ${name}` : ''}</h2>
         <p className="text-xs text-stone-500">
-          Read-only. How our cupping lines up with what this roastery says. Ranks, never values: their 1 to 5 is relative to their own lineup.
+          How our cupping lines up with what this roastery says; the only switch is "On /map", which holds the roaster's ratings on a dimension back from the /map panel (their answers never change). Ranks, never values: their 1 to 5 is relative to their own lineup.
           Native-scale (A&amp;B 0 to 15) sessions only. Stale decisions (newer evidence than the decision): <strong>{data.staleDecisions}</strong>.
         </p>
       </div>
@@ -64,7 +135,7 @@ export default function CalibrationPanel({ roasterId, roasterName, apiFetch, onB
         <p className="text-xs text-stone-400 uppercase tracking-wide mb-1">Rank agreement by dimension</p>
         {data.calibration.length === 0 ? <p className="text-xs text-stone-400">No dimension scored on both sides yet.</p> : (
           <table className="w-full text-xs">
-            <thead><tr className="text-stone-400"><th className={TH}>Dimension</th><th className={TH}>n</th><th className={TH}>Rank correlation</th><th className={TH}>Mean rank gap</th><th className={TH}>Inverted</th><th className={TH}>Note</th></tr></thead>
+            <thead><tr className="text-stone-400"><th className={TH}>Dimension</th><th className={TH}>n</th><th className={TH}>Rank correlation</th><th className={TH}>Mean rank gap</th><th className={TH}>Inverted</th><th className={TH}>Note</th><th className={TH}>On /map</th></tr></thead>
             <tbody>
               {data.calibration.map(r => (
                 <tr key={r.dimension_id} className="border-t border-stone-100">
@@ -72,6 +143,12 @@ export default function CalibrationPanel({ roasterId, roasterName, apiFetch, onB
                   <td className={TD}>{num(r.rank_corr, 3)}</td><td className={TD}>{num(r.mean_rank_gap)}</td>
                   <td className={`${TD} ${r.inverted ? 'text-red-700' : ''}`}>{r.inverted === null ? '—' : r.inverted ? 'yes' : 'no'}</td>
                   <td className={`${TD} text-stone-400`}>{r.note ?? ''}</td>
+                  <td className={TD}>
+                    {portalDims?.has(r.dimension_id) ? (
+                      <HoldSwitch roasterId={roasterId} dimensionId={r.dimension_id} label={portalDims.get(r.dimension_id)!}
+                        hold={holds.find(h => h.dimensionId === r.dimension_id && h.isOpen) ?? null} apiFetch={apiFetch} onChanged={() => void loadHolds()} />
+                    ) : <span className="text-stone-300">—</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>

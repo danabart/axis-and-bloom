@@ -74,6 +74,8 @@ const HOP_DASH: Record<string, string | undefined> = { bolder: undefined, gentle
 // Ella map 5: dial_step_basis.line_style -> SVG dash (chrome: the style words come from the API)
 export const STEP_DASH: Record<string, string | undefined> = { solid: undefined, dashed: '14 9', dotted: '2 8' };
 const ARROW = '#2f6f68'; // Ella map 7: the customer's steps (chrome)
+// where the family names are drawn (and where the customer face's coffee names keep clear of them)
+const FAMILY_FONT = 26, FAMILY_OFFSET = 52, CENTER_FONT = 22, CENTER_OFFSET = 26;
 
 export default function EllaMapFace({ placements, wedges, seams = [], highlightCoffeeId = null, hops = [], path = [], size, labelMode, onTapCoffee, steps = [], dotStyle = 'sellable', arrowsTo = [], quietOthers = false }: EllaMapFaceProps) {
   const markerId = `ella-arrow-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -97,6 +99,21 @@ export default function EllaMapFace({ placements, wedges, seams = [], highlightC
     const named = dots.filter(d => d.coffee_id === highlightCoffeeId || arrowSet.has(d.coffee_id))
       .sort((a, b) => Number(b.coffee_id === highlightCoffeeId) - Number(a.coffee_id === highlightCoffeeId));
     const boxes: Box[] = named.map(d => ({ x0: d.x - d.r - 4, x1: d.x + d.r + 4, y0: d.y - d.r - 4, y1: d.y + d.r + 4 }));
+    // 2026-11-26 (Ella map 13 fix): a coffee's name never covers a family's name. The family names
+    // (and the centre's) are placed first, exactly where they are drawn below; this runs on the
+    // customer face only (quietOthers), so the admin face's labels are unchanged.
+    const textBox = (x: number, y: number, text: string, size: number): Box => {
+      const w = text.length * size * 0.6, h = size + 6;
+      return { x0: x - w / 2, x1: x + w / 2, y0: y - h / 2, y1: y + h / 2 };
+    };
+    if (full) {
+      for (const w of outerWedges) {
+        const [a0, a1] = wedgeSpan(w.angle_order);
+        const p = pointAt(g, (a0 + a1) / 2, g.outer + FAMILY_OFFSET);
+        boxes.push(textBox(p.x, p.y, w.archetype_name ?? w.archetype_code, FAMILY_FONT));
+      }
+      if (center) boxes.push(textBox(g.cx, g.cy + g.center + CENTER_OFFSET - CENTER_FONT * 0.35, (center as FaceWedge).archetype_name ?? center.archetype_code, CENTER_FONT));
+    }
     const hit = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
     for (const d of named) {
       const text = shortLabel(byId.get(d.coffee_id)!.coffee_name, 22);
@@ -142,12 +159,12 @@ export default function EllaMapFace({ placements, wedges, seams = [], highlightC
       {/* family names and labelled seams (full only) */}
       {full && outerWedges.map(w => {
         const [a0, a1] = wedgeSpan(w.angle_order);
-        const p = pointAt(g, (a0 + a1) / 2, g.outer + 52);
+        const p = pointAt(g, (a0 + a1) / 2, g.outer + FAMILY_OFFSET);
         return <text key={`n-${w.archetype_code}`} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle"
-          fontSize={26} fontWeight={700} fill={colorOf(w.archetype_code)}>{w.archetype_name ?? w.archetype_code}</text>;
+          fontSize={FAMILY_FONT} fontWeight={700} fill={colorOf(w.archetype_code)}>{w.archetype_name ?? w.archetype_code}</text>;
       })}
       {full && center && (
-        <text x={g.cx} y={g.cy + g.center + 26} textAnchor="middle" fontSize={22} fontWeight={700} fill={colorOf(center.archetype_code)}>
+        <text x={g.cx} y={g.cy + g.center + CENTER_OFFSET} textAnchor="middle" fontSize={CENTER_FONT} fontWeight={700} fill={colorOf(center.archetype_code)}>
           {(center as FaceWedge).archetype_name ?? center.archetype_code}
         </text>
       )}

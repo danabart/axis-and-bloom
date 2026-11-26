@@ -20,8 +20,9 @@
 import { db, type Tx } from '../db/client.js';
 import { getCustomerDescriptors, getMergedRanges, type CustomerDescriptor } from './cuppingReads.js';
 import { listRemarks } from './roasteryRemarkReads.js';
-import { getCurrentResponseForCoffee, getBrewMethodLabels } from './roasteryPortalReads.js';
+import { getCurrentResponseForCoffee, getBrewMethodLabels, roasterFactsForCoffees, heldDimensionIdsForCoffee } from './roasteryPortalReads.js';
 import { getCoffee, getArchetypes } from './catalogReads.js';
+import { getParameters } from './evidenceReads.js';
 import { styleViolation, maskTokens, maskCount } from './contentGuard.js';
 
 type Runner = Tx | typeof db;
@@ -137,6 +138,50 @@ export async function numericDimensionRows(coffeeId: number, runner: Runner = db
       avg_max: Number(r.value_max).toFixed(1),
       session_count: String(r.n_scores),
     }));
+}
+
+/**
+ * Ella's Bloom Map 13 (2026-11-26): what the /map panel shows in the roaster's
+ * terms (GET /api/coffees/:id/roaster-profile). Dana's calls at the Task 0 STOP:
+ *  * whereItShines: the roaster's best method first, then every also-good one
+ *    in the brew lookup's own order ("Other" left out), as labels
+ *    (v_roastery_portal_current_response, the same read as the card's tag);
+ *  * ratings: the roaster's 1 to 5 per portal dimension from the latest
+ *    submitted response (v_roastery_portal_coffee_hint), in the portal's order,
+ *    with the portal's labels and anchors, never converted to the cupping
+ *    scale and never mixed with it; a dimension with an open hold for the
+ *    coffee's roaster (v_roastery_portal_dimension_hold) is left out.
+ * Roaster-blind: no roaster name or id, no respondent, no award.
+ */
+/**
+ * The top of the roaster's scale (Dana's fix, 2026-11-26: a row, not a
+ * constant): evidence parameter dial_roaster_rating_max, which matches the
+ * CHECK on roastery_portal_response_dimension.value. 0 when the row is missing;
+ * the panel then draws no bars.
+ */
+export async function roasterRatingMax(runner: Runner = db): Promise<number> {
+  const rows = await getParameters('dial_roaster_rating_max', runner);
+  const v = Number(rows.find(r => r.key === 'dial_roaster_rating_max')?.value);
+  return Number.isInteger(v) && v > 1 ? v : 0;
+}
+export interface RoasterProfile {
+  whereItShines: string[];
+  /** The roaster's scale runs 1 to this; the panel draws each rating on its own track. */
+  scale: number;
+  ratings: Array<{ label: string; lowLabel: string; highLabel: string; value: number }>;
+}
+export async function getRoasterProfile(coffeeId: number, runner: Runner = db): Promise<RoasterProfile> {
+  const [response, labels, facts, held, scale] = runner === db
+    ? await Promise.all([getCurrentResponseForCoffee(coffeeId, runner), getBrewLabels(runner), roasterFactsForCoffees([coffeeId], runner), heldDimensionIdsForCoffee(coffeeId, runner), roasterRatingMax(runner)])
+    : [await getCurrentResponseForCoffee(coffeeId, runner), await getBrewLabels(runner), await roasterFactsForCoffees([coffeeId], runner), await heldDimensionIdsForCoffee(coffeeId, runner), await roasterRatingMax(runner)];
+  const order = new Map(labels.map((l, i) => [l.label, i]));
+  const { bestBrew, alsoGoodBrews } = brewLabelsOf(response, labels);
+  const also = [...new Set(alsoGoodBrews)].filter(l => l !== bestBrew).sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+  const heldSet = new Set(held);
+  const ratings = (facts[0]?.dimensions ?? [])
+    .filter(d => !heldSet.has(d.dimension_id) && Number.isFinite(Number(d.value)) && Number(d.value) <= scale)
+    .map(d => ({ label: d.label, lowLabel: d.low_label, highLabel: d.high_label, value: Number(d.value) }));
+  return { whereItShines: bestBrew ? [bestBrew, ...also] : also, scale, ratings };
 }
 
 /** Words of three or more characters (letters or digits), lower-cased: the unit the award guard bans. */

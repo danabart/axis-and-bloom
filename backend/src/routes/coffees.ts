@@ -18,7 +18,7 @@ import { getCustomerDescriptors } from '../services/cuppingReads.js';
 // pooled range in the row shape the dimension readers here have always
 // returned. Coffee presentation brief 1 (2026-10-23): moved to
 // roasterVoiceReads, which every content prompt now reads.
-import { getRoasterVoice, getAwardRemarks, numericDimensionRows, getBrewLabels, getCardTags } from '../services/roasterVoiceReads.js';
+import { getRoasterVoice, getAwardRemarks, numericDimensionRows, getBrewLabels, getCardTags, getRoasterProfile, roasterRatingMax } from '../services/roasterVoiceReads.js';
 import { compareCoffee } from '../services/compatibilityReads.js';
 import {
   buildSlotsForArchetype, computeCollectionOfferFromSlots, getOtherCategoryCoffees, getCoffeeCards,
@@ -872,6 +872,25 @@ router.get('/:id/dimensions', async (req, res) => {
   } catch (err) {
     console.error('[coffees/dimensions]', err);
     res.status(500).json({ error: 'Failed to fetch dimension data' });
+  }
+});
+
+// GET /api/coffees/:id/roaster-profile ───────────────────────────────────────
+// Ella's Bloom Map 13 (2026-11-26, Dana's yes at the Task 0 STOP): the /map
+// panel's "Where it shines" (the roaster's brew methods, best first) and the
+// roaster's own 1 to 5 ratings (held-back dimensions left out), through
+// roasterVoiceReads.getRoasterProfile. Public and roaster-blind: no roaster
+// name or id, no respondent, no award. Only /map asks (useCoffeeDetail's
+// withRoasterProfile); the Bloom page never does.
+router.get('/:id/roaster-profile', async (req, res) => {
+  const coffeeId = Number(req.params.id);
+  try {
+    if (!Number.isInteger(coffeeId) || coffeeId <= 0) { res.json({ whereItShines: [], scale: await roasterRatingMax(), ratings: [] }); return; }
+    const p = await getRoasterProfile(coffeeId);
+    res.json({ whereItShines: p.whereItShines, scale: p.scale, ratings: p.ratings });
+  } catch (err) {
+    console.error('[coffees/roaster-profile]', err);
+    res.status(500).json({ error: 'Failed to fetch the roaster profile' });
   }
 });
 

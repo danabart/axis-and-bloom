@@ -138,15 +138,34 @@ interface DimensionBarsProps {
    * (compareDimensions set) always renders the default/compare presentation regardless
    * of variant — 'reveal' never carries a comparison. */
   variant?: 'default' | 'reveal' | 'field';
+  /** Ella map 13, variant="field" only: draw each row as the roaster's point rating on a 1 to
+   * pointScale track (see DimensionBarsField). Absent (every existing use) keeps the 0 to 15 range. */
+  pointScale?: number;
 }
 
 /** Website 5 (2026-11-05): The Bloom field's reveal bars, the handoff's `.cp` rows
  * (name, a hairline track, the range segment, the end words under it). Colours come
- * from the field's CSS variables (bloomField.css); the scale is the dimension's 0 to 15. */
-function DimensionBarsField({ dimensions }: { dimensions: DimensionRow[] }) {
+ * from the field's CSS variables (bloomField.css); the scale is the dimension's 0 to 15.
+ * Ella map 13 (2026-11-26): with `pointScale` (the roaster's 1 to `pointScale`, /map
+ * only), each row's avg_max is the roaster's value, drawn as its one step on that
+ * track and never converted to the cupping scale; avg_min is not read. */
+function DimensionBarsField({ dimensions, pointScale }: { dimensions: DimensionRow[]; pointScale?: number }) {
   return (
     <div className="bf-cp" data-testid="field-bars">
       {dimensions.map(dim => {
+        if (pointScale) {
+          const v = Number(dim.avg_max);
+          return (
+            <div key={dim.dimension} style={{ display: 'contents' }}>
+              <span className="bf-cl">{dim.dimension}</span>
+              <span className="bf-ct" role="img" data-value={v} aria-label={`${dim.dimension}: ${v} of ${pointScale}, from ${dim.scale_min_label} to ${dim.scale_max_label}`}>
+                <i className="bf-track" />
+                <i className="bf-seg" style={{ left: `${((v - 1) / pointScale) * 100}%`, width: `${100 / pointScale}%` }} />
+                <span className="bf-ce" aria-hidden="true"><span>{dim.scale_min_label}</span><span>{dim.scale_max_label}</span></span>
+              </span>
+            </div>
+          );
+        }
         const min = Number(dim.avg_min), max = Number(dim.avg_max);
         return (
           <div key={dim.dimension} style={{ display: 'contents' }}>
@@ -164,11 +183,11 @@ function DimensionBarsField({ dimensions }: { dimensions: DimensionRow[] }) {
 }
 
 /** "Cupping profile" section — single-coffee bars, or side-by-side comparison when compareDimensions is passed. */
-export function DimensionBars({ dimensions, compareDimensions, primaryLabel, compareLabel, variant = 'default' }: DimensionBarsProps) {
+export function DimensionBars({ dimensions, compareDimensions, primaryLabel, compareLabel, variant = 'default', pointScale }: DimensionBarsProps) {
   const isCompare = !!compareDimensions;
   if (!dimensions.length && !(compareDimensions?.length)) return null;
 
-  if (variant === 'field' && !isCompare) return <DimensionBarsField dimensions={dimensions} />;
+  if (variant === 'field' && !isCompare) return <DimensionBarsField dimensions={dimensions} pointScale={pointScale} />;
 
   if (variant === 'reveal' && !isCompare) {
     return (

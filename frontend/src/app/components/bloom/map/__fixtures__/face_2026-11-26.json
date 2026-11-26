@@ -1,0 +1,252 @@
+{
+ "placements": [
+  {
+   "coffee_id": 2917,
+   "coffee_name": "Fabricator House Roast",
+   "archetype_code": "chocolate_nutty",
+   "is_center": false,
+   "ring": 1,
+   "lane_code": "side_a",
+   "size": 3,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2909,
+   "coffee_name": "Nightcap Decaf",
+   "archetype_code": "chocolate_nutty",
+   "is_center": false,
+   "ring": 1,
+   "lane_code": "side_b",
+   "size": 2,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2907,
+   "coffee_name": "The Daily",
+   "archetype_code": "chocolate_nutty",
+   "is_center": false,
+   "ring": 1,
+   "lane_code": "middle",
+   "size": 1,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2906,
+   "coffee_name": "Amsterdam",
+   "archetype_code": "chocolate_nutty",
+   "is_center": false,
+   "ring": 2,
+   "lane_code": "side_b",
+   "size": 1,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2914,
+   "coffee_name": "Tiger Stripe Espresso",
+   "archetype_code": "chocolate_nutty",
+   "is_center": false,
+   "ring": 2,
+   "lane_code": "side_a",
+   "size": 2,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2916,
+   "coffee_name": "Blossom Dark Roast",
+   "archetype_code": "chocolate_nutty",
+   "is_center": false,
+   "ring": 3,
+   "lane_code": "side_a",
+   "size": 1,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 4300,
+   "coffee_name": "Great Heights",
+   "archetype_code": "chocolate_nutty",
+   "is_center": false,
+   "ring": 3,
+   "lane_code": "side_b",
+   "size": 1,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2936,
+   "coffee_name": "The Waverly",
+   "archetype_code": "chocolate_nutty",
+   "is_center": false,
+   "ring": 3,
+   "lane_code": "side_a",
+   "size": 2,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2905,
+   "coffee_name": "Benchmark",
+   "archetype_code": "balanced_sweet",
+   "is_center": true,
+   "ring": 0,
+   "lane_code": "side_a",
+   "size": 2,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 4301,
+   "coffee_name": "Brazil",
+   "archetype_code": "balanced_sweet",
+   "is_center": true,
+   "ring": 0,
+   "lane_code": "side_a",
+   "size": 3,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 4299,
+   "coffee_name": "Half Moon (Half Caff)",
+   "archetype_code": "balanced_sweet",
+   "is_center": true,
+   "ring": 0,
+   "lane_code": "side_a",
+   "size": 2,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2903,
+   "coffee_name": "Colombia La Familia Guarnizo",
+   "archetype_code": "fruity",
+   "is_center": false,
+   "ring": 1,
+   "lane_code": "side_b",
+   "size": 3,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 4303,
+   "coffee_name": "D.R. Congo",
+   "archetype_code": "fruity",
+   "is_center": false,
+   "ring": 1,
+   "lane_code": "middle",
+   "size": 3,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2915,
+   "coffee_name": "Geometric Filter Coffee",
+   "archetype_code": "fruity",
+   "is_center": false,
+   "ring": 1,
+   "lane_code": "side_a",
+   "size": 2,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2902,
+   "coffee_name": "Cafè Feminista: Montze Olvera",
+   "archetype_code": "fruity",
+   "is_center": false,
+   "ring": 2,
+   "lane_code": "middle",
+   "size": 2,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2908,
+   "coffee_name": "Big City",
+   "archetype_code": "earthy",
+   "is_center": false,
+   "ring": 2,
+   "lane_code": "side_a",
+   "size": 1,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 4302,
+   "coffee_name": "Indonesia",
+   "archetype_code": "earthy",
+   "is_center": false,
+   "ring": 2,
+   "lane_code": "middle",
+   "size": 1,
+   "is_sellable": true
+  },
+  {
+   "coffee_id": 2904,
+   "coffee_name": "The Village",
+   "archetype_code": "floral",
+   "is_center": false,
+   "ring": 2,
+   "lane_code": "side_a",
+   "size": 2,
+   "is_sellable": true
+  }
+ ],
+ "wedges": [
+  {
+   "archetype_code": "balanced_sweet",
+   "archetype_name": "Balanced",
+   "is_center": true,
+   "angle_order": 0,
+   "side_a_archetype": "chocolate_nutty",
+   "side_b_archetype": "fruity"
+  },
+  {
+   "archetype_code": "chocolate_nutty",
+   "archetype_name": "Chocolate & Nutty",
+   "is_center": false,
+   "angle_order": 1,
+   "side_a_archetype": "fruity",
+   "side_b_archetype": "earthy"
+  },
+  {
+   "archetype_code": "fruity",
+   "archetype_name": "Fruity",
+   "is_center": false,
+   "angle_order": 2,
+   "side_a_archetype": "chocolate_nutty",
+   "side_b_archetype": "floral"
+  },
+  {
+   "archetype_code": "earthy",
+   "archetype_name": "Earthy",
+   "is_center": false,
+   "angle_order": 3,
+   "side_a_archetype": "chocolate_nutty",
+   "side_b_archetype": "floral"
+  },
+  {
+   "archetype_code": "floral",
+   "archetype_name": "Floral",
+   "is_center": false,
+   "angle_order": 4,
+   "side_a_archetype": "fruity",
+   "side_b_archetype": "earthy"
+  }
+ ],
+ "seams": [
+  {
+   "archetype_a": "chocolate_nutty",
+   "archetype_b": "fruity",
+   "label": "fruit on chocolate",
+   "is_labelled": true
+  },
+  {
+   "archetype_a": "chocolate_nutty",
+   "archetype_b": "earthy",
+   "label": "deeper roast",
+   "is_labelled": true
+  },
+  {
+   "archetype_a": "fruity",
+   "archetype_b": "floral",
+   "label": "delicate",
+   "is_labelled": true
+  },
+  {
+   "archetype_a": "earthy",
+   "archetype_b": "floral",
+   "label": null,
+   "is_labelled": false
+  }
+ ]
+}

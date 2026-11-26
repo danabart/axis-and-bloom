@@ -1001,3 +1001,46 @@ export async function changeNoteMapping(input: { mappingId: string; cuppingNoteI
     return { result: await rememberMapping(tx, cur.rows[0].normalized_words, input.cuppingNoteId as string, await adminProfileIdFor(tx, input.actorUid)) };
   });
 }
+
+// ── Ella's Bloom Map 13 (2026-11-26): hold a roaster's dimension back on /map ──
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_13_LAPTOP_LAYOUT_AND_ROASTER_PROFILE.md
+// The one writer of roastery_portal_dimension_hold. A hold sits beside the
+// roaster's answers and never changes them (G2.20). hold: true inserts an open
+// hold; hold: false withdraws the open one (the one transition the guard
+// trigger allows). Idempotent: holding an already-held pair, or showing a pair
+// with no open hold, changes nothing.
+
+export interface SetDimensionHoldInput { roasterId: unknown; dimensionId: unknown; hold: unknown; reason: unknown; actorUid: string }
+export interface SetDimensionHoldResult { holdId: number | null; isOpen: boolean; unchanged: boolean }
+
+export async function setDimensionHoldInTx(tx: Tx, input: SetDimensionHoldInput): Promise<SetDimensionHoldResult> {
+  if (!isUuid(input.roasterId)) throw notFound('roastery');
+  const dimensionId = Number(input.dimensionId);
+  if (!Number.isInteger(dimensionId)) throw invalid('choose a portal dimension');
+  if (typeof input.hold !== 'boolean') throw invalid('hold must be true or false');
+  const reason = requiredText(input.reason, LIMITS.short, 'reason');
+  if (!input.actorUid) throw invalid('an admin is required');
+  const roaster = await tx.query(`SELECT id FROM roaster WHERE id = $1`, [input.roasterId]);
+  if (!roaster.rows[0]) throw notFound('roastery');
+  const dim = await tx.query(`SELECT dimension_id FROM roastery_portal_dimension WHERE dimension_id = $1`, [dimensionId]);
+  if (!dim.rows[0]) throw invalid('choose a portal dimension');
+  const open = await tx.query<{ id: number }>(
+    `SELECT id FROM roastery_portal_dimension_hold WHERE roaster_id = $1 AND dimension_id = $2 AND withdrawn_at IS NULL FOR UPDATE`,
+    [input.roasterId, dimensionId]);
+  const cur = open.rows[0] ?? null;
+  if (input.hold) {
+    if (cur) return { holdId: cur.id, isOpen: true, unchanged: true };
+    const ins = await tx.query<{ id: number }>(
+      `INSERT INTO roastery_portal_dimension_hold (roaster_id, dimension_id, reason, raised_by_uid) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [input.roasterId, dimensionId, reason, input.actorUid]);
+    return { holdId: ins.rows[0].id, isOpen: true, unchanged: false };
+  }
+  if (!cur) return { holdId: null, isOpen: false, unchanged: true };
+  await tx.query(
+    `UPDATE roastery_portal_dimension_hold
+        SET withdrawn_at = timezone('utc', now()), withdrawn_by_uid = $2, withdrawn_reason = $3
+      WHERE id = $1`, [cur.id, input.actorUid, reason]);
+  return { holdId: cur.id, isOpen: false, unchanged: false };
+}
+
+export const setDimensionHold = (input: SetDimensionHoldInput) => withTransaction(tx => setDimensionHoldInTx(tx, input));

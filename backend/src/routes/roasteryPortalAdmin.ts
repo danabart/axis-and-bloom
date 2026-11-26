@@ -13,12 +13,12 @@ import {
   getVocabulary, listRoasteriesWithProgress, listLinks, getRoasterBasics, getAdminLineup, getLineupCoffee,
   previewAcceptance, listAcceptances, listNoteMappings, getCoffeeHint, listCousinHints, getPortalLanding, getPreviewContact,
   getCurrentResponse, getResponseById, listResponseVersions, getCurrentLineupResponse,
-  listLineupResponseVersions, listCatalogCoffeesForRoaster,
+  listLineupResponseVersions, listCatalogCoffeesForRoaster, listDimensionHolds,
 } from '../services/roasteryPortalReads.js';
 import { CatalogError } from '../services/catalogService.js';
 import {
   PortalError, isUuid, acceptResponse, setNoteMapping, changeNoteMapping, supersedeNoteMapping, createLink, revokeLink, addLineupCoffee, bulkAddLineupCoffees, updateLineupCoffee,
-  linkLineupCoffeeToCatalog, deactivateLineupCoffee, reorderLineupCoffees,
+  linkLineupCoffeeToCatalog, deactivateLineupCoffee, reorderLineupCoffees, setDimensionHold,
 } from '../services/roasteryPortalService.js';
 
 const router = Router();
@@ -248,6 +248,22 @@ router.patch('/note-mappings/:id', async (req: AuthRequest, res) => {
     if (req.body?.cuppingNoteId === null) { res.json(await supersedeNoteMapping({ mappingId: req.params.id })); return; }
     res.json(await changeNoteMapping({ mappingId: req.params.id, cuppingNoteId: req.body?.cuppingNoteId, actorUid: req.uid! }));
   } catch (err) { fail('[admin/roastery-portal/mapping-change]', res, err); }
+});
+
+// Ella's Bloom Map 13 (2026-11-26): the "Hide on /map" switch on the Calibration
+// table. GET lists the roaster's holds (open and withdrawn); POST { dimensionId,
+// hold, reason } holds a dimension back or withdraws the open hold
+// (roasteryPortalService.setDimensionHold). The roaster's answers never change.
+router.get('/roasteries/:roasterId/dimension-holds', async (req, res) => {
+  if (!isUuid(req.params.roasterId)) return badId(res);
+  try { res.json(await listDimensionHolds(req.params.roasterId)); }
+  catch (err) { fail('[admin/roastery-portal/dimension-holds]', res, err); }
+});
+router.post('/roasteries/:roasterId/dimension-holds', async (req: AuthRequest, res) => {
+  if (!isUuid(req.params.roasterId)) return badId(res);
+  try {
+    res.json(await setDimensionHold({ roasterId: req.params.roasterId, dimensionId: req.body?.dimensionId, hold: req.body?.hold, reason: req.body?.reason, actorUid: req.uid! }));
+  } catch (err) { fail('[admin/roastery-portal/dimension-hold-set]', res, err); }
 });
 
 // Read-only hints: never applied to anything.

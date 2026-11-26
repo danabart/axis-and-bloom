@@ -232,7 +232,9 @@ export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_availa
   // Ella map 10 (2026-11-24)
   'no_support',
   // Ella map 12 (2026-11-26): the /map button that opens the coffee's panel
-  'more_about'];
+  'more_about',
+  // Ella map 13 (2026-11-26): the /map panel's headings
+  'where_it_shines', 'roaster_rates', 'roaster_rates_caption', 'roaster_words_title', 'notes_title', 'notes_heading'];
 export const DIAL_PARAMETER_KEYS = [
   'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
   'dial_w_ring', 'dial_w_body', 'dial_w_sweet', 'dial_w_lane', 'dial_cap_different',
@@ -245,6 +247,7 @@ export const DIAL_PARAMETER_KEYS = [
   'dial_earthy_branch_reworded_on', // Ella map 7
   'dial_quote_family_answers', 'dial_quote_other_answers', 'dial_away_max_points', // Ella map 9 (the last two read by nothing since Ella map 10; the rows stay)
   'dial_step_reuse_answer', // Ella map 10 follow-up (2026-11-25)
+  'dial_roaster_rating_max', // Ella map 13 fix (2026-11-26): the top of the roaster's scale on /map
 ];
 
 export async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIntegrityCheck[]> {

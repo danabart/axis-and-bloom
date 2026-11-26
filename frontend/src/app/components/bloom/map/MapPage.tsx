@@ -33,9 +33,19 @@
 // coffee reads through useCoffeeDetail, shared with the Bloom page. The button
 // shows only for a coffee with a description or cupping bars.
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_12_STEP_COMPARISONS_AND_REVEAL.md
+// Ella map 13 (2026-11-26): a laptop layout from lg (the phone layout below lg
+// is as it was): the map beside the top card, the step cards in two columns
+// with the lead card across both; a card whose panel is open spans both
+// columns, and the top card's open panel spans the page under the map and the
+// top card. The panel is in the roaster's terms (RevealedPanel mapProfile): the
+// description, where it shines (every method the roaster named, best first),
+// the notes, then the roaster's own 1 to 5 ratings, never A&B's cupping bars;
+// every heading is a copy row. It shows for a coffee with a description, the
+// roaster's ratings, or notes with a where-it-shines answer.
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_13_LAPTOP_LAYOUT_AND_ROASTER_PROFILE.md
 import { useCallback, useEffect, useId, useState, type CSSProperties } from 'react';
 import EllaMapFace from './EllaMapFace';
-import { RevealedPanel } from '../RevealedPanel';
+import { RevealedPanel, type MapPanelProfile } from '../RevealedPanel';
 import { useCoffeeDetail } from '../../coffee-info/useCoffeeDetail';
 import '../field/bloomField.css';
 import { useCart } from '../../../context/CartContext';
@@ -72,31 +82,80 @@ const priceWords = (price: MapPrice) => `$${(price.cents / 100).toFixed(2)} · $
 /** The panel's colours on /map: the page's ink on white, the card border as the range track. */
 const PANEL_LOOK = { ['--accent' as string]: '#3f3a36', ['--t40' as string]: '#e8e4dc' } as CSSProperties;
 
+/** Ella map 13: the lg breakpoint (Tailwind's, 1024px), where /map takes its laptop layout. */
+const LAPTOP = '(min-width: 1024px)';
+function useIsLaptop(): boolean {
+  const query = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(LAPTOP) : null;
+  const [is, setIs] = useState(() => query?.matches ?? false);
+  useEffect(() => {
+    if (!query) return;
+    const on = () => setIs(query.matches);
+    query.addEventListener?.('change', on);
+    return () => query.removeEventListener?.('change', on);
+  }, [query]);
+  return is;
+}
+
+/**
+ * Ella map 12/13: one coffee's panel reads, once, for its button and its panel
+ * (the public reads through useCoffeeDetail; withRoasterProfile is /map's).
+ * `profile` is null until the roaster-profile read is back, so the button never
+ * opens a half-read panel. A&B's cupping bars are not read here (/map shows the
+ * roaster's ratings only).
+ */
+export function useMoreAbout(coffeeId: number, copy: Record<string, string>) {
+  const { content, wheelRows, roasterProfile } = useCoffeeDetail(coffeeId, { withDimensions: false, withRoasterProfile: true, logTag: 'MapPage/more-about' });
+  const profile: MapPanelProfile | null = roasterProfile ? {
+    headings: {
+      roasterWords: copy.roaster_words_title, whereItShines: copy.where_it_shines, notesHeading: copy.notes_heading, notes: copy.notes_title,
+      roasterRates: copy.roaster_rates, roasterRatesCaption: copy.roaster_rates_caption,
+    },
+    whereItShines: roasterProfile.whereItShines, scale: roasterProfile.scale, ratings: roasterProfile.ratings,
+  } : null;
+  const hasMore = !!profile && content !== null && (
+    !!content.threeVoiceStory || (profile.ratings.length > 0 && profile.scale > 0)
+    || (wheelRows.length > 0 && profile.whereItShines.length > 0));
+  return { coffeeId, content, wheelRows, profile, hasMore };
+}
+type MoreAboutData = ReturnType<typeof useMoreAbout>;
+
+/** Ella map 12: the "More about this coffee" button (copy row more_about). */
+export function MoreAboutButton({ label, open, onToggle, panelId }: { label: string; open: boolean; onToggle: () => void; panelId: string }) {
+  return (
+    <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} data-testid="more-about-button"
+      className={`inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.15em] font-semibold ${SOFT} min-h-[44px]`}>
+      <span>{label}</span>
+      <svg width="12" height="12" viewBox="0 0 18 18" aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : undefined }}>
+        <path d="M9 3v12M3 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    </button>
+  );
+}
+
+/** Ella map 12/13: the Bloom page's own reveal panel (variant="field", G4.1), in the roaster's terms. */
+export function MoreAboutPanel({ data, open, panelId }: { data: MoreAboutData; open: boolean; panelId: string }) {
+  if (!data.profile) return null;
+  return (
+    <div className="bf-profile-stack bf-map-panel" style={PANEL_LOOK}>
+      <RevealedPanel variant="field" panelId={panelId} isRevealed={open} archetype="" coffeeId={data.coffeeId} dialSortOrder={null}
+        content={data.content} dimensions={[]} wheelRows={data.wheelRows} userArchetype={null}
+        prelaunch hideProfileLink mapProfile={data.profile} />
+    </div>
+  );
+}
+
 /**
  * Ella map 12: "More about this coffee" and the shared reveal panel beneath the
- * card. Nothing shows until the coffee's reads say it has a description or
- * cupping bars.
+ * card. Nothing shows until the coffee's reads say there is more to show.
  */
-export function MoreAbout({ coffeeId, label, open, onToggle }: { coffeeId: number; label: string | undefined; open: boolean; onToggle: () => void }) {
-  const { content, dimensions, wheelRows } = useCoffeeDetail(coffeeId, { withDimensions: true, logTag: 'MapPage/more-about' });
+export function MoreAbout({ coffeeId, copy, open, onToggle }: { coffeeId: number; copy: Record<string, string>; open: boolean; onToggle: () => void }) {
+  const data = useMoreAbout(coffeeId, copy);
   const panelId = useId();
-  const hasMore = !!content?.threeVoiceStory || dimensions.length > 0;
-  if (!hasMore || !label) return null;
-  const brewTags = Array.isArray(content?.tags) ? content.tags.filter(t => t.kind === 'brew') : [];
+  if (!data.hasMore || !copy.more_about) return null;
   return (
     <div className="mt-3" data-testid="more-about">
-      <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} data-testid="more-about-button"
-        className={`inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.15em] font-semibold ${SOFT} min-h-[44px]`}>
-        <span>{label}</span>
-        <svg width="12" height="12" viewBox="0 0 18 18" aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : undefined }}>
-          <path d="M9 3v12M3 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="1.4" />
-        </svg>
-      </button>
-      <div className="bf-profile-stack" style={PANEL_LOOK}>
-        <RevealedPanel variant="field" panelId={panelId} isRevealed={open} archetype="" coffeeId={coffeeId} dialSortOrder={null}
-          content={content} dimensions={dimensions} wheelRows={wheelRows} userArchetype={null}
-          prelaunch hideProfileLink brewTags={brewTags} />
-      </div>
+      <MoreAboutButton label={copy.more_about} open={open} onToggle={onToggle} panelId={panelId} />
+      <MoreAboutPanel data={data} open={open} panelId={panelId} />
     </div>
   );
 }
@@ -108,15 +167,79 @@ export function StepCard({ step, copy, busy, onChoose, open = false, onToggle = 
   open?: boolean; onToggle?: () => void;
 }) {
   return (
-    <div className={`rounded-xl bg-white border p-4 ${step.isLead ? 'border-[#2f6f68]' : 'border-[#e8e4dc]'}`} data-testid="step-card" data-lead={step.isLead ? '1' : '0'}>
+    <div className={`rounded-xl bg-white border p-4 ${step.isLead ? 'border-[#2f6f68]' : 'border-[#e8e4dc]'} ${open ? 'lg:col-span-2' : ''}`} data-testid="step-card" data-lead={step.isLead ? '1' : '0'} data-open={open ? '1' : '0'}>
       <h3 className={`text-lg font-semibold ${INK}`} data-testid="step-coffee">{step.name}</h3>
       <p className={`text-sm ${SOFT} mt-1`} data-testid="step-text">{step.text}</p>
       <button type="button" disabled={busy} onClick={onChoose} data-testid="price-add"
         className="mt-3 px-4 py-1.5 rounded-full text-sm font-semibold border disabled:opacity-50" style={{ borderColor: TEAL, color: TEAL }}>
         {step.price ? (copy.price_add ?? '{price}').replace('{price}', priceWords(step.price)) : copy.choose_this}
       </button>
-      <MoreAbout coffeeId={step.coffeeId} label={copy.more_about} open={open} onToggle={onToggle} />
+      <MoreAbout coffeeId={step.coffeeId} copy={copy} open={open} onToggle={onToggle} />
     </div>
+  );
+}
+
+/**
+ * Ella map 13: the map and the top card. Below lg, one column as before, the
+ * top card's panel inside the card; from lg, the map beside the card and the
+ * open panel across the page under both.
+ */
+function TopRow({ face, data, copy, added, onAddFirstBag, open, onToggle }: {
+  face: MapFaceData; data: MapSteps; copy: Record<string, string>; added: number | null;
+  onAddFirstBag: (c: Parameters<typeof mapCartItem>[0]) => void; open: boolean; onToggle: () => void;
+}) {
+  const pos = data.position!;
+  const more = useMoreAbout(pos.coffeeId, copy);
+  const panelId = useId();
+  const isLaptop = useIsLaptop();
+  const showMore = more.hasMore && !!copy.more_about;
+  // Ella map 10 (C1): the top card carries its label and its text whenever the customer has a quiz
+  // (Founder's pick on a first match, "You are here" after a step); with no quiz, the notes as before.
+  const top = data.firstBag ?? null;
+  const topLabel = top?.labelCode ? copy[top.labelCode] ?? null : null;
+  return (
+    <>
+      <div className="mb-6 lg:grid lg:grid-cols-2 lg:gap-8 lg:items-start" data-testid="top-row">
+        <div className="mb-5 lg:mb-0" data-testid="map-face">
+          <EllaMapFace placements={face.placements} wedges={face.wedges} size="full" labelMode="name"
+            highlightCoffeeId={pos.coffeeId} arrowsTo={data.steps.map(s => s.coffeeId)} quietOthers />
+        </div>
+
+        <section className="rounded-xl bg-white border border-[#e8e4dc] p-5" data-testid="position-card">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className={EYEBROW} style={{ color: TEAL }} data-testid="position-title" data-label={top?.labelCode ?? ''}>
+              {topLabel ?? (pos.hasBag ? copy.here_title : copy.first_bag_title)}
+            </p>
+          </div>
+          <h2 className={`text-2xl font-semibold ${INK} mt-1`} data-testid="position-name">{pos.name}</h2>
+          {!top && pos.notes.length > 0 && <p className={`text-base ${INK} mt-1`}>{pos.notes.join(', ')}</p>}
+          {top && (
+            <p className={`text-sm ${SOFT} mt-2`} data-testid="first-bag-reason">{top.text ?? top.reason}</p>
+          )}
+          <Price price={pos.price} />
+          {!pos.hasBag && pos.price && (
+            <div>
+              <button type="button" onClick={() => onAddFirstBag(pos)} data-testid="add-first-bag"
+                className="mt-3 px-4 py-2 rounded-full text-sm font-medium text-white" style={{ background: TEAL }}>
+                {copy.add_first_bag}
+              </button>
+            </div>
+          )}
+          {added === pos.coffeeId && <p className={`text-sm ${SOFT} mt-2`} data-testid="added-to-cart">{copy.added_to_cart}</p>}
+          {showMore && (
+            <div className="mt-3" data-testid="more-about">
+              <MoreAboutButton label={copy.more_about} open={open} onToggle={onToggle} panelId={panelId} />
+              {!isLaptop && <MoreAboutPanel data={more} open={open} panelId={panelId} />}
+            </div>
+          )}
+        </section>
+      </div>
+      {showMore && isLaptop && open && (
+        <div className="mb-6 rounded-xl bg-white border border-[#e8e4dc] px-6 pb-6" data-testid="top-panel-wide">
+          <MoreAboutPanel data={more} open={open} panelId={panelId} />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -162,64 +285,36 @@ export default function MapPage() {
   const pos = data.position;
   const copy = data.copy;
   if (!pos) return <main className="max-w-md mx-auto px-4 py-10" data-testid="map-empty" />;
-  // Ella map 10 (C1): the top card carries its label and its text whenever the customer has a quiz
-  // (Founder's pick on a first match, "You are here" after a step); with no quiz, the notes as before.
-  const top = data.firstBag ?? null;
-  const topLabel = top?.labelCode ? copy[top.labelCode] ?? null : null;
   const lead = data.steps.find(s => s.isLead) ?? null;
   const others = data.steps.filter(s => !s.isLead);
 
   return (
-    <main className="max-w-md mx-auto px-4 py-6" style={{ fontFamily: 'Lato, sans-serif' }} data-testid="map-page">
+    <main className="max-w-md lg:max-w-6xl mx-auto px-4 lg:px-8 py-6 lg:py-10" style={{ fontFamily: 'Lato, sans-serif' }} data-testid="map-page">
       <p className={`${EYEBROW} ${SOFT}`}>{copy.map_eyebrow}</p>
       <h1 className={`text-3xl font-semibold ${INK} mt-1`} data-testid="map-title">{!pos.hasBag ? copy.map_title_first : copy.map_title_after}</h1>
-      <p className={`text-sm ${SOFT} mt-2 mb-4`}>{copy.map_intro}</p>
+      <p className={`text-sm ${SOFT} mt-2 mb-4 lg:mb-8 lg:max-w-2xl`}>{copy.map_intro}</p>
 
-      <div className="mb-5" data-testid="map-face">
-        <EllaMapFace placements={face.placements} wedges={face.wedges} size="full" labelMode="name"
-          highlightCoffeeId={pos.coffeeId} arrowsTo={data.steps.map(s => s.coffeeId)} quietOthers />
+      <TopRow face={face} data={data} copy={copy} added={added} onAddFirstBag={addFirstBag}
+        open={openPanel === 'top'} onToggle={() => toggle('top')} />
+
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+        {lead && (
+          <section className="mb-6 lg:mb-0 lg:col-span-2" data-testid="lead-step">
+            <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="lead-title">{copy.lead_title}</p>
+            <StepCard step={lead} copy={copy} busy={busy} onChoose={() => choose(lead)}
+              open={openPanel === `step:${lead.stepId}`} onToggle={() => toggle(`step:${lead.stepId}`)} />
+          </section>
+        )}
+        {others.length > 0 && (
+          <section className="lg:col-span-2" data-testid="steps">
+            <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="others-title">{lead ? copy.others_title : copy.steps_title}</p>
+            <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start" data-testid="steps-grid">
+              {others.map(s => <StepCard key={s.stepId} step={s} copy={copy} busy={busy} onChoose={() => choose(s)}
+                open={openPanel === `step:${s.stepId}`} onToggle={() => toggle(`step:${s.stepId}`)} />)}
+            </div>
+          </section>
+        )}
       </div>
-
-      <section className="rounded-xl bg-white border border-[#e8e4dc] p-5 mb-6" data-testid="position-card">
-        <div className="flex items-baseline justify-between gap-2">
-          <p className={EYEBROW} style={{ color: TEAL }} data-testid="position-title" data-label={top?.labelCode ?? ''}>
-            {topLabel ?? (pos.hasBag ? copy.here_title : copy.first_bag_title)}
-          </p>
-        </div>
-        <h2 className={`text-2xl font-semibold ${INK} mt-1`} data-testid="position-name">{pos.name}</h2>
-        {!top && pos.notes.length > 0 && <p className={`text-base ${INK} mt-1`}>{pos.notes.join(', ')}</p>}
-        {top && (
-          <p className={`text-sm ${SOFT} mt-2`} data-testid="first-bag-reason">{top.text ?? top.reason}</p>
-        )}
-        <Price price={pos.price} />
-        {!pos.hasBag && pos.price && (
-          <div>
-            <button type="button" onClick={() => addFirstBag(pos)} data-testid="add-first-bag"
-              className="mt-3 px-4 py-2 rounded-full text-sm font-medium text-white" style={{ background: TEAL }}>
-              {copy.add_first_bag}
-            </button>
-          </div>
-        )}
-        {added === pos.coffeeId && <p className={`text-sm ${SOFT} mt-2`} data-testid="added-to-cart">{copy.added_to_cart}</p>}
-        <MoreAbout coffeeId={pos.coffeeId} label={copy.more_about} open={openPanel === 'top'} onToggle={() => toggle('top')} />
-      </section>
-
-      {lead && (
-        <section className="mb-6" data-testid="lead-step">
-          <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="lead-title">{copy.lead_title}</p>
-          <StepCard step={lead} copy={copy} busy={busy} onChoose={() => choose(lead)}
-            open={openPanel === `step:${lead.stepId}`} onToggle={() => toggle(`step:${lead.stepId}`)} />
-        </section>
-      )}
-      {others.length > 0 && (
-        <section data-testid="steps">
-          <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="others-title">{lead ? copy.others_title : copy.steps_title}</p>
-          <div className="flex flex-col gap-3">
-            {others.map(s => <StepCard key={s.stepId} step={s} copy={copy} busy={busy} onChoose={() => choose(s)}
-              open={openPanel === `step:${s.stepId}`} onToggle={() => toggle(`step:${s.stepId}`)} />)}
-          </div>
-        </section>
-      )}
       {error && <p className="text-sm text-[#a33726] mt-3">{error}</p>}
 
       <p className={`text-sm ${SOFT} text-center mt-8`} data-testid="closing-line">{copy.closing_line}</p>
