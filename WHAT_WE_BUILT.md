@@ -7158,7 +7158,7 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
 
 ### 287. Ella's Bloom Map 12: step lines compare to the coffee you drink, the treat answer, "More about this coffee" (2026-11-26)
 
-`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_12_STEP_COMPARISONS_AND_REVEAL.md` · `CLOSING_REPORT_12.md`. Test DB only so far; the production seed waits for Dana's go (Part E).
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_12_STEP_COMPARISONS_AND_REVEAL.md` · `CLOSING_REPORT_12.md`. On production 2026-11-26 (4f826a5, deploy run 45851004955): the seed wrote 40 rows and published L5 as version 7; a rerun wrote 0; the five production pages match.
 
 - **Step lines name the coffee you drink:**
   - `dial_step.customer_line` may hold `{from}`. `matchService.steps` fills it with the position coffee's name.

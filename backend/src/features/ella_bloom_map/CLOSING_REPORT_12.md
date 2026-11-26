@@ -371,4 +371,21 @@ Brief: `CLAUDE_CODE_PROMPT_ELLA_MAP_12_STEP_COMPARISONS_AND_REVEAL.md` · Read f
 3. Read the five pages on production.
 4. Run `npm run catalog:md -- --expect-db axisandbloom` and commit CATALOG.md.
 
-**STOP before production. Production is unchanged; the only production access was read-only.**
+**STOP before production (lifted by Dana's "push", 2026-11-26; see Part E).**
+
+## Part E on production (2026-11-26, Dana's "push")
+
+- **Before the push:** danab-0a, the only other session listed, confirmed it was idle, with no repo or database work since 806f723.
+- **Push:** 4f826a5 (27 files, this brief's only). Deploy run 45851004955 succeeded. After it, production had `v_dial_quiz_answer.resulting_family_code` and the `more_about` row.
+- **Seed (`--apply --expect-db axisandbloom`):**
+  - 40 rows written: 36 step lines, 3 treat sentences, 1 choice.
+  - Published "L5 step comparisons (Ella map 12)" as version 7: 18 placements, v6 retired.
+  - A second run wrote 0 (42 unchanged).
+- **The five production pages** (`tmp/em12_pages_prod_after.md`) match item 5 word for word:
+  - Dana: Blossom lead (strongest support), Geometric (treat, `v7_q6_c`), The Waverly (family).
+  - 85, 33 and 23: start-rule leads, steps as listed.
+  - 81: La Familia lead (setup answer `gentler`), then The Daily and Fabricator.
+- **CATALOG.md:** `catalog:md` regenerated it from `axisandbloom` (232 tables, 120 views, 1,987 columns). The only changes are this brief's comments, plus the date and hash.
+- **Left out of every commit:** files this brief didn't change (`usual_drink/README.md`, `commerce/CLOSING_REPORT_6.md`, the Genova font deletions, the PULL_QUIZ_RESULTS brief and other untracked files).
+
+**DONE.**
