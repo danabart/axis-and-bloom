@@ -7154,3 +7154,4 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
     - Several answers: chips with 44 px remove buttons, and the box empties after each pick until three. Picked values aren't offered again.
     - The "as I typed it" row shows only while the list holds no typed name.
   - "Which one do you drink most?" shows a typed-in coffee by the customer's words, in the order the customer named them.
+- **Part C on production (2026-11-25, Dana's go):** the conversion wrote 1 row (`cupboard_coffee` 6 → 7), a rerun wrote 0, and checks 31 to 33 read 0.

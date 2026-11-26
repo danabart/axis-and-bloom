@@ -231,4 +231,9 @@ The test customer is "Zzz Test Customer UD3", uid `ktIy1WjLxHUg2fsTqNiJ4azwbWu1`
   - **2:** `["starbucks","other"]` with "Zzz smoke roaster" and `main_cupboard "other"` answered 200 and reads back as a list with the words, `main_cupboard` "other". Four coffees answered 400 ("takes at most 3 values"); `["nothing","wawa"]` answered 400 ("nothing stands alone"). The stored answer is unchanged after both.
 - **Part C dry run on production** (read-only): `cupboard_coffee` has 6 rows; 1 customer to convert, 0 skipped: `5d005443` `"joe_bean"` at `2026-11-25 18:49:30.587685` → `.587686`, no words. The smoke test user (`103cdf5f`, single `counter_culture` at Task 0) now holds a list from the smoke, so it needs no conversion.
 
-**STOP before Part C on production: waiting for Dana's go.** Expected effect: `cupboard_coffee` rows go from 6 to 7; checks #32 and #33 go to 0 on the next boot; no old row changes.
+**Part C on production (Dana's go, 2026-11-25):**
+- `npx tsx src/scripts/usualDrink2TakesIt_2026_11_24.ts --apply --expect-db axisandbloom --field cupboard_coffee --tag ud3` at 2026-11-26T03:41:55Z: 1 row written, `cupboard_coffee` rows 6 → 7. `5d005443` `"joe_bean"` → `["joe_bean"]` at `2026-11-25 18:49:30.587686`, source_id `ud3:cupboard_coffee:5d005443…`. No old row changed.
+- A second `--apply` wrote 0 rows (7 → 7).
+- Checks 31, 32 and 33, run read-only with the real functions on production: all pass with 0 findings ("all agree", "all rows fit", "all arrays").
+
+Usual Drink 3 is done.
