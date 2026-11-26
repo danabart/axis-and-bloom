@@ -419,3 +419,18 @@ Run locally, signed in as the marked Zzz test admins, on the test DB (`backend/t
 5. Check `/api/coffees/2914/roaster-profile` and two `/map` pages on production; run `catalog:md` and commit CATALOG.md.
 
 Dana said push (2026-11-26).
+
+## Part E on production (2026-11-26)
+
+- danab-0a confirmed idle and had nothing uncommitted.
+- Pushed 21400d4; deploy run 45882784031 green (3m04s). The production boot seeded the six copy rows and `dial_roaster_rating_max`.
+- Production seed (`tmp/em13_prod_dry.md`, `em13_apply_prod.md`, `em13_apply_prod2.md`): the dry run planned 2 holds and 6 copy rows unchanged; `--apply` wrote 2 (Mouthfeel, both map roasters); a rerun wrote 0.
+- `GET /api/coffees/2914/roaster-profile` on production returns:
+  - Where it shines: Espresso, Pour-over, Batch brew / drip, Cold brew.
+  - Scale 5.
+  - Ratings: Acidity 4, Sweetness 4, Bitterness 3, Body 5, Clarity 4, Finish 4. No Mouthfeel.
+- Dana's production page, read only (`tmp/em13_prod_payload.mts`): Tiger Stripe, then Blossom, Geometric and The Waverly.
+- `catalog:md` against production: 233 tables, 121 views, 1,996 columns. CATALOG.md committed.
+- **Production screenshot:**
+  - A headless browser can't reach production: the site redirects to the live domain behind a Cloudflare bot check, and I didn't try to get past it.
+  - In Dana's Chrome, `/map` falls back to the home page because that browser isn't signed in.
