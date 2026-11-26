@@ -230,7 +230,9 @@ export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_availa
   // Ella map 9 (2026-11-20): the personal text (its frames told_us_*, also_said, asked_for, step_* are read by nothing since Ella map 10)
   'founder_pick', 'lead_title', 'others_title', 'kitchen', 'price_add',
   // Ella map 10 (2026-11-24)
-  'no_support'];
+  'no_support',
+  // Ella map 12 (2026-11-26): the /map button that opens the coffee's panel
+  'more_about'];
 export const DIAL_PARAMETER_KEYS = [
   'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
   'dial_w_ring', 'dial_w_body', 'dial_w_sweet', 'dial_w_lane', 'dial_cap_different',

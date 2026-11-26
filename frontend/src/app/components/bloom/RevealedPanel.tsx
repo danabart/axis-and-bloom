@@ -2,7 +2,8 @@ import type { CSSProperties } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
-import { TastingNotes, type ContentData } from '../coffee-info/TastingNotes';
+import { TastingNotes, type ContentData, type CardTag } from '../coffee-info/TastingNotes';
+import { CardTags } from '../coffee-info/CardTags';
 import { DimensionBars, type DimensionRow } from '../coffee-info/DimensionBars';
 import { CollaborativeFlavorWheel, type WheelRow } from '../coffee-info/CollaborativeFlavorWheel';
 import { CompatibilityBadge, useCompatibility } from '../coffee-info/useCompatibility';
@@ -36,6 +37,10 @@ interface RevealedPanelProps {
   onCompare?: () => void;
   /** variant="field": the panel's id, for the reveal button's aria-controls. */
   panelId?: string;
+  /** Ella map 12 (2026-11-26), variant="field": the coffee's best-brew tags, drawn under its description
+   * (/map passes them; the Bloom page passes none and is unchanged). Only kind 'brew' is ever drawn:
+   * an award tag passed here is dropped (G4.5). Additive, default none. */
+  brewTags?: CardTag[];
 }
 
 const RULE_STYLE: CSSProperties = { border: 'none', borderTop: '1px solid #deded1', margin: '32px 0' };
@@ -66,7 +71,7 @@ export const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[
  * every breakpoint and every evidence-presence combination without a
  * JS-computed template per case.
  */
-export function RevealedPanel({ isRevealed, archetype, coffeeId, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false, prelaunch = false, variant = 'default', onCompare, panelId }: RevealedPanelProps) {
+export function RevealedPanel({ isRevealed, archetype, coffeeId, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false, prelaunch = false, variant = 'default', onCompare, panelId, brewTags }: RevealedPanelProps) {
   const isField = variant === 'field';
   const { compat, dimCompText } = useCompatibility(archetype, userArchetype, isRevealed && !isField ? coffeeId : null);
   const { hasLiamAccess } = useAuth();
@@ -92,6 +97,7 @@ export function RevealedPanel({ isRevealed, archetype, coffeeId, dialSortOrder, 
               <div className="bf-pcol">
                 <Titled style={{ alignSelf: 'flex-start' }}>In the roaster’s words</Titled>
                 <TastingNotes content={content} contentLoading={!content} variant="field" />
+                {brewTags && <CardTags tags={brewTags.filter(t => t.kind === 'brew')} />}
               </div>
               {hasEvidence && (
                 <div className="bf-pcol">

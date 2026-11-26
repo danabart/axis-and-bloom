@@ -23,8 +23,21 @@
 // chip ("{price} · Add"), which does what "Make it my next bag" did (records the
 // step, adds one bag). No "See it". Every word comes from /api/map/steps.
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
-import { useCallback, useEffect, useState } from 'react';
+// Ella map 12 (2026-11-26), C: "More about this coffee" (copy row more_about) on
+// the top card and every step card opens the Bloom page's own reveal panel
+// (RevealedPanel variant="field", G4.1) beneath that card, one open at a time,
+// with the coffee's own parts only: the description, its best-brew tags, the
+// cupping bars and the notes wheel. No comfort-zone label (a Bloom-page sibling,
+// not in the panel), no compatibility sentence (the field variant reads none),
+// no links (prelaunch, hideProfileLink, no onCompare). The reads are the public
+// coffee reads through useCoffeeDetail, shared with the Bloom page. The button
+// shows only for a coffee with a description or cupping bars.
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_12_STEP_COMPARISONS_AND_REVEAL.md
+import { useCallback, useEffect, useId, useState, type CSSProperties } from 'react';
 import EllaMapFace from './EllaMapFace';
+import { RevealedPanel } from '../RevealedPanel';
+import { useCoffeeDetail } from '../../coffee-info/useCoffeeDetail';
+import '../field/bloomField.css';
 import { useCart } from '../../../context/CartContext';
 import { directCartItem } from '../cartItems';
 import type { CartItem } from '../types';
@@ -56,9 +69,43 @@ function Price({ price }: { price: MapPrice | null }) {
 
 const priceWords = (price: MapPrice) => `$${(price.cents / 100).toFixed(2)} · ${price.sizeLabel}`;
 
+/** The panel's colours on /map: the page's ink on white, the card border as the range track. */
+const PANEL_LOOK = { ['--accent' as string]: '#3f3a36', ['--t40' as string]: '#e8e4dc' } as CSSProperties;
+
+/**
+ * Ella map 12: "More about this coffee" and the shared reveal panel beneath the
+ * card. Nothing shows until the coffee's reads say it has a description or
+ * cupping bars.
+ */
+export function MoreAbout({ coffeeId, label, open, onToggle }: { coffeeId: number; label: string | undefined; open: boolean; onToggle: () => void }) {
+  const { content, dimensions, wheelRows } = useCoffeeDetail(coffeeId, { withDimensions: true, logTag: 'MapPage/more-about' });
+  const panelId = useId();
+  const hasMore = !!content?.threeVoiceStory || dimensions.length > 0;
+  if (!hasMore || !label) return null;
+  const brewTags = Array.isArray(content?.tags) ? content.tags.filter(t => t.kind === 'brew') : [];
+  return (
+    <div className="mt-3" data-testid="more-about">
+      <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} data-testid="more-about-button"
+        className={`inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.15em] font-semibold ${SOFT} min-h-[44px]`}>
+        <span>{label}</span>
+        <svg width="12" height="12" viewBox="0 0 18 18" aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : undefined }}>
+          <path d="M9 3v12M3 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        </svg>
+      </button>
+      <div className="bf-profile-stack" style={PANEL_LOOK}>
+        <RevealedPanel variant="field" panelId={panelId} isRevealed={open} archetype="" coffeeId={coffeeId} dialSortOrder={null}
+          content={content} dimensions={dimensions} wheelRows={wheelRows} userArchetype={null}
+          prelaunch hideProfileLink brewTags={brewTags} />
+      </div>
+    </div>
+  );
+}
+
 /** Ella map 9: the coffee's name, its composed text and the price chip; the chip records the step and adds one bag. */
-export function StepCard({ step, copy, busy, onChoose }: {
+export function StepCard({ step, copy, busy, onChoose, open = false, onToggle = () => {} }: {
   step: MapStepCard; copy: Record<string, string>; busy: boolean; onChoose: () => void;
+  /** Ella map 12: this card's "More about this coffee" panel is the open one */
+  open?: boolean; onToggle?: () => void;
 }) {
   return (
     <div className={`rounded-xl bg-white border p-4 ${step.isLead ? 'border-[#2f6f68]' : 'border-[#e8e4dc]'}`} data-testid="step-card" data-lead={step.isLead ? '1' : '0'}>
@@ -68,6 +115,7 @@ export function StepCard({ step, copy, busy, onChoose }: {
         className="mt-3 px-4 py-1.5 rounded-full text-sm font-semibold border disabled:opacity-50" style={{ borderColor: TEAL, color: TEAL }}>
         {step.price ? (copy.price_add ?? '{price}').replace('{price}', priceWords(step.price)) : copy.choose_this}
       </button>
+      <MoreAbout coffeeId={step.coffeeId} label={copy.more_about} open={open} onToggle={onToggle} />
     </div>
   );
 }
@@ -79,6 +127,9 @@ export default function MapPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [added, setAdded] = useState<number | null>(null);
+  // Ella map 12: the one open "More about this coffee" panel ('top' or 'step:<id>')
+  const [openPanel, setOpenPanel] = useState<string | null>(null);
+  const toggle = (key: string) => setOpenPanel(cur => (cur === key ? null : key));
   const { addToCart } = useCart();
 
   const load = useCallback(async () => {
@@ -150,19 +201,22 @@ export default function MapPage() {
           </div>
         )}
         {added === pos.coffeeId && <p className={`text-sm ${SOFT} mt-2`} data-testid="added-to-cart">{copy.added_to_cart}</p>}
+        <MoreAbout coffeeId={pos.coffeeId} label={copy.more_about} open={openPanel === 'top'} onToggle={() => toggle('top')} />
       </section>
 
       {lead && (
         <section className="mb-6" data-testid="lead-step">
           <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="lead-title">{copy.lead_title}</p>
-          <StepCard step={lead} copy={copy} busy={busy} onChoose={() => choose(lead)} />
+          <StepCard step={lead} copy={copy} busy={busy} onChoose={() => choose(lead)}
+            open={openPanel === `step:${lead.stepId}`} onToggle={() => toggle(`step:${lead.stepId}`)} />
         </section>
       )}
       {others.length > 0 && (
         <section data-testid="steps">
           <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="others-title">{lead ? copy.others_title : copy.steps_title}</p>
           <div className="flex flex-col gap-3">
-            {others.map(s => <StepCard key={s.stepId} step={s} copy={copy} busy={busy} onChoose={() => choose(s)} />)}
+            {others.map(s => <StepCard key={s.stepId} step={s} copy={copy} busy={busy} onChoose={() => choose(s)}
+              open={openPanel === `step:${s.stepId}`} onToggle={() => toggle(`step:${s.stepId}`)} />)}
           </div>
         </section>
       )}

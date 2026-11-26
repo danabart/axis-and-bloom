@@ -606,12 +606,14 @@ export async function saidBackHistory(runner: Runner = db) {
 
 export interface QuizAnswerRow {
   answer_code: string; is_branch: boolean; q_number: number; weight: number; family_code: string | null; is_self_taken: boolean;
+  /** Ella map 12: the answer's food signal (quiz_answer.resulting_archetype_id), for every answer; the treat step support reads it */
+  resulting_family_code: string | null;
 }
 
 /** One quiz session's answers (v_dial_quiz_answer): the branch answer first, then question weight high to low, then question number. */
 export async function quizAnswers(quizSessionId: string, runner: Runner = db): Promise<QuizAnswerRow[]> {
   const r = await runner.query(
-    `SELECT answer_code, is_branch, q_number, weight, family_code, is_self_taken
+    `SELECT answer_code, is_branch, q_number, weight, family_code, is_self_taken, resulting_family_code
        FROM v_dial_quiz_answer WHERE quiz_session_id = $1
       ORDER BY is_branch DESC, weight DESC, q_number, answer_code`, [quizSessionId]);
   return r.rows.map(x => ({ ...x, weight: Number(x.weight) }));

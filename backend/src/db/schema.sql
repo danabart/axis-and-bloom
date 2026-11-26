@@ -13090,10 +13090,12 @@ picked AS (
 SELECT p.canonical_user_id, p.quiz_session_id, p.is_self_taken, p.answer_id, a.answer_code, p.is_branch, qq.q_number,
        (COALESCE(qq.weight, 1) * COALESCE(a.weight, 1)) AS weight,
        CASE WHEN p.is_branch THEN p.result_code ELSE sc.family_code END AS family_code,
-       CASE WHEN p.is_branch THEN NULL ELSE sc.points END AS points
+       CASE WHEN p.is_branch THEN NULL ELSE sc.points END AS points,
+       ra.code::text AS resulting_family_code   -- Ella map 12: the answer's food signal (quiz_answer.resulting_archetype_id), for every answer
 FROM picked p
 JOIN quiz_answer a ON a.id = p.answer_id
 JOIN quiz_question qq ON qq.id = a.question_id
+LEFT JOIN coffee_archetype ra ON ra.id = a.resulting_archetype_id
 LEFT JOIN LATERAL (
   SELECT ca.code::text AS family_code, s.score AS points
   FROM quiz_answer_archetype_score s JOIN coffee_archetype ca ON ca.id = s.archetype_id
@@ -13191,6 +13193,23 @@ WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = 'dial_step_re
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END ELLA'S BLOOM MAP 10 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN ELLA'S BLOOM MAP 12 block (2026-11-26): step comparisons, the treat, "More about this coffee"
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_12_STEP_COMPARISONS_AND_REVEAL.md
+-- No table. v_dial_quiz_answer (above) gains resulting_family_code (Dana
+-- 2026-11-26, Task 0 item 2). The step lines' {from} is filled at read
+-- (matchService.steps); the treat is a dial_reason_choice row (the seed).
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- C: the label of the button that opens the coffee's panel on /map (insert if missing).
+INSERT INTO dial_customer_copy (code, text, decided_by)
+SELECT 'more_about', 'More about this coffee', 'seed'
+WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = 'more_about');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END ELLA'S BLOOM MAP 12 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- ═══════════════════════════════════════════════════════════════════════════

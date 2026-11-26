@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 import { reportError } from '../../lib/errorReporter';
 import type { Slot, Hop } from './types';
-import type { ContentData } from '../coffee-info/TastingNotes';
-import type { DimensionRow } from '../coffee-info/DimensionBars';
-import type { WheelRow } from '../coffee-info/CollaborativeFlavorWheel';
+import { useCoffeeDetail } from '../coffee-info/useCoffeeDetail';
 import { teaserFor } from '../../lib/signatureLine';
 import { useSlotAvailability } from './useSlotAvailability';
 
@@ -14,40 +12,27 @@ import { useSlotAvailability } from './useSlotAvailability';
  * independently.
  */
 export function usePositionCardData(slot: Slot, archetype: string, isRevealed: boolean) {
-  const [content, setContent] = useState<ContentData | null>(null);
-
-  const [dimensions, setDimensions] = useState<DimensionRow[]>([]);
-  const [wheelRows, setWheelRows] = useState<WheelRow[]>([]);
   const [hops, setHops] = useState<Hop[]>([]);
-  const [detailLoaded, setDetailLoaded] = useState(false);
 
-  // Teaser + per-weight availability + hops, fetched as soon as this is a real
-  // position (not gated by reveal). Part 16 §A — hops moved here from the
-  // reveal-gated effect below: the chips now render on the dial instrument
-  // itself, pre-reveal, so they need to be ready before the first reveal click,
-  // not after it. Still fetched once per slot (own effect, own dep array) and
-  // cached in state exactly as before — just triggered earlier.
+  // Ella map 12 (2026-11-26): the content, the flavor wheel and the dimensions
+  // come from useCoffeeDetail, the one copy of those reads (/map's "More about
+  // this coffee" calls it too). Unchanged here: content and wheel as soon as
+  // this is a real position (Part 16 §A; Coffee presentation brief 1, B2: the
+  // collapsed card's teaser falls back to the signature line from the wheel
+  // rows), dimensions lazily on first reveal only.
+  const { content, dimensions, wheelRows } = useCoffeeDetail(slot.coffeeId ?? null, {
+    readContent: !!slot.isActive, withDimensions: isRevealed, logTag: 'usePositionCardData',
+  });
+
+  // Hops, fetched as soon as this is a real position (not gated by reveal).
+  // Part 16 §A: the chips render on the dial instrument itself, pre-reveal, so
+  // they need to be ready before the first reveal click.
   useEffect(() => {
     if (!slot.isActive || !slot.coffeeId) return;
-    fetch(`/api/coffees/${slot.coffeeId}/content`).then(r => r.json()).then(setContent).catch(err => reportError('[usePositionCardData/content]', err));
     fetch(`/api/coffees/${slot.coffeeId}/hops`).then(r => r.json()).then(setHops).catch(err => reportError('[usePositionCardData/hops]', err));
-    // Coffee presentation brief 1 (2026-10-23), B2: the flavor wheel moved here
-    // from the reveal-gated effect below (as hops did in Part 16 §A): the
-    // collapsed card's teaser falls back to the signature line from these rows.
-    fetch(`/api/coffees/${slot.coffeeId}/flavor-wheel`).then(r => r.json()).then(setWheelRows).catch(err => reportError('[usePositionCardData/flavor-wheel]', err));
     // per-weight availability: useSlotAvailability below (shared with Shop all's card)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slot.coffeeId, slot.isActive]);
-
-  // Dimensions, fetched lazily on first reveal only (hops and the flavor wheel
-  // no longer live here — see the effect above).
-  useEffect(() => {
-    if (!isRevealed || detailLoaded || !slot.coffeeId) return;
-    setDetailLoaded(true);
-    fetch(`/api/coffees/${slot.coffeeId}/dimensions`).then(r => r.json())
-      .then(dimData => setDimensions(dimData.dimensions ?? []))
-      .catch(err => reportError('[usePositionCardData/dimensions]', err));
-  }, [isRevealed, detailLoaded, slot.coffeeId]);
 
   const { availableWeights, isUnpriced, effectivelyActive, selectedWeight, setSelectedWeight, selectedPrice } = useSlotAvailability(slot, archetype);
   // Coffee presentation brief 2 (2026-10-24), B2: always the signature line

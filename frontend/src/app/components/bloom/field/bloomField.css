@@ -113,6 +113,11 @@
 .bf-pfoot { display: flex; justify-content: flex-end; align-items: center; gap: 24px; flex-wrap: wrap; padding: clamp(20px, 2.4vw, 32px) clamp(24px, 3.5vw, 56px); border-top: 1px solid currentColor; }
 .bf-plinks { display: flex; gap: clamp(14px, 1.8vw, 24px); flex-wrap: wrap; }
 .bf-plinks .ab-caps { font-size: 11px; letter-spacing: .2em; white-space: nowrap; }
+/* Ella map 12 (2026-11-26): the same panel beneath a /map card, a narrow column at any width; the panel
+   carries no links there (prelaunch, hideProfileLink, no onCompare), so its link row is not drawn */
+.bf-profile-stack .bf-profile { margin-bottom: 0; }
+.bf-profile-stack .bf-pcols { grid-template-columns: 1fr; gap: 20px; padding: 16px 0 4px; }
+.bf-profile-stack .bf-pfoot { display: none; }
 
 /* ── lineup ──────────────────────────────────────────────────────────────── */
 .bf-lineup { padding-block: clamp(72px, 9vw, 136px); color: var(--ab-ink); }

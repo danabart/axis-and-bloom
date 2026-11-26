@@ -18,6 +18,7 @@ import { setParameterInTx } from './evidenceParameterService.js';
 import { dialMapChecks } from './dataCatalogIntegrity.js';
 import { applyRev2 } from '../scripts/ellaMapReasonsRev2_2026_11_23.js';
 import { applyReasons } from '../scripts/ellaMapReasons_2026_11_20.js';
+import { applyComparisons } from '../scripts/ellaMapStepComparisons_2026_11_25.js';
 
 vi.setConfig({ testTimeout: 240_000 });
 afterAll(async () => { await db.end(); });
@@ -28,6 +29,8 @@ async function ensureRev2(c: pg.PoolClient) {
   const n = Number((await c.query(`SELECT count(*) AS n FROM v_dial_said_back WHERE is_current`)).rows[0].n);
   if (n === 0) await applyReasons(tx(c), { publishLabel: `zzz map10 test ${randomUUID()}` });
   await applyRev2(tx(c));
+  // Ella map 12 (2026-11-26): the step lines compare to the position coffee and the treat row is on (published in the rollback)
+  await applyComparisons(tx(c));
 }
 
 interface Fixture {
@@ -79,11 +82,13 @@ const choice = (c: pg.PoolClient, kindCode: string, code: string, patch: { sortO
 /**
  * Dana's account on production (Task 0 item 2): a quiz_result on Tiger Stripe
  * recorded under L0, before the start rules (no rule_id), then "Same again";
- * all Chocolate & Nutty answers, the setup feeling "different".
+ * all Chocolate & Nutty answers, the setup feeling "different". Ella map 12
+ * (Dana 2026-11-26): her pinned page carries her answer since 2026-11-25,
+ * "happy"; the lead-source tests keep "different", a feeling with a direction.
  */
-async function danaLike(c: pg.PoolClient) {
+async function danaLike(c: pg.PoolClient, feeling = 'different') {
   const p = await person(c, { primary: 'Chocolate & Nutty', scores: { 'Chocolate & Nutty': 9 }, branch: 'v7_branch_cn_stay',
-    answers: ['v7_q1_a', 'v7_q2_a', 'v7_q3_a', 'v7_q4_a', 'v7_q5_a', 'v7_q6_c'], feeling: 'different' });
+    answers: ['v7_q1_a', 'v7_q2_a', 'v7_q3_a', 'v7_q4_a', 'v7_q5_a', 'v7_q6_c'], feeling });
   const tiger = await placedId(c, 'Tiger Stripe');
   const version = (await c.query<{ id: number }>(`SELECT id FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL`)).rows[0].id;
   const move = async (code: string) => (await c.query<{ id: number }>(`SELECT id FROM dial_move WHERE code = $1`, [code])).rows[0].id;
@@ -105,19 +110,21 @@ const P81: Fixture = { primary: 'Balanced', scores: { 'Balanced & Sweet': 4, 'Ch
   answers: ['v7_q1_b', 'v7_q2_c', 'v7_q3_b', 'v7_q4_b', 'v7_q5_a', 'v7_q6_a'], kitchen: 'counter_culture', feeling: 'gentler' };
 
 describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the setup tie)', () => {
-  it("Dana's account: Founder's pick on a first match no rule explains; The Waverly leads by the strongest quiz support", async () => {
+  it("Dana's account: Founder's pick on a first match no rule explains; Blossom leads by the strongest quiz support (feeling happy, Ella map 12)", async () => {
     await withRollback(async ({ client: c }) => {
       await ensureRev2(c);
-      const p = await danaLike(c);
+      const p = await danaLike(c, 'happy');
       const r = await page(c, p.userId);
       expect(r.position!.name).toBe('Tiger Stripe');
       expect(r.position!.hasBag).toBe(true);
       expect(r.firstBag!.labelCode).toBe('founder_pick');
       expect(r.firstBag!.text).toBe('Coffee should feel like a reward for you: warm, rich, comforting. A little bitterness tastes serious to you. Chocolate first, with a little lift. Built for espresso.');
       expect(cards(r)).toEqual([
-        ['The Waverly', true, "You'd like a change from what you drink now. Fig and orange over dark chocolate."],
-        ['Blossom', false, 'For you, a good cup is strong and satisfying. A darker roast with a fuller body.'],
-        ['Geometric', false, "You'd like a change from what you drink now. More fruit, and sweeter."], // reuses the feeling (dial_step_reuse_answer)
+        // Ella map 12: "happy" says nothing back and argues for no step, so the strongest support leads
+        ['Blossom', true, 'For you, a good cup is strong and satisfying. A darker roast than Tiger Stripe, with a fuller body.'],
+        // nothing else supports Geometric, used or not: the treat answer, whose family is Geometric's
+        ['Geometric', false, "Next to your coffee, you'd reach for something fresh and lively. More fruit than Tiger Stripe: fruit comes first here, sweeter and lighter, with the chocolate behind it."],
+        ['The Waverly', false, "Coffee is a daily ritual for you, and you're particular about it. Close to Tiger Stripe: chocolate underneath, with more fruit on top, fig and orange."],
       ]);
     });
   });
@@ -135,30 +142,30 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
         "You'd rather have something gentler. For you, a good cup is smooth and easy the whole way. You're still discovering coffee. So we started you gentle, with one small new thing: caramel and honey, and a little clementine at the end."]);
       expect(cards(r85)).toEqual([
         ['The Village', true, 'A little further the same way: just as light, with more flower and citrus in it.'],
-        ['Benchmark', false, 'Too bitter is what would bother you most. Pure chocolate, rounder, less fruit.'],
-        ['Geometric', false, "You're still discovering coffee. Bright fruit over caramel, with more weight."], // reuses a top-card answer
+        ['Benchmark', false, 'Too bitter is what would bother you most. Rounder than La Familia: pure chocolate, less fruit.'],
+        ['Geometric', false, "You're still discovering coffee. Keeps the fruit of La Familia and adds weight: bright fruit over caramel."], // reuses a top-card answer
       ]);
       const r33 = await read(P33);
       expect(r33.firstBag!.text).toBe('A little bitterness tastes serious to you. A coffee with no bitterness would bother you. This is chocolate with some strength: our everyday cup.');
       expect(cards(r33)).toEqual([
         ['Amsterdam', true, 'The next size up in strength: darker and smoother.'],
-        ['Benchmark', false, 'For you, a good cup is smooth and easy the whole way. Rounder, pure chocolate.'],
+        ['Benchmark', false, 'For you, a good cup is smooth and easy the whole way. The same chocolate as The Daily, rounder and softer.'],
       ]);
       const r23 = await read(P23);
       expect(r23.firstBag!.text).toBe("Bitter coffee tastes burnt to you. For you, a good cup feels alive and changes as you drink it. Coffee is a daily ritual for you, and you're particular about it. So: bright fruit, with caramel under it to make it an everyday cup.");
       expect(cards(r23)).toEqual([
         ['La Familia', true, 'Lighter and sweeter: caramel, honey, a little clementine.'],
-        ['Fabricator', false, 'A cup where every sip tastes the same would bother you. Drier and nuttier.'],
-        ['Tiger Stripe', false, "Coffee is a daily ritual for you, and you're particular about it. More chocolate and body."], // reuses a top-card answer
-        ['D.R. Congo', false, 'With a black coffee, your first thought is what flavors are in it. Clementine and nectarine over caramel and light chocolate.'],
+        ['Fabricator', false, 'A cup where every sip tastes the same would bother you. Made from the same coffees as Geometric, with less fruit: drier and nuttier.'],
+        ['Tiger Stripe', false, "Coffee is a daily ritual for you, and you're particular about it. More chocolate and body than Geometric, with the fruit behind."], // reuses a top-card answer
+        ['D.R. Congo', false, 'With a black coffee, your first thought is what flavors are in it. Lighter than Geometric: clementine and nectarine over caramel and light chocolate.'],
       ]);
       const r81 = await read(P81, true);
       expect(r81.readAs).toBeUndefined();
       expect(r81.firstBag!.text).toBe('You have Counter Culture Coffee in your kitchen. Too bitter is what would bother you most. You smooth a black coffee before you try it. This is the cup where nothing sticks out, and it works however you make it.');
       expect(cards(r81)).toEqual([
-        ['La Familia', true, "You'd like something gentler than what you drink now. Caramel and honey with a little clementine. Lighter in the cup."],
-        ['The Daily', false, 'A little bitterness tastes serious to you. The same chocolate, livelier, with a bit more bite.'],
-        ['Fabricator', false, 'For you, a good cup feels alive and changes as you drink it. Hazelnut, a little citrus, a dry finish.'],
+        ['La Familia', true, "You'd like something gentler than what you drink now. Lighter in the cup than Benchmark: caramel and honey, with a little clementine."],
+        ['The Daily', false, 'A little bitterness tastes serious to you. The same chocolate as Benchmark, livelier, with a bit more bite.'],
+        ['Fabricator', false, 'For you, a good cup feels alive and changes as you drink it. More going on than Benchmark: hazelnut, a little citrus, a dry finish.'],
       ]);
       // no brief 9 frame and no when_line in any composed text; an answer is used once per page
       const whenLines = (await c.query<{ when_line: string }>(`SELECT DISTINCT when_line FROM v_dial_step WHERE when_line IS NOT NULL`)).rows.map(x => x.when_line);
@@ -180,8 +187,8 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
         const facts = [...r.firstBag!.basis!.factCodes, ...r.steps.flatMap(s => s.basis!.factCodes)];
         expect(new Set(facts).size).toBe(facts.length);
       }
-      expect(cards(await read(P85)).find(x => x[0] === 'Geometric')![2]).toBe(`${copy.no_support} Bright fruit over caramel, with more weight.`);
-      expect(cards(await read(P23)).find(x => x[0] === 'Tiger Stripe')![2]).toBe(`${copy.no_support} More chocolate and body.`);
+      expect(cards(await read(P85)).find(x => x[0] === 'Geometric')![2]).toBe(`${copy.no_support} Keeps the fruit of La Familia and adds weight: bright fruit over caramel.`);
+      expect(cards(await read(P23)).find(x => x[0] === 'Tiger Stripe')![2]).toBe(`${copy.no_support} More chocolate and body than Geometric, with the fruit behind.`);
     });
   });
 });
@@ -248,7 +255,8 @@ describe('how a card is chosen is data (dial_reason_choice)', () => {
       await choice(c, 'step_support', 'family_and_direction', { isActive: true });
       await choice(c, 'step_support', 'family', { sortOrder: 0 });
       expect((await blossom()).basis!.choice).toBe('family');
-      for (const code of ['family_and_direction', 'family', 'direction']) await choice(c, 'step_support', code, { isActive: false });
+      // Ella map 12: treat too, or a step of the treat's family would carry it
+      for (const code of ['family_and_direction', 'family', 'direction', 'treat']) await choice(c, 'step_support', code, { isActive: false });
       const r = await page(c, p.userId);
       for (const s of r.steps.filter(x => !x.isLead)) expect(s.text.startsWith(copy.no_support)).toBe(true);
     });
@@ -262,10 +270,10 @@ describe('how a card is chosen is data (dial_reason_choice)', () => {
       await choice(c, 'lead_source', 'setup_answer', { isActive: false });
       // no rule names Tiger Stripe for her: strongest support leads (Blossom, family and direction), as the design first drew it
       const r = await page(c, dana.userId);
-      expect(cards(r)[0]).toEqual(['Blossom', true, 'For you, a good cup is strong and satisfying. A darker roast with a fuller body.']);
+      expect(cards(r)[0]).toEqual(['Blossom', true, 'For you, a good cup is strong and satisfying. A darker roast than Tiger Stripe, with a fuller body.']);
       expect(r.steps[0].basis!.choice).toBe('strongest_support');
       // the feeling, no longer used by the lead, supports a step in its direction like any answer
-      expect(r.steps.find(s => s.name === 'Geometric')!.text).toBe("You'd like a change from what you drink now. More fruit, and sweeter.");
+      expect(r.steps.find(s => s.name === 'Geometric')!.text).toBe("You'd like a change from what you drink now. More fruit than Tiger Stripe: fruit comes first here, sweeter and lighter, with the chocolate behind it.");
       // 85: the start rule's lead; switched off, strongest support
       const p85 = await person(c, P85);
       await quizDecide(c, p85);

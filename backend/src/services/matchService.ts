@@ -585,7 +585,8 @@ interface Support { fact: Fact; choice: string; rank: number }
  * reported by data-catalog check 15). The order and switches are data.
  */
 export const KNOWN_REASON_CHOICES: Record<string, readonly string[]> = {
-  step_support: ['family_and_direction', 'family', 'direction'],
+  // Ella map 12: treat, the treat answer, on step cards only and after every other kind and the reuse pass
+  step_support: ['family_and_direction', 'family', 'direction', 'treat'],
   lead_source: ['setup_answer', 'start_rule', 'strongest_support'],
 };
 /** Stronger support first: the earlier kind in row order, then the heavier quiz question; none last. */
@@ -605,7 +606,11 @@ const supportOrder = (a: Support | null, b: Support | null) =>
  * then the lead, then the other steps in shown order. A step card looks first
  * among the answers not yet used on the page, then (parameter
  * dial_step_reuse_answer, on by default) among those already used; it opens
- * with no_support only when no answer, used or not, supports it. Composed at read;
+ * with no_support only when no answer, used or not, supports it. Ella map 12:
+ * before no_support, a step card tries the treat answer (step support treat,
+ * when its row is on), whose food signal is the destination's family; the top
+ * card and the lead never read it. Every step line is a comparison to the
+ * coffee the customer is on ({from}, filled with its map name). Composed at read;
  * nothing is stored, no model writes a word, and no family, answer, move or
  * coffee id appears here: every comparison is between rows. No ring, lane,
  * grade, version or basis leaves this function (basis only with withBasis,
@@ -649,8 +654,14 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
   const notes = (id: number) => { const w = facts.roasterWords(id); return w.length ? w : pres.get(id)?.signatureNotes ?? []; };
   /** what the coffee is: its map_line, else its notes */
   const coffeeSentence = (id: number) => facts.mapLine(id) ?? (notes(id).length ? notes(id).join(', ') : null);
-  /** what changes in the cup: the step's line, else the destination's sentence */
-  const stepLine = (x: { to_coffee_id: number; customer_line: string | null }) => x.customer_line ?? coffeeSentence(x.to_coffee_id);
+  /**
+   * what changes in the cup: the step's line, else the destination's sentence.
+   * Ella map 12: the line is a comparison to the coffee the customer is on;
+   * {from} is filled with its map name here, the one place a step line reaches a customer.
+   */
+  const fromName = facts.name(here, positionCoffee.name);
+  const stepLine = (x: { to_coffee_id: number; customer_line: string | null }) =>
+    x.customer_line !== null ? fill(x.customer_line, { from: fromName }) : coffeeSentence(x.to_coffee_id);
 
   // The customer's facts, each said only through a current quoted said-back row.
   const said = await dialReads.saidBack(runner);
@@ -662,6 +673,15 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
     .map(a => {
       const s = said.get(`quiz_answer:${a.answer_code}`)!;
       return { key: `quiz_answer:${a.answer_code}`, code: a.answer_code, saidId: s.id, text: s.says_back, move: s.move_code, family: a.family_code, weight: a.weight, isFeeling: false };
+    });
+  // Ella map 12: the treat answer (the weight-0 question), self-taken, through its quoted sentence, with
+  // its food signal as its family. A pool of its own: only the treat step support reads it, so it never
+  // reaches the top card, the lead or another kind.
+  const treatFacts: Fact[] = answers
+    .filter(a => a.is_self_taken && a.weight === 0 && a.resulting_family_code !== null && said.has(`quiz_answer:${a.answer_code}`))
+    .map(a => {
+      const s = said.get(`quiz_answer:${a.answer_code}`)!;
+      return { key: `quiz_answer:${a.answer_code}`, code: a.answer_code, saidId: s.id, text: s.says_back, move: s.move_code, family: a.resulting_family_code, weight: 0, isFeeling: false };
     });
   const cupboard = await getCupboardCoffee({ profileId }, runner);
   const kitchen = cupboard ? said.get(`cupboard_coffee:${cupboard.code}`) ?? null : null;
@@ -686,7 +706,8 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
    * A step's support: the first active step-support choice, in row order, that
    * finds an unused fact. Family choices use quiz answers only (the feeling has
    * no family); within the family choice an answer that argues for no
-   * direction is preferred. An unknown code is skipped.
+   * direction is preferred. An unknown code is skipped, and so is treat
+   * (Ella map 12: tried only by treatFor, on step cards, after the reuse pass).
    */
   const supportFor = (x: { to_coffee_id: number; move_code: string | null }, pool: Fact[], includeUsed = false): Support | null => {
     const fams = facts.families(x.to_coffee_id);
@@ -792,11 +813,21 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
   // dial_step_reuse_answer is on, the first that finds any fact (a second pass over the used
   // ones); else no_support. Then the step's line.
   const mayReuse = (params.dial_step_reuse_answer ?? 0) === 1;
+  // Ella map 12: when nothing else supports the step, used or not, the treat answer whose family is the
+  // destination's (its placement family or the family its branch comes from); only while the treat row is on.
+  const treatRank = supportKinds.indexOf('treat');
+  const treatFor = (x: { to_coffee_id: number }): Support | null => {
+    if (treatRank < 0) return null;
+    const fams = facts.families(x.to_coffee_id);
+    const ofFamily = treatFacts.filter(f => f.family !== null && fams.has(f.family));
+    const f = ofFamily.find(a => !used.has(a.key)) ?? (mayReuse ? ofFamily[0] : undefined);
+    return f ? { fact: f, choice: 'treat', rank: treatRank } : null;
+  };
   const texts = new Map<number, { text: string; basis: TextBasis }>();
   if (lead) texts.set(lead.step.id, compose(lead.parts, { stepId: lead.step.id, choice: lead.choice, ...(lead.ruleId !== undefined ? { ruleId: lead.ruleId } : {}) }));
   for (const x of offered) {
     if (texts.has(x.id)) continue;
-    const s = supportFor(x, allFacts) ?? (mayReuse ? supportFor(x, allFacts, true) : null);
+    const s = supportFor(x, allFacts) ?? (mayReuse ? supportFor(x, allFacts, true) : null) ?? treatFor(x);
     if (s) used.add(s.fact.key);
     texts.set(x.id, compose([
       s ? factPart(s.fact) : { code: 'no_support', text: copy.no_support ?? null },

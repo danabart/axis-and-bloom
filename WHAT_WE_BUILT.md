@@ -7155,3 +7155,27 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
     - The "as I typed it" row shows only while the list holds no typed name.
   - "Which one do you drink most?" shows a typed-in coffee by the customer's words, in the order the customer named them.
 - **Part C on production (2026-11-25, Dana's go):** the conversion wrote 1 row (`cupboard_coffee` 6 → 7), a rerun wrote 0, and checks 31 to 33 read 0.
+
+### 287. Ella's Bloom Map 12: step lines compare to the coffee you drink, the treat answer, "More about this coffee" (2026-11-26)
+
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_12_STEP_COMPARISONS_AND_REVEAL.md` · `CLOSING_REPORT_12.md`. Test DB only so far; the production seed waits for Dana's go (Part E).
+
+- **Step lines name the coffee you drink:**
+  - `dial_step.customer_line` may hold `{from}`. `matchService.steps` fills it with the position coffee's name.
+  - New seed `ellaMapStepComparisons_2026_11_25.ts` (dry run by default, `--apply`, `--expect-db`) rewrites the 36 shown step lines with Dana's choices (F1 to F8; F9 left) and changes only the line. It publishes one version when a line changed and refuses if any placement would change.
+  - A start-rule lead card keeps its rule's `lead_line`, so it doesn't name `{from}`, by design.
+- **The treat answer:**
+  - `v_dial_quiz_answer` gains `resulting_family_code`, read by `dialReads.quizAnswers`.
+  - New `step_support` choice `treat`, sort order 4. A self-taken answer with weight 0 whose family is the step coffee's supports a step card only, and only after every other kind and the reuse pass. It is never used on the top card or the lead.
+  - Three treat sentences are added to `dial_said_back`.
+- **"More about this coffee" on `/map`:**
+  - New `dial_customer_copy` code `more_about`.
+  - The Bloom reveal's reads now live in a shared hook, `useCoffeeDetail`. `usePositionCardData` uses it too, and the Bloom page is unchanged.
+  - The top card and each step card get a button. It opens `RevealedPanel` (field variant, prelaunch, no profile link, plus the brew tags) beneath the card, one panel at a time.
+  - The button shows only when the coffee has a description or cupping bars. The panel never shows a roaster name, award, comfort zone or compatibility.
+- **Pinned pages** (`dialMap10.test.ts`, Dana's account now "I'm happy with it"):
+  - Dana: Blossom "… A darker roast than Tiger Stripe, with a fuller body.", Geometric (treat) "… More fruit than Tiger Stripe: …", The Waverly "… Close to Tiger Stripe: …".
+  - 23: Fabricator "… Made from the same coffees as Geometric, with less fruit: drier and nuttier."
+  - New `dialMap12.test.ts` has 8 tests; `mapMoreAbout.test.tsx` has 3.
+- **Open tasks:** OT-180 ("award-winning" in Tiger Stripe's description), OT-181 (Tiger Stripe's roaster notes vs. its panel notes) and OT-182 (the six coffees with no description).
+- **After deploy:** run `catalog:md` against prod and commit CATALOG.md.
