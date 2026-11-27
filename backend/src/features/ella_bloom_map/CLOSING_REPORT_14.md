@@ -5,7 +5,8 @@ Brief: `CLAUDE_CODE_PROMPT_ELLA_MAP_14_SPOT_AND_WALK.md` · Design: `DESIGN_MAP_
 **Status:**
 
 - Task 0 done; Dana answered (2026-11-27).
-- **Parts A to D built on the test DB 2026-11-27. STOPPED before the push** (Part E). Uncommitted; production unchanged.
+- Parts A to D built on the test DB 2026-11-27.
+- **Part E done on production 2026-11-27** (94db8c1, rev 00907) on Dana's "Yes, push". See "Part E" at the end.
 - Task 0 below is as it was written before her answers.
 
 - G1.9: one peer session (danab-0a) was listed. It confirmed it was idle: Usual Drink 4 had been pushed (3022a2a), and nothing was running in the repo, on the test DB or in a deploy.
@@ -541,3 +542,37 @@ On production Dana's feeling is "happy"; the test admin's is "different". Her pa
 4. **Repeat the item 4 counts.**
 5. **Run `catalog:md` against prod** and commit CATALOG.md.
 6. **Smoke `/map`** for Dana (API read-only; prod is behind the Cloudflare bot check for headless).
+
+## Part E, on production (2026-11-27)
+
+Dana said "Yes, push", and to include the eight screenshots.
+
+1. G1.9: I messaged danab-0a before the push. It acknowledged and holds off until told it's done.
+2. Commit 94db8c1, staged by path: 40 files, the eight `map14_*.png` included. Not included: `commerce/CLOSING_REPORT_6.md`, the genova fonts, `misc/`.
+3. Push to main. Deploy run 46073612729 passed (backend and frontend), revision `axis-bloom-backend-00907-jk5`. Boot log:
+   - `DB schema verified`
+   - `[data-catalog] report only: 235 tables, 123 views, 2013 columns; 2 of 17 checks with findings`. The two are #4 (CATALOG.md stale, fixed by step 7) and #6 (26 dead-table candidates, already there before). Check 17 passes.
+4. Seed `ellaMapSpot_2026_11_26.ts` on `axisandbloom`:
+   - Dry run: 2 writes, here_title and closing_line. The 7 event rows, 5 parameters and 3 spots were already in place from the schema.
+   - `--apply` wrote the 2 rows.
+   - A second `--apply` wrote 0 (15 unchanged).
+   - Copy now: here_title "Your spot"; closing_line "Look around as much as you like. Your spot moves when you order a coffee again or tell us you liked it."; looking_at_title "Looking at"; back_to_spot "Back to your spot: {coffee}"; trail_moved "Your spot moved here."
+5. Spots read back from `v_customer_match_current`. Three customers, every spot set by `founders_pick` and placed in the active version:
+
+   | customer | spot |
+   |---|---|
+   | Dana | **Tiger Stripe Espresso**, since 2026-11-12 |
+   | 103cdf5f… | Benchmark |
+   | b40e6c85… | Amsterdam |
+
+   Spot events: 3 founders_pick (all set the spot) and 5 decision_other (none move it).
+6. Item 4 counts repeated: production still has 0 feedback rows. The view, the parameter-limit recount and the timeline are all empty, the same as in Task 0. Nothing could change sentiment.
+7. `npm run catalog:md -- --expect-db axisandbloom`: catalog-hash 29113b52…, which matches the live hash in the boot log. Committed.
+8. Smoke:
+   - Live API: `/api/map/steps` and `/api/map/steps?at=2916` answer 401 with no sign-in. The routes are up and the sign-in check holds.
+   - Dana's pages through the deployed `steps()` code, read-only on production (`tmp/em14_smoke_prod.mts`):
+     - On her spot: top card Tiger Stripe as founder_pick, back line "Back to your spot: Tiger Stripe". Steps: LEAD Blossom (Bolder), Geometric, The Waverly.
+     - `at=2916` (Blossom): top card looking_at_title Blossom. Steps: LEAD Indonesia (Earthier), Tiger Stripe (Brighter, $32), Brazil. Her spot shows as a normal card and is not the lead (W1).
+     - `at=2939` (Brazil): LEAD Blossom, Fabricator.
+     - `at=999999`: 404 NOT_ON_MAP.
+   - Not done: a signed-in browser check on the production site, because headless browsers can't get past the Cloudflare check.

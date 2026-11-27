@@ -7246,7 +7246,7 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
 
 ### 290. Ella's Bloom Map 14: what moves your spot, and walking the map (2026-11-27)
 
-`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_14_SPOT_AND_WALK.md` · design `DESIGN_MAP_POSITION_2026-11-26.md` · `CLOSING_REPORT_14.md`. Built on the test DB 2026-11-27; not pushed (STOP before the push).
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_14_SPOT_AND_WALK.md` · design `DESIGN_MAP_POSITION_2026-11-26.md` · `CLOSING_REPORT_14.md`. Built on the test DB 2026-11-27; on production 2026-11-27 (94db8c1, rev 00907). Part E: the seed wrote here_title and closing_line (a rerun writes 0); spots read back: Dana on Tiger Stripe Espresso as founders_pick, the other two customers also founders_pick; 0 feedback rows on production; CATALOG.md regenerated; /map smoke passed read-only.
 
 - **The spot moves on evidence only.**
   - The events and their effects are rows: `dial_spot_event` (code, label, effect, trail word, order, switch; supersede and insert) and the lookup `dial_spot_effect` (sets_spot, moves_spot, trail_only, nothing).
