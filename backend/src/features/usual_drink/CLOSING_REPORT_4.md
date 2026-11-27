@@ -219,3 +219,23 @@ The marked brief 3 test customer ("Zzz Test Customer UD3", uid `ktIy1WjLxHUg2fsT
    - `getCupboardCoffee` for the customer then returned `zzz_ud4_corner_shop` / "Zzz UD4 Corner Shop" / specialty, with `customerWords` "Zzz UD4 Corner Shop". Their latest `cupboard_coffee` row is unchanged (`["starbucks_pike_place_roast","other"]`, words "Zzz UD4 Corner Shop").
    - The field list reloaded 170 s later. "zzz ud4" then offered "Zzz UD4 Corner Shop" in the autocomplete, and the customer's Profile still showed their own words: "Zzz UD4 Corner Shop · Drink most".
 4. **`/map`** (`matchService.steps`, read-only; the route is closed to this test customer, as in brief 3). With Starbucks Pike Place Roast as the coffee they drink most, the first bag opened "You have Starbucks in your kitchen. …". `dialMap9`'s kitchen-sentence test (Counter Culture, and unquoted brands) passes.
+
+## Production (2026-11-26)
+
+- **Deploy:** `1ae3022` pushed; the Deploy run 45937236749 is green; revision `axis-bloom-backend-00905-pz5`.
+  - Boot log: `[brew-profile] field list loaded: 11 fields` (the field count is unchanged), and no ERROR.
+  - `[data-catalog]` reported only the stale `CATALOG.md` and the 27 known dead-table candidates. `CATALOG.md` was regenerated against production (hash `cb507b3a…`, matching the live one the boot log reported) and committed with these docs.
+- **Rows (read-only):**
+  - `cupboard_coffee` went from 59 values to 388 (+329): 388 brand rows, of which 100 are products, and 47 aliases (31 + 16).
+  - `brew_cards_about` is present.
+  - Checks 25, 26 and 34 pass.
+  - `v_customer_cupboard_coffee` is unchanged for both customers with a kitchen answer: the smoke user's "Zzz smoke roaster" matches nothing and stays `other`; `5d005443` reads `joe_coffee`.
+- **Smoke** (acceptance 2) through the API as the smoke test user (`quiz-scenario-test`):
+  - The options carry 388 values, with Starbucks followed by its 14 products, then Peet's Coffee.
+  - "tatte" matches Tatte Bakery & Café, and "pike" matches the two Pike Place products.
+  - `main_cupboard` offers the same list.
+  - `["starbucks_pike_place_roast","tatte_bakery_and_cafe"]` with "drink most" set to the product saved (200) and read back.
+  - The smoke user's kitchen was put back to `["starbucks","other"]` with "Zzz smoke roaster", and "drink most" `other`. These are new set rows; facts are insert-only.
+  - `POST /api/admin/brew-profile/kitchen/promote` as this non-admin answered 403.
+
+Usual Drink 4 is done.

@@ -7242,3 +7242,4 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
   - No customer row is written. `v_customer_cupboard_coffee` resolves an old typed name on read to the one active brand whose label (first) or alias it equals, and keeps the customer's words.
   - The view also gains `brand_code`. `/map`'s kitchen line reads it, so a product says its brand's line (Dana).
 - **Integrity:** the `cupboard_coffee` seed count goes from 59 to 388. New informational check 34: a product whose brand is retired or is itself a product.
+- **Production (2026-11-26):** `1ae3022`, revision 00905. The boot log is clean, with 11 fields. The kitchen values went from 59 to 388 and checks 25, 26 and 34 pass. The smoke as the test user passed: a product saved, then the kitchen was put back. `CATALOG.md` was regenerated.

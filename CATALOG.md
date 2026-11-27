@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-11-26 from database `axisandbloom` · 233 tables · 121 views · 1996 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `a3dd5c4d98ca` (full value in the footer).
+Generated 2026-11-27 from database `axisandbloom` · 233 tables · 121 views · 1997 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `cb507b3a564a` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -63,10 +63,10 @@ Maps each coffee_feeling value to the map move it mirrors (happy to stay, bolder
 
 #### `brew_cupboard_brand`
 
-Decomposes each cupboard_coffee value into its brand kind and, when Dana links it by owner SQL, a partner roaster (D15); no roast or archetype attribute (D4). Edits by owner SQL; no app writer; new brands come from the other + words list
+Decomposes each cupboard_coffee value into its brand kind, its brand when it is a product (Usual Drink 4) and, when Dana links it by owner SQL, a partner roaster (D15); no roast or archetype attribute (D4). New entries come from the typed names through brewKitchenList.promoteTypedName
 
-- **Writer:** seed
-- **Readers:** brew_cupboard_brand_alias, v_brew_profile_field_current, v_customer_cupboard_coffee, customerIntegrity
+- **Writer:** brewKitchenList.promoteTypedName; seed
+- **Readers:** brew_cupboard_brand_alias, v_brew_profile_field_current, v_customer_cupboard_coffee, customerReads.getBrewProfileFieldCounts, brewKitchenList, customerIntegrity
 - **Since:** 2026-11-12 (Usual Drink 1)
 
 | column | type | null | comment |
@@ -77,13 +77,14 @@ Decomposes each cupboard_coffee value into its brand kind and, when Dana links i
 | `roaster_id` | uuid | yes | References roaster.id when the brand is a partner roaster; NULL at seed, set only by owner SQL (D15). |
 | `created_at` | timestamp with time zone | no | UTC timestamp the row was inserted. |
 | `updated_at` | timestamp with time zone | no | UTC timestamp of the last owner-SQL edit. |
+| `parent_brand_id` | integer | yes | References brew_cupboard_brand.id: on a product ("Starbucks Pike Place Roast"), its brand; NULL on a brand. A product takes its brand's kind, and is read directly under its brand (Usual Drink 4, B1). Never a partner roastery's product (G4.5). |
 
 #### `brew_cupboard_brand_alias`
 
-Typeahead search strings for a kitchen brand (lower-cased, trimmed); the typeahead matches the label and these. Edits by owner SQL; no app writer
+Typeahead search strings for a kitchen brand (lower-cased, trimmed); the typeahead matches the label and these. A promoted typed name is its entry's alias (Usual Drink 4)
 
-- **Writer:** seed
-- **Readers:** v_brew_profile_field_current
+- **Writer:** brewKitchenList.promoteTypedName; seed
+- **Readers:** v_brew_profile_field_current, v_customer_cupboard_coffee, customerReads.getBrewProfileFieldCounts, brewKitchenList
 - **Since:** 2026-11-12 (Usual Drink 1)
 
 | column | type | null | comment |
@@ -98,7 +99,7 @@ Typeahead search strings for a kitchen brand (lower-cased, trimmed); the typeahe
 Lookup of the channel a kitchen brand sells through: chain, mass_market, specialty, unknown, none; a fact about the brand, not about its coffee (D4). Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
 
 - **Writer:** seed
-- **Readers:** brew_cupboard_brand, v_customer_cupboard_coffee
+- **Readers:** brew_cupboard_brand, v_customer_cupboard_coffee, customerReads.getBrewProfileFieldCounts, brewKitchenList
 - **Since:** 2026-11-12 (Usual Drink 1)
 
 | column | type | null | comment |
@@ -214,9 +215,9 @@ One row per brew-profile field (usual_drink, main_drink, brew_methods, grinder, 
 
 #### `brew_profile_field_value`
 
-Every allowed value of every enum, array and bool field in one table (D11): the drinks, the brands, the feelings, the existing fields' codes and the decaf field's two display words; brew_drink, brew_cupboard_brand and brew_coffee_feeling decompose a row of it. Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; no app writer
+Every allowed value of every enum, array and bool field in one table (D11): the drinks, the brands, the feelings, the existing fields' codes and the decaf field's two display words; brew_drink, brew_cupboard_brand and brew_coffee_feeling decompose a row of it. Its own table, not lookup_value (D10): lookup_value has no is_active, so the retire-never-delete lifecycle cannot be expressed, and a code column cannot FK to its UNIQUE (category, value). Edits by owner SQL; the kitchen field's rows also by brewKitchenList (Usual Drink 4: promote a typed name, retire), no other field's
 
-- **Writer:** seed
+- **Writer:** brewKitchenList.promoteTypedName, brewKitchenList.retireKitchenEntry; seed
 - **Readers:** v_brew_profile_field_current, brew_drink, brew_cupboard_brand, brew_coffee_feeling, v_customer_usual_drink, v_customer_cupboard_coffee, v_customer_coffee_feeling, customerIntegrity
 - **Since:** 2026-11-12 (Usual Drink 1)
 
@@ -4679,7 +4680,7 @@ Sellable coffees per origin region (coffees.origin_region_id → lookup_value or
 
 #### `v_brew_profile_field_current`
 
-One row per brew-profile field x allowed value (a field with no value rows once, value columns NULL), with kind, picker, caps, topic, prompt, the brand aliases, the routine group, the field the values come from (a values_from field lists that field's value rows), the card flag and the exclusive flag; inactive rows included, the reader filters (A4). The only source of the validator, the routine block, the card options and Liam's field list
+One row per brew-profile field x allowed value (a field with no value rows once, value columns NULL), with kind, picker, caps, topic, prompt, the brand aliases, the routine group, the field the values come from (a values_from field lists that field's value rows), the card flag, the exclusive flag and a kitchen product's brand (parent_value_code, Usual Drink 4); inactive rows included, the reader filters (A4). The only source of the validator, the routine block, the card options and Liam's field list
 
 - **Writer:** none (derived)
 - **Readers:** brewProfile.loadBrewProfileFields (the one reader)
@@ -4976,12 +4977,12 @@ One row per canonical customer: how they feel about the coffee they drink now, w
 
 #### `v_customer_cupboard_coffee`
 
-One row per canonical customer: the coffee they drink most, with its brand kind, linked roaster and the customer's words on the other row. Usual Drink 3 (2026-11-25): the kitchen holds up to three coffees; the row is the answer to the field whose values come from the kitchen (main_cupboard) while it is still among them, else the only kitchen answer, else no row; a single stored value reads as a one-item list. The admin counts (getBrewProfileFieldCounts) therefore count the main coffee only
+One row per canonical customer: the coffee they drink most, with its brand kind, linked roaster and the customer's words on the other row. Usual Drink 3 (2026-11-25): the kitchen holds up to three coffees; the row is the answer to the field whose values come from the kitchen (main_cupboard) while it is still among them, else the only kitchen answer, else no row; a single stored value reads as a one-item list. The admin counts count the main coffee only. Usual Drink 4: an old typed name resolves on read to the one active brand whose label, else alias, it equals (stored rows unchanged, customer_words kept); brand_code is a product's brand, else the entry
 
 - **Writer:** none (derived)
 - **Readers:** customerReads.getCupboardCoffee, customerReads.getCupboardCoffeeByProfile, customerReads.getBrewProfileFieldCounts, customerIntegrity
 - **Since:** 2026-11-12 (Usual Drink 1)
-- **reads:** `brew_cupboard_brand`, `brew_cupboard_brand_kind`, `brew_profile_field`, `brew_profile_field_value`, `customer_brew_profile_change`, `v_customer_brew_profile`, `v_customer_identity`
+- **reads:** `brew_cupboard_brand`, `brew_cupboard_brand_alias`, `brew_cupboard_brand_kind`, `brew_profile_field`, `brew_profile_field_value`, `customer_brew_profile_change`, `v_customer_brew_profile`, `v_customer_identity`
 
 #### `v_customer_dial_current`
 
@@ -5719,16 +5720,16 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `beat_event` | backfill:backfill-beat-respond-tokens, beatEngine, cron | backfill:backfill-beat-respond-tokens (UPDATE), beatEngine (INSERT, UPDATE), cron (UPDATE) | backfill-beat-respond-tokens, beatEngine, cron, engagementMetrics | — |
 | `brew_card_view_event` | users | users (INSERT) | engagementMetrics | — |
 | `brew_coffee_feeling` | seed | seed (INSERT) | customerIntegrity, customerReads | v_customer_coffee_feeling |
-| `brew_cupboard_brand` | seed | seed (INSERT) | brewProfile, customerIntegrity, customerReads | v_brew_profile_field_current, v_customer_cupboard_coffee |
-| `brew_cupboard_brand_alias` | seed | seed (INSERT) | brewProfile | v_brew_profile_field_current |
-| `brew_cupboard_brand_kind` | seed | seed (INSERT) | customerIntegrity, customerReads | v_customer_cupboard_coffee |
+| `brew_cupboard_brand` | brewKitchenList, seed | brewKitchenList (INSERT), seed (INSERT) | brewKitchenList, brewProfile, customerIntegrity, customerReads | v_brew_profile_field_current, v_customer_cupboard_coffee |
+| `brew_cupboard_brand_alias` | brewKitchenList, seed | brewKitchenList (INSERT), seed (INSERT) | brewKitchenList, brewProfile, customerIntegrity, customerReads | v_brew_profile_field_current, v_customer_cupboard_coffee |
+| `brew_cupboard_brand_kind` | seed | seed (INSERT) | brewKitchenList, customerIntegrity, customerReads | v_customer_cupboard_coffee |
 | `brew_drink` | seed | seed (INSERT) | customerIntegrity, customerReads, dialReads, ellaMapTigerStart_2026_11_24 | v_customer_usual_drink |
 | `brew_drink_base_method` | seed | seed (INSERT) | customerIntegrity, customerReads, dialReads, ellaMapTigerStart_2026_11_24 | v_customer_usual_drink |
 | `brew_drink_dilution` | seed | seed (INSERT) | customerIntegrity, customerReads, dialReads, ellaMapTigerStart_2026_11_24 | v_customer_usual_drink |
 | `brew_drink_milk` | seed | seed (INSERT) | customerIntegrity, customerReads, dialReads, ellaMapTigerStart_2026_11_24 | v_customer_usual_drink |
 | `brew_parameter` | brewParameters, seed | brewParameters (INSERT, UPDATE), seed (INSERT) | brewParameters | — |
-| `brew_profile_field` | seed | seed (INSERT, UPDATE) | brewProfile, customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, ellaMapReasonsRev2_2026_11_23, ellaMapReasons_2026_11_20, ellaMapStepComparisons_2026_11_25, ellaMapTigerStart_2026_11_24 | v_brew_profile_field_current, v_customer_brew_profile_words, v_customer_coffee_feeling, v_customer_cupboard_coffee, v_customer_usual_drink, v_dial_said_back_fact |
-| `brew_profile_field_value` | seed | seed (INSERT, UPDATE) | brewProfile, customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, ellaMapReasonsRev2_2026_11_23, ellaMapReasons_2026_11_20, ellaMapStepComparisons_2026_11_25, ellaMapTigerStart_2026_11_24 | v_brew_profile_field_current, v_customer_brew_profile_words, v_customer_coffee_feeling, v_customer_cupboard_coffee, v_customer_usual_drink, v_dial_said_back_fact |
+| `brew_profile_field` | seed | seed (INSERT, UPDATE) | brewKitchenList, brewProfile, customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, ellaMapReasonsRev2_2026_11_23, ellaMapReasons_2026_11_20, ellaMapStepComparisons_2026_11_25, ellaMapTigerStart_2026_11_24 | v_brew_profile_field_current, v_customer_brew_profile_words, v_customer_coffee_feeling, v_customer_cupboard_coffee, v_customer_usual_drink, v_dial_said_back_fact |
+| `brew_profile_field_value` | brewKitchenList, seed | brewKitchenList (INSERT, UPDATE), seed (INSERT, UPDATE) | brewKitchenList, brewProfile, customerIntegrity, customerReads, dataCatalogIntegrity, dialPlacementService, dialReads, ellaMapReasonsRev2_2026_11_23, ellaMapReasons_2026_11_20, ellaMapStepComparisons_2026_11_25, ellaMapTigerStart_2026_11_24 | v_brew_profile_field_current, v_customer_brew_profile_words, v_customer_coffee_feeling, v_customer_cupboard_coffee, v_customer_usual_drink, v_dial_said_back_fact |
 | `brew_profile_group` | seed | seed (INSERT) | brewProfile | v_brew_profile_field_current |
 | `brew_profile_op` | seed | seed (INSERT) | customerIntegrity | — |
 | `brew_profile_picker` | seed | seed (INSERT) | brewProfile, customerIntegrity | v_brew_profile_field_current |
@@ -5961,5 +5962,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: a3dd5c4d98ca4447d0af1d0ca39a988ebea565c64f768f333992b8ae6670510e
-lineage-hash: 7e7db3065bebe6f70957709c33160e41b34bca1c202e8ebfaebea1f0c856792e
+catalog-hash: cb507b3a564a294e274541f6379c0eac200cd7a3471dbe2fd730600bf80b0d88
+lineage-hash: 003abd915059011ab9a8705867ffac2663ba8d05b5720db843c1cea67a842228
