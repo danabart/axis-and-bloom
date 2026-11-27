@@ -187,9 +187,8 @@ describe('the Flavor Memory tab (D4)', () => {
     await waitFor(() => expect(screen.getAllByRole('tab').map(t => t.textContent)).toEqual(['Flavor activity', 'Tasting journal']));
     expect(screen.getByTestId('memory-palate')).toBeTruthy();
     expect(screen.getByTestId('brew-profile-mirror')).toBeTruthy();
-    // first feature line only while the primary block is folded
-    expect(screen.queryByText('Second line')).toBeNull();
-    expect(screen.getByText('First line')).toBeTruthy();
+    // Usual Drink 4 (D1) revises brief 2: every word on one line, always shown
+    expect(screen.getByText('First line · Second line')).toBeTruthy();
   });
   it('with a brew card and a trail both segments show; the trail label comes from MapTrail', async () => {
     trail.has = true;

@@ -199,9 +199,9 @@ describe('the post-result card (B2)', () => {
   it('words: kept on other, rejected on any other value, rejected over max_item_len', async () => {
     await withRollback(async ({ client: c }) => {
       const g = await guest(c);
-      await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: ['other'], words: 'Café du Monde' }] }, c);
+      await recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: ['other'], words: 'Zzz Neighborhood Roaster' }] }, c);
       const k = await reads.getCupboardCoffee({ uid: g.uid }, c);
-      expect([k?.code, k?.customerWords]).toEqual(['other', 'Café du Monde']);
+      expect([k?.code, k?.customerWords]).toEqual(['other', 'Zzz Neighborhood Roaster']);
       await expect(recordPostResultCard({ uid: g.uid, quizSessionId: g.sessionId, shown: ['cupboard_coffee'], answers: [{ field: 'cupboard_coffee', value: ['starbucks'], words: 'the blonde one' }] }, c))
         .rejects.toSatisfy((e: unknown) => e instanceof PostResultCardError && e.status === 400);
       const cap = brew.getBrewProfileFieldsConfig().cupboard_coffee.maxItemLength!;
@@ -271,14 +271,14 @@ describe('Liam markers (B4)', () => {
       const g = await guest(c, { quiz: false });
       const sid = await liamSession(c, g.uid);
       await resolveRemember(g.uid, [{ field: 'usual_drink', rawValue: 'drip_black' }], sid, 2, c);
-      await resolveRemember(g.uid, [{ field: 'usual_drink', rawValue: 'latte' }, { field: 'cupboard_coffee', rawValue: 'other|Café du Monde' }], sid, 3, c);
+      await resolveRemember(g.uid, [{ field: 'usual_drink', rawValue: 'latte' }, { field: 'cupboard_coffee', rawValue: 'other|Zzz Neighborhood Roaster' }], sid, 3, c);
       const before = counters.filter(k => k === 'failures').length;
       await resolveRemember(g.uid, [{ field: 'coffee_feeling', rawValue: 'unicorn' }], sid, 4, c);
       expect(counters.filter(k => k === 'failures').length).toBe(before + 1);
       await resolveRemember(g.uid, [{ field: 'coffee_feeling', rawValue: 'bolder' }], sid, 5, c);
       expect((await reads.getUsualDrinks(g.uid, c)).map(d => d.code).sort()).toEqual(['drip_black', 'latte']);
       const k = await reads.getCupboardCoffee({ uid: g.uid }, c);
-      expect([k?.code, k?.customerWords]).toEqual(['other', 'Café du Monde']);
+      expect([k?.code, k?.customerWords]).toEqual(['other', 'Zzz Neighborhood Roaster']);
       expect((await reads.getCoffeeFeeling({ uid: g.uid }, c))?.moveCode).toBe(await moveFor(c, 'bolder'));
       expect((await rows(c, g.userId)).filter(r => r.field === 'coffee_feeling').length).toBe(1);
     });

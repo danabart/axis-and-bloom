@@ -10,8 +10,9 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
 import EvidenceParametersCard from './EvidenceParametersCard';
+import AdminKitchenTypedNames, { type KitchenAdminData } from './AdminKitchenTypedNames';
 
-interface Stats {
+interface Stats extends KitchenAdminData {
   fields: Array<{ field: string; customersWithValue: number; declinedRows: number; declinedCustomers: number; quizSet: number; quizDeclined: number; coverage: number | null }>;
   drinks: Array<{ code: string; label: string; customers: number }>;
   baseMethods: Array<{ code: string; customers: number }>;
@@ -42,6 +43,7 @@ export default function AdminBrewProfileStats() {
   const { user } = useAuth();
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (!user) return;
@@ -55,7 +57,7 @@ export default function AdminBrewProfileStats() {
         setError('Failed to load the brew-profile fields');
       }
     })();
-  }, [user]);
+  }, [user, reload]);
 
   return (
     <div className="flex flex-col gap-4" data-testid="brew-profile-fields">
@@ -99,6 +101,8 @@ export default function AdminBrewProfileStats() {
               </ul>
             )}
           </div>
+          {/* Usual Drink 4 (C1/C2): typed kitchen names, promote and retire */}
+          {user && <AdminKitchenTypedNames data={stats} user={user} onChanged={() => setReload(n => n + 1)} />}
         </>
       )}
       <EvidenceParametersCard

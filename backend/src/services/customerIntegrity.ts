@@ -689,6 +689,7 @@ export async function runCustomerIntegrityChecks(scope: CheckScope = {}): Promis
     await checkTakesItVsUsualDrink(scope),
     await checkBrewProfileRowShape(scope),
     await checkArrayFieldsHoldArrays(scope),
+    await checkKitchenProductParents(scope),
   ];
   return {
     ranAt: new Date().toISOString(),
@@ -731,8 +732,9 @@ export const USUAL_DRINK_SEED_CODES: Record<string, string[]> = {
   quiz_funnel_event_type: ['quiz_start', 'quiz_complete', 'email_submitted', 'quiz_final', 'post_result_shown', 'post_result_saved', 'post_result_skipped'],
 };
 export const USUAL_DRINK_SEED_VALUE_COUNTS: Record<string, number> = {
-  brew_methods: 8, grinder: 5, takes_it: 6, decaf_constraint: 2, usual_drink: 16, cupboard_coffee: 59, coffee_feeling: 4,
+  brew_methods: 8, grinder: 5, takes_it: 6, decaf_constraint: 2, usual_drink: 16, cupboard_coffee: 388, coffee_feeling: 4,
   cupboard_roast: 5, // Usual Drink 2 (A6); takes_it 4 -> 6 (plant_milk, syrup_creamer)
+  // Usual Drink 4 (B2): cupboard_coffee 59 -> 388 (229 brands, 100 products); promoted entries only add
 };
 const UD_REFERENCE_TABLES = [
   'brew_profile_value_kind', 'brew_profile_picker', 'brew_profile_op', 'brew_profile_field', 'brew_profile_field_value',
@@ -988,4 +990,20 @@ export async function checkArrayFieldsHoldArrays(scope: CheckScope = {}): Promis
       ORDER BY 2, 1 LIMIT 50`
   );
   return udCheck(33, 'array brew-profile fields hold arrays (single values left from before Usual Drink 2: 0 after its conversion)', r.rows.map(x => `${x.canonical_user_id}: ${x.field}`), '0 findings', 'all arrays');
+}
+
+/** 34 — Usual Drink 4 (B3): a kitchen product whose brand is retired or is itself a product (informational). */
+export async function checkKitchenProductParents(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ code: string; parent: string; problem: string }>(
+    `SELECT fv.code, pfv.code AS parent,
+            CASE WHEN pb.parent_brand_id IS NOT NULL THEN 'its brand is itself a product' ELSE 'its brand is retired' END AS problem
+       FROM brew_cupboard_brand b
+       JOIN brew_profile_field_value fv ON fv.id = b.field_value_id
+       JOIN brew_cupboard_brand pb ON pb.id = b.parent_brand_id
+       JOIN brew_profile_field_value pfv ON pfv.id = pb.field_value_id
+      WHERE fv.is_active AND (pb.parent_brand_id IS NOT NULL OR NOT pfv.is_active)
+      ORDER BY 1 LIMIT 50`
+  );
+  return udCheck(34, 'kitchen products hang under an active brand', r.rows.map(x => `${x.code} (brand ${x.parent}): ${x.problem}`), '0 findings', 'every product under an active brand');
 }

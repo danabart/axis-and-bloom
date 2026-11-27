@@ -459,6 +459,8 @@ export interface FlavorMemoryData {
   activity: FlavorMemoryActivityEntry[];
   contributionCount: number;
   brewCards: BrewCardSummary[];
+  /** Usual Drink 4 (D4): one sentence on where a brew card comes from (brew_parameter brew_cards_about) */
+  brewCardsAbout?: string | null;
 }
 
 export async function getFlavorMemory(): Promise<FlavorMemoryData> {

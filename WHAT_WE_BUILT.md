@@ -7218,3 +7218,27 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
   - OT-184: Mouthfeel is held, with its numbers.
   - OT-185: Joe Bean's Bitterness is 3 on all seven coffees.
   - OT-186: the ratings are not comparable across roasters.
+
+### 289. Usual Drink 4: profile page fixes, the brew-card sentence, and a richer kitchen list (2026-11-26)
+
+`backend/src/features/usual_drink/CLAUDE_CODE_PROMPT_USUAL_DRINK_4_PAGE_FIXES_AND_KITCHEN_LIST.md` · `CLOSING_REPORT_4.md`. Test mode. Dana's decisions after her second look, and her five Task 0 answers. Matching, the dial and Liam's recommendation are unchanged.
+
+- **Profile page:**
+  - Every customer word of the archetype shows on one line ("Full · Grounded · Comforting").
+  - No archetype number: `DialArchetypeSection.hideNumber` leaves it out of the breakout header and keeps the name; the Bloom page and Find My Flavor still show it.
+  - The history tabs have no vertical scroller: the underline sits inside the row, with vertical overflow hidden.
+  - The Brew cards segment opens with one sentence from `brew_parameter` `brew_cards_about`, carried by the flavor-memory payload.
+- **Kitchen list (rows):**
+  - 229 brands and 100 products of the big brands, generated once from `kitchen_list_2026_11_26.csv` into `schema.sql`.
+  - New column `brew_cupboard_brand.parent_brand_id`: a product points at its brand and takes its kind. No product under a partner roastery.
+  - The CSV's `shoprite` alias is not seeded; the store brand keeps it (Dana).
+  - Products are read directly under their brand (`brewProfile.orderValues`), so no stored sort order is rewritten and a later product also lands under its brand (Dana).
+  - `v_brew_profile_field_current` gains `parent_value_code`.
+  - Liam's field list leaves the products out; Liam remembers the brand (Dana).
+- **Promote a typed name (admin):**
+  - The brew-profile admin block lists the typed kitchen names with their customer counts. Names that already match an entry are left out.
+  - "Add to the list" goes through `brewKitchenList.promoteTypedName`, the first app writer of the kitchen lookups beside the seed: one value, one brand row and one alias, idempotent on the alias. `retireKitchenEntry` retires an entry and never deletes it.
+  - The routes are `POST /api/admin/brew-profile/kitchen/promote` and `POST /api/admin/brew-profile/kitchen/:code/retire`, behind `requireAdmin`.
+  - No customer row is written. `v_customer_cupboard_coffee` resolves an old typed name on read to the one active brand whose label (first) or alias it equals, and keeps the customer's words.
+  - The view also gains `brand_code`. `/map`'s kitchen line reads it, so a product says its brand's line (Dana).
+- **Integrity:** the `cupboard_coffee` seed count goes from 59 to 388. New informational check 34: a product whose brand is retired or is itself a product.

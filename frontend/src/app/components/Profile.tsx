@@ -519,14 +519,13 @@ export default function Profile() {
                           {retakeCopy} <ArrowRight size={12} />
                         </Link>
                       </div>
-                      <ul className="flex flex-col gap-5">
-                        {(homepageState?.archetype?.features ?? []).filter((_: string, i: number) => i === 0 || openBlock === 'primary').map((f: string, i: number) => (
-                          <li key={i} className="flex items-start gap-5">
-                            <div className="w-[1px] h-8 shrink-0 opacity-40 mt-1" style={{ backgroundColor: 'var(--ab-mark-b)' }} />
-                            <span className="text-lg text-[var(--ab-ink)]/80 leading-relaxed">{f}</span>
-                          </li>
-                        ))}
-                      </ul>
+                      {/* Usual Drink 4 (D1): every customer word of the archetype on one line, always shown */}
+                      {(homepageState?.archetype?.features ?? []).length > 0 && (
+                        <div className="flex items-start gap-5" data-testid="memory-archetype-words">
+                          <div className="w-[1px] h-8 shrink-0 opacity-40 mt-1" style={{ backgroundColor: 'var(--ab-mark-b)' }} />
+                          <p className="text-lg text-[var(--ab-ink)]/80 leading-relaxed">{(homepageState?.archetype?.features ?? []).join(' · ')}</p>
+                        </div>
+                      )}
                       {renderStageNote()}
 
                     {/* 2 — archetype block: name + NO. baseline row (rendered by
@@ -553,6 +552,7 @@ export default function Profile() {
                           onDoorClick={handleDoorClick}
                           folded
                           unfoldMode="breakout"
+                          hideNumber
                           prelaunch={prelaunchGated}
                           onOpenChange={open => setOpenBlock(prev => open ? 'primary' : (prev === 'primary' ? null : prev))}
                           forceFold={openBlock === 'adjacent'}
@@ -617,6 +617,7 @@ export default function Profile() {
                           prelaunch={prelaunchGated}
                           folded
                           unfoldMode="breakout"
+                          hideNumber
                           onOpenChange={open => setOpenBlock(prev => open ? 'adjacent' : (prev === 'adjacent' ? null : prev))}
                           forceFold={openBlock === 'primary'}
                         />
@@ -635,11 +636,11 @@ export default function Profile() {
 
                     {/* 3 — history: one switcher; a hidden segment stays mounted (MapTrail's own fetch runs) */}
                     <div data-testid="memory-history">
-                      <div role="tablist" aria-label="History" className="flex gap-6 overflow-x-auto whitespace-nowrap border-b border-[var(--ab-ink)]/15 mb-6 -mx-1 px-1">
+                      <div role="tablist" aria-label="History" className="flex gap-6 overflow-x-auto overflow-y-hidden whitespace-nowrap shadow-[inset_0_-1px_0_color-mix(in_srgb,var(--ab-ink)_15%,transparent)] mb-6 -mx-1 px-1" data-testid="history-tabs">
                         {historySegments.map(seg => (
                           <button key={seg.key} type="button" role="tab" aria-selected={historySegment === seg.key}
                             onClick={() => setHistorySegment(seg.key)}
-                            className={`min-h-[44px] shrink-0 text-[11px] uppercase tracking-[0.2em] border-b -mb-px transition-colors ${historySegment === seg.key ? 'border-[var(--ab-mark-b)] text-[var(--ab-mark-b)]' : 'border-transparent text-[var(--ab-ink)]/40 hover:text-[var(--ab-ink)]/70'}`}
+                            className={`min-h-[44px] shrink-0 text-[11px] uppercase tracking-[0.2em] border-b transition-colors ${historySegment === seg.key ? 'border-[var(--ab-mark-b)] text-[var(--ab-mark-b)]' : 'border-transparent text-[var(--ab-ink)]/40 hover:text-[var(--ab-ink)]/70'}`}
                             data-testid={`history-tab-${seg.key}`}>
                             {seg.label}
                           </button>
@@ -661,7 +662,7 @@ export default function Profile() {
                         )}
                       </div>
                       <div hidden={historySegment !== 'cards'} data-testid="history-cards">
-                        {flavorMemory && <BrewCards cards={flavorMemory.brewCards} hideHeading />}
+                        {flavorMemory && <BrewCards cards={flavorMemory.brewCards} about={flavorMemory.brewCardsAbout} hideHeading />}
                       </div>
                       <div hidden={historySegment !== 'trail'} data-testid="history-trail">
                         <MapTrail hideHeading onContent={(has, title) => setTrail({ has, title })} />

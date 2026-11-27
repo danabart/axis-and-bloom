@@ -425,6 +425,26 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **"Nothing, black" stands alone:** milk and sugar save together; picking black clears them and picking another clears black; the door (`checkBrewProfileChange`) refuses `["black", …]` from any writer; Liam's `takes_it=black` is `set ["black"]`.
 - [ ] **Three blocks on the Flavor Memory tab:** palate (retake link beside "Your archetype", always), routine, history (Activity and Tasting journal always; Brew cards only with a card; Your trail only when `MapTrail` reports content); "Leave feedback" opens the journal; a failed save shows `routine_save_error`, never the server's text; at 390 px nothing scrolls sideways, every routine button is 44 px or taller, inputs are 16 px.
 
+## Usual Drink 4: page fixes and the kitchen list (2026-11-26)
+
+- [ ] **Profile:**
+  - The archetype words read on one line under "Your archetype", with the block closed.
+  - No "NO." anywhere on the Profile; the Bloom page still shows the number.
+  - The history tab row has no vertical scroller at desktop width or at 390 px, and still scrolls sideways on a phone.
+  - The Brew cards segment shows `brew_cards_about` once, above the first card.
+- [ ] **Kitchen autocomplete:**
+  - "tatte" finds Tatte Bakery & Café.
+  - "starbucks" lists Starbucks, then its products.
+  - "pike" finds Starbucks Pike Place Roast.
+  - A picked product saves and shows as a chip.
+  - In the browse list each product sits directly under its brand, including one promoted later.
+- [ ] **Promote:**
+  - A typed kitchen name shows on the admin block with its customer count. Promoting it adds one entry, and a second promote of the same name adds nothing.
+  - After the field-list refresh the entry is in the autocomplete.
+  - The customer who typed it still sees their own words, and `v_customer_cupboard_coffee` returns the promoted brand for them. Their stored row is unchanged.
+  - A non-admin gets 403.
+- [ ] **`/map`:** a product as the coffee they drink most reads its brand's kitchen line.
+
 ## Usual Drink 3: routine fixes (2026-11-25)
 
 - [ ] **Black goes with milk:** `["black","milk"]` saves on `takes_it` (Profile, card, door) and reads back as two chips. The brew card still leaves black out of its sentence (`brew_card_takes_it_skip`).

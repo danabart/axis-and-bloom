@@ -34,6 +34,8 @@ export interface BrewProfileValueDef {
   isActive: boolean;
   /** Usual Drink 2 (A3): picking it clears the other values of an array field */
   exclusive: boolean;
+  /** Usual Drink 4 (B1): a kitchen product's brand (its value code), else null */
+  parentCode?: string | null;
 }
 
 /** Usual Drink 2 (A1): the routine group a field is shown in. */
@@ -75,6 +77,25 @@ interface FieldRow {
   // Usual Drink 2 (A7); optional so fixtures built before it still type-check
   group_code?: string | null; group_label?: string | null; group_sort_order?: number | null;
   values_from_field_code?: string | null; is_on_card?: boolean | null; is_exclusive?: boolean | null;
+  // Usual Drink 4 (B1)
+  parent_value_code?: string | null;
+}
+
+/**
+ * Usual Drink 4 (Dana 2026-11-26, decision 3): the order a field's values are
+ * read in. Each value in its own sort order, and a product (parentCode) directly
+ * under its brand, its siblings in their own sort order; so a product added
+ * later also lands under its brand and no stored number is ever rewritten. A
+ * product whose brand is not in the list keeps its own place.
+ */
+export function orderValues(values: BrewProfileValueDef[]): BrewProfileValueDef[] {
+  const byCode = new Map(values.map(v => [v.code, v]));
+  const brandOf = (v: BrewProfileValueDef) => (v.parentCode && byCode.has(v.parentCode) ? byCode.get(v.parentCode)! : v);
+  return [...values].sort((a, b) => {
+    const pa = brandOf(a), pb = brandOf(b);
+    return pa.sortOrder - pb.sortOrder || pa.id - pb.id
+      || Number(pa !== a) - Number(pb !== b) || a.sortOrder - b.sortOrder || a.id - b.id;
+  });
 }
 
 /** Pure: view rows -> field definitions in sort order. */
@@ -96,13 +117,13 @@ export function buildBrewProfileFields(rows: FieldRow[]): BrewProfileFieldConfig
       f.values.push({
         id: r.value_id, code: r.value_code, label: r.value_label ?? r.value_code, sortOrder: r.value_sort_order ?? 0,
         pinned: r.pinned === true, acceptsWords: r.accepts_words === true, aliases: r.aliases ?? [], isActive: r.value_is_active !== false,
-        exclusive: r.is_exclusive === true,
+        exclusive: r.is_exclusive === true, parentCode: r.parent_value_code ?? null,
       });
     }
   }
   const fields = [...byId.values()].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
   for (const f of fields) {
-    f.values.sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+    f.values = orderValues(f.values);
     if (f.type !== 'array_freeform') f.allowedValues = f.values.filter(v => v.isActive).map(v => v.code);
   }
   return fields;
@@ -117,7 +138,8 @@ export async function loadBrewProfileFields(runner: Runner = db): Promise<number
   const r = await runner.query<FieldRow>(
     `SELECT field_id, field_code, field_label, prompt, value_kind, picker, max_items, max_item_len, liam_topic, ask_when_empty,
             field_sort_order, field_is_active, value_id, value_code, value_label, value_sort_order, pinned, accepts_words,
-            aliases, value_is_active, group_code, group_label, group_sort_order, values_from_field_code, is_on_card, is_exclusive
+            aliases, value_is_active, group_code, group_label, group_sort_order, values_from_field_code, is_on_card, is_exclusive,
+            parent_value_code
      FROM v_brew_profile_field_current`
   );
   fieldCache = buildBrewProfileFields(r.rows);
@@ -466,7 +488,8 @@ export function getAskWhenEmptyNudge(
 export function formatBrewProfileFieldList(): string {
   const lines: string[] = [];
   for (const f of Object.values(getBrewProfileFieldsConfig()).sort((a, b) => a.sortOrder - b.sortOrder)) {
-    const active = f.values.filter(v => v.isActive);
+    // Usual Drink 4 (decision 5): a kitchen product is not listed; Liam remembers its brand
+    const active = f.values.filter(v => v.isActive && !v.parentCode);
     let values: string;
     if (f.type === 'array_freeform') values = `free text, one item per marker${f.maxItemLength ? `, at most ${f.maxItemLength} characters` : ''}`;
     else if (f.picker === 'typeahead') values = active.map(v => `${v.code} (${[v.label, ...v.aliases].join(' / ')})`).join(', ');

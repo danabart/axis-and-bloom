@@ -12,6 +12,7 @@ import {
 } from '../services/brewProfile.js';
 import { brewProfileOptions, saveRoutine, RoutineSaveError, brewProfileFallbackSourceId } from '../services/brewProfileCard.js';
 import { getUserBrewCards } from '../services/brewCard.js';
+import { brewTextParams } from '../services/brewParameters.js';
 import { hasLiamAccess } from '../services/liamAccess.js';
 import { getAliases } from '../services/sommelierRag.js';
 import { archetypeCode, archetypeLabel as catalogArchetypeLabel, archetypeCustomerWords } from '../services/catalogReads.js';
@@ -781,6 +782,8 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       activity,
       contributionCount: Number(contributionResult.rows[0]?.count ?? 0),
       brewCards,
+      // Usual Drink 4 (A4): where a card comes from, the brew_parameter row (no words in the component)
+      brewCardsAbout: brewCards.length ? (await brewTextParams()).brew_cards_about ?? null : null,
     });
   } catch (err) {
     console.error('[/api/users/flavor-memory]', err);

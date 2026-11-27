@@ -5,6 +5,8 @@ import { useAuth } from '../../context/AuthContext';
 
 interface Props {
   cards: BrewCardSummary[];
+  /** Usual Drink 4 (D4): where a card comes from (brew_parameter brew_cards_about, from the payload) */
+  about?: string | null;
 }
 
 const METHOD_LABEL: Record<string, string> = {
@@ -20,13 +22,14 @@ const METHOD_LABEL: Record<string, string> = {
 // Usual Drink 2 (D4): the heading exists once, here; the history switcher reads it.
 export const BREW_CARDS_HEADING = 'Brew cards';
 
-export default function BrewCards({ cards, hideHeading }: Props & { hideHeading?: boolean }) {
+export default function BrewCards({ cards, about, hideHeading }: Props & { hideHeading?: boolean }) {
   const { hasLiamAccess } = useAuth();
   if (cards.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-6">
       {!hideHeading && <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">{BREW_CARDS_HEADING}</p>}
+      {about && <p className="text-sm text-[#a33726]/70 leading-relaxed" data-testid="brew-cards-about">{about}</p>}
       <div className="flex flex-col gap-5">
         {cards.map(card => (
           <div key={card.id} className="flex flex-col gap-1.5">

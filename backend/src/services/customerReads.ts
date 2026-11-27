@@ -860,6 +860,8 @@ export async function getUsualDrinks(uid: string, runner: Runner = db): Promise<
 export interface CupboardCoffeeRow {
   fieldValueId: number; code: string; label: string; brandKind: string; roasterId: string | null;
   customerWords: string | null; capturedAt: string | null; source: string | null; quizSessionId: string | null;
+  /** Usual Drink 4: the entry's brand (a product's parent, else the entry); /map's kitchen line reads it */
+  brandCode: string;
 }
 /**
  * Ella map 10 (G3.9 amended): one lookup per fact, by either key. A sign-in id
@@ -874,11 +876,12 @@ export async function getCupboardCoffee(key: CustomerKey, runner: Runner = db): 
   const canonicalId = await canonicalOfKey(key, runner);
   if (!canonicalId) return null;
   const x = (await runner.query(
-    `SELECT field_value_id, code, label, brand_kind, roaster_id, customer_words, captured_at, source, quiz_session_id
+    `SELECT field_value_id, code, label, brand_kind, roaster_id, customer_words, captured_at, source, quiz_session_id, brand_code
      FROM v_customer_cupboard_coffee WHERE canonical_user_id = $1`, [canonicalId])).rows[0];
   return x ? {
     fieldValueId: x.field_value_id, code: x.code, label: x.label, brandKind: x.brand_kind, roasterId: x.roaster_id,
     customerWords: x.customer_words, capturedAt: x.captured_at ? new Date(x.captured_at).toISOString() : null, source: x.source, quizSessionId: x.quiz_session_id,
+    brandCode: x.brand_code,
   } : null;
 }
 
@@ -925,10 +928,18 @@ export interface BrewProfileFieldCounts {
   feelings: Array<{ code: string; label: string; moveCode: string; customers: number }>;
   otherWords: Array<{ field: string; words: string; occurredAt: string; source: string }>;
   cardEvents: Array<{ event: string; n: number }>;
+  /** Usual Drink 4 (C1): each typed kitchen name (grouped lower-cased and trimmed) with its customer count, most common first; names that already match an active entry's label or alias are left out */
+  typedKitchenNames: Array<{ words: string; customers: number }>;
+  /** Usual Drink 4 (C2): the promote form's options: the active brand kinds and the kitchen entries (a product names its brand) */
+  kitchenKinds: Array<{ code: string; label: string }>;
+  kitchenEntries: Array<{ code: string; label: string; parentCode: string | null; isActive: boolean; fixed: boolean }>;
 }
 /** The admin stats row (Part D): one read over the views and customer_brew_profile_change (declines, words). */
 export async function getBrewProfileFieldCounts(runner: Runner = db): Promise<BrewProfileFieldCounts> {
-  const [fields, drinks, methods, brands, kinds, feelings, words, events] = await Promise.all([
+  // Usual Drink 4: the kitchen field is the one whose values the brand rows decompose (no field code typed here)
+  const kitchen = `SELECT DISTINCT kf.code FROM brew_cupboard_brand kb JOIN brew_profile_field_value kv ON kv.id = kb.field_value_id
+                   JOIN brew_profile_field kf ON kf.id = kv.field_id`;
+  const [fields, drinks, methods, brands, kinds, feelings, words, events, typed, kitchenKinds, kitchenEntries] = await Promise.all([
     runner.query(
       `WITH c AS (
          SELECT vi.canonical_user_id, c.field, c.op, c.source FROM customer_brew_profile_change c
@@ -950,6 +961,23 @@ export async function getBrewProfileFieldCounts(runner: Runner = db): Promise<Br
     runner.query(`SELECT code, label, move_code, count(*)::int AS customers FROM v_customer_coffee_feeling GROUP BY code, label, move_code ORDER BY customers DESC, code`),
     runner.query(`SELECT field, customer_words AS words, occurred_at, source FROM customer_brew_profile_change WHERE customer_words IS NOT NULL ORDER BY occurred_at DESC LIMIT 100`),
     runner.query(`SELECT event, count(*)::int AS n FROM quiz_funnel_event WHERE event LIKE 'post\_result\_%' GROUP BY event ORDER BY event`),
+    runner.query(
+      `SELECT min(c.customer_words) AS words, count(DISTINCT vi.canonical_user_id)::int AS customers
+       FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
+       WHERE c.field IN (${kitchen}) AND c.customer_words IS NOT NULL AND trim(c.customer_words) <> ''
+         AND NOT EXISTS (
+           SELECT 1 FROM brew_profile_field_value x JOIN brew_profile_field xf ON xf.id = x.field_id
+           LEFT JOIN brew_cupboard_brand xb ON xb.field_value_id = x.id
+           LEFT JOIN brew_cupboard_brand_alias xa ON xa.brand_id = xb.id
+           WHERE xf.code = c.field AND x.is_active AND NOT x.accepts_words
+             AND (lower(trim(x.label)) = lower(trim(c.customer_words)) OR xa.alias = lower(trim(c.customer_words))))
+       GROUP BY lower(trim(c.customer_words)) ORDER BY customers DESC, 1`),
+    runner.query(`SELECT code, label FROM brew_cupboard_brand_kind WHERE is_active ORDER BY sort_order, code`),
+    runner.query(
+      `SELECT fv.code, fv.label, pfv.code AS parent_code, fv.is_active, (fv.pinned OR fv.accepts_words) AS fixed
+       FROM brew_cupboard_brand b JOIN brew_profile_field_value fv ON fv.id = b.field_value_id
+       LEFT JOIN brew_cupboard_brand pb ON pb.id = b.parent_brand_id LEFT JOIN brew_profile_field_value pfv ON pfv.id = pb.field_value_id
+       ORDER BY fv.label`),
   ]);
   return {
     fields: fields.rows.map(r => ({
@@ -961,6 +989,9 @@ export async function getBrewProfileFieldCounts(runner: Runner = db): Promise<Br
     feelings: feelings.rows.map(r => ({ code: r.code, label: r.label, moveCode: r.move_code, customers: r.customers })),
     otherWords: words.rows.map(r => ({ field: r.field, words: r.words, occurredAt: new Date(r.occurred_at).toISOString(), source: r.source })),
     cardEvents: events.rows,
+    typedKitchenNames: typed.rows,
+    kitchenKinds: kitchenKinds.rows,
+    kitchenEntries: kitchenEntries.rows.map(r => ({ code: r.code, label: r.label, parentCode: r.parent_code, isActive: r.is_active, fixed: r.fixed })),
   };
 }
 

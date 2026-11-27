@@ -55,6 +55,11 @@ export interface DialArchetypeSectionProps {
   ceremonyTag?: string;
   unfoldMode?: 'inline' | 'breakout';
   showBreakoutHeader?: boolean;
+  /** Usual Drink 4 (D2): leave the archetype number ("NO. 04") out of the
+   * breakout header, keeping the name. The Profile sets it on both its
+   * sections; the dial's own number renders only unfolded, which the
+   * Profile never is, so nothing else changes. Default false. */
+  hideNumber?: boolean;
   prelaunch?: boolean;
   onOpenChange?: (open: boolean) => void;
   forceFold?: boolean;
@@ -75,7 +80,7 @@ export interface DialArchetypeSectionProps {
 function DialLayout({
   data, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onCompare,
   userArchetype, registerDialRef, source = null, hideProfileLink = false, embedded = false, onDoorClick,
-  folded = false, ceremonyTag = 'YOUR SPOT', unfoldMode = 'inline', showBreakoutHeader = true, prelaunch = false,
+  folded = false, ceremonyTag = 'YOUR SPOT', unfoldMode = 'inline', showBreakoutHeader = true, hideNumber = false, prelaunch = false,
   onOpenChange, forceFold = false, forMemberId = null,
 }: {
   data: ArchetypeData;
@@ -127,6 +132,11 @@ function DialLayout({
    * — a second one right above the block would duplicate it — so that call
    * site passes `false`. */
   showBreakoutHeader?: boolean;
+  /** Usual Drink 4 (D2): leave the archetype number ("NO. 04") out of the
+   * breakout header, keeping the name. The Profile sets it on both its
+   * sections; the dial's own number renders only unfolded, which the
+   * Profile never is, so nothing else changes. Default false. */
+  hideNumber?: boolean;
   /** Pre-Launch Gate — hides Add to Cart (main button + Quick Picks), and
    * threads through to RevealedPanel to hide the Liam/flavor-intelligence
    * footer links. Dial, position card, and reveal panel content all stay —
@@ -459,7 +469,7 @@ function DialLayout({
       {renderBreakoutHeader && (
         <div className="bd-breakout-archhead">
           <span className="bd-breakout-archname">{data.archetypeLabel}</span>
-          <span className="bd-breakout-archno">NO. {config.no}</span>
+          {!hideNumber && <span className="bd-breakout-archno">NO. {config.no}</span>}
         </div>
       )}
       <BloomDial

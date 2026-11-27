@@ -684,7 +684,8 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
       return { key: `quiz_answer:${a.answer_code}`, code: a.answer_code, saidId: s.id, text: s.says_back, move: s.move_code, family: a.resulting_family_code, weight: 0, isFeeling: false };
     });
   const cupboard = await getCupboardCoffee({ profileId }, runner);
-  const kitchen = cupboard ? said.get(`cupboard_coffee:${cupboard.code}`) ?? null : null;
+  // Usual Drink 4 (decision 4): a product reads its brand's kitchen line
+  const kitchen = cupboard ? said.get(`cupboard_coffee:${cupboard.brandCode}`) ?? null : null;
   const feelingRow = await getCoffeeFeeling({ profileId }, runner);
   const feelingSaid = feelingRow ? said.get(`coffee_feeling:${feelingRow.code}`) ?? null : null;
   const feeling: Fact | null = feelingRow && feelingSaid

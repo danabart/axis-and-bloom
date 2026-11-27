@@ -12625,6 +12625,268 @@ SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
 WHERE NOT EXISTS (SELECT 1 FROM brew_parameter p WHERE p.key = v.key);
 -- ── END USUAL DRINK 3 rows (its view body is v_customer_cupboard_coffee below) ──
 
+-- ── USUAL DRINK 4 (2026-11-26): page fixes and a richer kitchen list ───────────
+-- A4. the brew cards' sentence (insert if missing)
+INSERT INTO brew_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('brew_cards_about', NULL::numeric, 'Each card starts from a standard recipe for the way you brew. We adjust it for that coffee and add how you take it.',
+   'One sentence above the brew cards on the Profile: where a card comes from (Usual Drink 4, D4). Format: customer-facing sentence, no placeholder.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM brew_parameter p WHERE p.key = v.key);
+
+-- B1. a product points at its brand (NULL on a brand)
+ALTER TABLE brew_cupboard_brand ADD COLUMN IF NOT EXISTS parent_brand_id INT REFERENCES brew_cupboard_brand(id);
+
+-- B2. the kitchen list (kitchen_list_2026_11_26.csv, generated once by tmp/ud4_gen_seed.py; the CSV is not read
+-- at runtime): 229 brands and 100 products of the big brands, insert if missing. A value's
+-- sort_order is its place after the values that existed (brands in file order, then products in file order);
+-- buildBrewProfileFields reads each product directly under its brand (parent_brand_id), so stored numbers
+-- are never rewritten (Dana 2026-11-26, decision 3).
+INSERT INTO brew_profile_field_value (field_id, code, label, sort_order)
+SELECT f.id, v.code, v.label, (SELECT max(x.sort_order) FROM brew_profile_field_value x WHERE x.field_id = f.id) + v.n
+FROM (VALUES
+  ('dutch_bros', 'Dutch Bros', 1), ('blank_street', 'Blank Street', 2), ('gregorys_coffee', 'Gregorys Coffee', 3),
+  ('bluestone_lane', 'Bluestone Lane', 4), ('joe_and_the_juice', 'Joe & The Juice', 5), ('pret_a_manger', 'Pret A Manger', 6),
+  ('panera', 'Panera', 7), ('7_eleven', '7-Eleven', 8), ('tatte_bakery_and_cafe', 'Tatte Bakery & Café', 9),
+  ('philz_coffee', 'Philz Coffee', 10), ('the_coffee_bean_and_tea_leaf', 'The Coffee Bean & Tea Leaf', 11), ('scooters_coffee', 'Scooter''s Coffee', 12),
+  ('biggby_coffee', 'Biggby Coffee', 13), ('krispy_kreme', 'Krispy Kreme', 14), ('sheetz', 'Sheetz', 15),
+  ('quickchek', 'QuickChek', 16), ('cumberland_farms', 'Cumberland Farms', 17), ('costa_coffee', 'Costa Coffee', 18),
+  ('paris_baguette', 'Paris Baguette', 19), ('7_brew', '7 Brew', 20), ('black_rock_coffee_bar', 'Black Rock Coffee Bar', 21),
+  ('think_coffee', 'Think Coffee', 22), ('for_five_coffee', 'For Five Coffee', 23), ('ninth_street_espresso', 'Ninth Street Espresso', 24),
+  ('nescafe', 'Nescafé', 25), ('nespresso', 'Nespresso', 26), ('keurig', 'Keurig', 27),
+  ('cafe_la_llave', 'Café La Llave', 28), ('cafe_el_pico', 'Café El Pico', 29), ('yuban', 'Yuban', 30),
+  ('hills_bros', 'Hills Bros.', 31), ('mjb', 'MJB', 32), ('don_franciscos', 'Don Francisco''s', 33),
+  ('new_england_coffee', 'New England Coffee', 34), ('camerons_coffee', 'Cameron''s Coffee', 35), ('kicking_horse_coffee', 'Kicking Horse Coffee', 36),
+  ('newmans_own_organics', 'Newman''s Own Organics', 37), ('melitta', 'Melitta', 38), ('medaglia_doro', 'Medaglia d''Oro', 39),
+  ('kauai_coffee', 'Kauai Coffee', 40), ('lion_coffee', 'Lion Coffee', 41), ('cafe_du_monde', 'Café Du Monde', 42),
+  ('french_market', 'French Market', 43), ('luzianne', 'Luzianne', 44), ('bones_coffee', 'Bones Coffee', 45),
+  ('lifeboost', 'Lifeboost', 46), ('volcanica_coffee', 'Volcanica Coffee', 47), ('koffee_kult', 'Koffee Kult', 48),
+  ('san_francisco_bay_coffee', 'San Francisco Bay Coffee', 49), ('mayorga_coffee', 'Mayorga Coffee', 50), ('tullys', 'Tully''s', 51),
+  ('victor_allens', 'Victor Allen''s', 52), ('martinson', 'Martinson', 53), ('segafredo_zanetti', 'Segafredo Zanetti', 54),
+  ('kimbo', 'Kimbo', 55), ('cafe_goya', 'Café Goya', 56), ('four_sigmatic', 'Four Sigmatic', 57),
+  ('javy_coffee', 'Javy Coffee', 58), ('cometeer', 'Cometeer', 59), ('copper_cow_coffee', 'Copper Cow Coffee', 60),
+  ('chamberlain_coffee', 'Chamberlain Coffee', 61), ('grounds_and_hounds', 'Grounds & Hounds', 62), ('wandering_bear', 'Wandering Bear', 63),
+  ('stok', 'Stōk', 64), ('chameleon_cold_brew', 'Chameleon Cold-Brew', 65), ('purity_coffee', 'Purity Coffee', 66),
+  ('mauds_coffee', 'Maud''s Coffee', 67), ('great_value', 'Great Value (Walmart)', 68), ('good_and_gather', 'Good & Gather (Target)', 69),
+  ('365_by_whole_foods_market', '365 by Whole Foods Market', 70), ('amazon_fresh_happy_belly', 'Amazon Fresh / Happy Belly', 71), ('members_mark', 'Member''s Mark (Sam''s Club)', 72),
+  ('wellsley_farms', 'Wellsley Farms (BJ''s)', 73), ('bowl_and_basket', 'Bowl & Basket (ShopRite)', 74), ('wegmans', 'Wegmans', 75),
+  ('stop_and_shop', 'Stop & Shop', 76), ('private_selection', 'Private Selection (Kroger)', 77), ('publix', 'Publix', 78),
+  ('george_howell_coffee', 'George Howell Coffee', 79), ('black_and_white_coffee_roasters', 'Black & White Coffee Roasters', 80), ('heart_coffee_roasters', 'Heart Coffee Roasters', 81),
+  ('coava_coffee_roasters', 'Coava Coffee Roasters', 82), ('sey_coffee', 'Sey Coffee', 83), ('la_cabra', 'La Cabra', 84),
+  ('passenger_coffee', 'Passenger Coffee', 85), ('ruby_coffee_roasters', 'Ruby Coffee Roasters', 86), ('madcap_coffee', 'Madcap Coffee', 87),
+  ('metric_coffee', 'Metric Coffee', 88), ('dark_matter_coffee', 'Dark Matter Coffee', 89), ('big_shoulders_coffee', 'Big Shoulders Coffee', 90),
+  ('metropolis_coffee', 'Metropolis Coffee', 91), ('colectivo_coffee', 'Colectivo Coffee', 92), ('kaldis_coffee', 'Kaldi''s Coffee', 93),
+  ('pts_coffee', 'PT''s Coffee', 94), ('messenger_coffee', 'Messenger Coffee', 95), ('huckleberry_roasters', 'Huckleberry Roasters', 96),
+  ('sweet_bloom_coffee', 'Sweet Bloom Coffee', 97), ('corvus_coffee', 'Corvus Coffee', 98), ('novo_coffee', 'Novo Coffee', 99),
+  ('boxcar_coffee_roasters', 'Boxcar Coffee Roasters', 100), ('cat_and_cloud', 'Cat & Cloud', 101), ('temple_coffee_roasters', 'Temple Coffee Roasters', 102),
+  ('chromatic_coffee', 'Chromatic Coffee', 103), ('sightglass_coffee', 'Sightglass Coffee', 104), ('four_barrel_coffee', 'Four Barrel Coffee', 105),
+  ('andytown_coffee_roasters', 'Andytown Coffee Roasters', 106), ('linea_caffe', 'Linea Caffe', 107), ('wrecking_ball_coffee', 'Wrecking Ball Coffee', 108),
+  ('saint_frank_coffee', 'Saint Frank Coffee', 109), ('red_bay_coffee', 'Red Bay Coffee', 110), ('klatch_coffee', 'Klatch Coffee', 111),
+  ('bird_rock_coffee_roasters', 'Bird Rock Coffee Roasters', 112), ('go_get_em_tiger', 'Go Get Em Tiger', 113), ('cognoscenti_coffee', 'Cognoscenti Coffee', 114),
+  ('portola_coffee', 'Portola Coffee', 115), ('olympia_coffee', 'Olympia Coffee', 116), ('victrola_coffee', 'Victrola Coffee', 117),
+  ('caffe_vita', 'Caffe Vita', 118), ('caffe_ladro', 'Caffe Ladro', 119), ('elm_coffee_roasters', 'Elm Coffee Roasters', 120),
+  ('anchorhead_coffee', 'Anchorhead Coffee', 121), ('camber_coffee', 'Camber Coffee', 122), ('water_avenue_coffee', 'Water Avenue Coffee', 123),
+  ('proud_mary_coffee', 'Proud Mary Coffee', 124), ('nossa_familia_coffee', 'Nossa Familia Coffee', 125), ('extracto_coffee', 'Extracto Coffee', 126),
+  ('panther_coffee', 'Panther Coffee', 127), ('lineage_coffee', 'Lineage Coffee', 128), ('methodical_coffee', 'Methodical Coffee', 129),
+  ('brandywine_coffee_roasters', 'Brandywine Coffee Roasters', 130), ('elixr_coffee', 'Elixr Coffee', 131), ('reanimator_coffee', 'ReAnimator Coffee', 132),
+  ('rival_bros_coffee', 'Rival Bros Coffee', 133), ('ultimo_coffee', 'Ultimo Coffee', 134), ('ceremony_coffee_roasters', 'Ceremony Coffee Roasters', 135),
+  ('vigilante_coffee', 'Vigilante Coffee', 136), ('small_planes_coffee', 'Small Planes Coffee', 137), ('swings_coffee', 'Swing''s Coffee', 138),
+  ('compass_coffee', 'Compass Coffee', 139), ('gracenote_coffee', 'Gracenote Coffee', 140), ('broadsheet_coffee', 'Broadsheet Coffee', 141),
+  ('little_wolf_coffee', 'Little Wolf Coffee', 142), ('barismo', 'Barismo', 143), ('tandem_coffee_roasters', 'Tandem Coffee Roasters', 144),
+  ('speckled_ax', 'Speckled Ax', 145), ('coffee_by_design', 'Coffee By Design', 146), ('vivid_coffee', 'Vivid Coffee', 147),
+  ('brio_coffeeworks', 'Brio Coffeeworks', 148), ('new_harvest_coffee', 'New Harvest Coffee', 149), ('bolt_coffee', 'Bolt Coffee', 150),
+  ('giv_coffee', 'Giv Coffee', 151), ('cuvee_coffee', 'Cuvée Coffee', 152), ('greater_goods_coffee', 'Greater Goods Coffee', 153),
+  ('merit_coffee', 'Merit Coffee', 154), ('tweed_coffee_roasters', 'Tweed Coffee Roasters', 155), ('cultivar_coffee', 'Cultivar Coffee', 156),
+  ('spyhouse_coffee', 'Spyhouse Coffee', 157), ('dogwood_coffee', 'Dogwood Coffee', 158), ('peace_coffee', 'Peace Coffee', 159),
+  ('anodyne_coffee', 'Anodyne Coffee', 160), ('kickapoo_coffee', 'Kickapoo Coffee', 161), ('hyperion_coffee', 'Hyperion Coffee', 162),
+  ('populace_coffee', 'Populace Coffee', 163), ('deeper_roots_coffee', 'Deeper Roots Coffee', 164), ('one_line_coffee', 'One Line Coffee', 165),
+  ('crimson_cup', 'Crimson Cup', 166), ('quills_coffee', 'Quills Coffee', 167), ('sunergos_coffee', 'Sunergos Coffee', 168),
+  ('revelator_coffee', 'Revelator Coffee', 169), ('stay_golden', 'Stay Golden', 170), ('crema_coffee_roasters', 'Crema Coffee Roasters', 171),
+  ('barista_parlor', 'Barista Parlor', 172), ('frothy_monkey', 'Frothy Monkey', 173), ('little_waves_coffee', 'Little Waves Coffee', 174),
+  ('hex_coffee', 'HEX Coffee', 175), ('night_swim_coffee', 'Night Swim Coffee', 176), ('perc_coffee', 'PERC Coffee', 177),
+  ('brash_coffee', 'Brash Coffee', 178), ('east_pole_coffee', 'East Pole Coffee', 179), ('publik_coffee', 'Publik Coffee', 180),
+  ('la_barba_coffee', 'La Barba Coffee', 181), ('press_coffee', 'Press Coffee', 182), ('cartel_roasting_co', 'Cartel Roasting Co.', 183),
+  ('ozo_coffee', 'Ozo Coffee', 184), ('dragonfly_coffee_roasters', 'Dragonfly Coffee Roasters', 185), ('mostra_coffee', 'Mostra Coffee', 186),
+  ('dark_horse_coffee_roasters', 'Dark Horse Coffee Roasters', 187), ('james_coffee_co', 'James Coffee Co.', 188), ('big_island_coffee_roasters', 'Big Island Coffee Roasters', 189),
+  ('49th_parallel_coffee', '49th Parallel Coffee', 190), ('parlor_coffee', 'Parlor Coffee', 191), ('cafe_integral', 'Café Integral', 192),
+  ('black_fox_coffee', 'Black Fox Coffee', 193), ('abraco', 'Abraço', 194), ('nobletree_coffee', 'Nobletree Coffee', 195),
+  ('dallis_bros_coffee', 'Dallis Bros. Coffee', 196), ('coffee_project_new_york', 'Coffee Project New York', 197), ('gimme_coffee', 'Gimme! Coffee', 198),
+  ('mud_coffee', 'Mud Coffee', 199), ('white_noise_coffee', 'White Noise Coffee', 200), ('driftaway_coffee', 'Driftaway Coffee', 201),
+  ('trade_coffee', 'Trade Coffee', 202), ('atlas_coffee_club', 'Atlas Coffee Club', 203), ('bean_box', 'Bean Box', 204),
+  ('mistobox', 'MistoBox', 205), ('coffee_bros', 'Coffee Bros.', 206), ('deans_beans', 'Dean''s Beans', 207),
+  ('booskerdoo_coffee', 'Booskerdoo Coffee', 208), ('black_river_roasters', 'Black River Roasters', 209), ('penstock_coffee_roasters', 'Penstock Coffee Roasters', 210),
+  ('boxwood_coffee_roasters', 'Boxwood Coffee Roasters', 211), ('port_coffee_roasters', 'Port Coffee Roasters', 212), ('turnstile_coffee_roasters', 'Turnstile Coffee Roasters', 213),
+  ('royal_mile_coffee_roasters', 'Royal Mile Coffee Roasters', 214), ('one_up_one_down', 'One Up One Down', 215), ('revolution_coffee_roasters', 'Revolution Coffee Roasters', 216),
+  ('endgrain_coffee_roasters', 'Endgrain Coffee Roasters', 217), ('the_coffee_mill_roasters', 'The Coffee Mill Roasters', 218), ('koffeewagon_roasters', 'KoffeeWagon Roasters', 219),
+  ('java_love_coffee_roasting', 'Java Love Coffee Roasting', 220), ('rey_sol_coffee', 'Rey Sol Coffee', 221), ('american_bulldog_coffee_roasters', 'American Bulldog Coffee Roasters', 222),
+  ('bwe_kafe', 'bwè kafe', 223), ('empire_coffee_and_tea', 'Empire Coffee & Tea', 224), ('afficionado_coffee_roasters', 'Afficionado Coffee Roasters', 225),
+  ('fair_mountain_coffee_roasters', 'Fair Mountain Coffee Roasters', 226), ('greene_brothers_specialty_coffee_roasters', 'Greene Brothers Specialty Coffee Roasters', 227), ('moon_doggie_coffee_roasters', 'Moon Doggie Coffee Roasters', 228),
+  ('rojos_roastery', 'Rojo''s Roastery', 229), ('starbucks_pike_place_roast', 'Starbucks Pike Place Roast', 230), ('starbucks_veranda_blend', 'Starbucks Veranda Blend', 231),
+  ('starbucks_house_blend', 'Starbucks House Blend', 232), ('starbucks_breakfast_blend', 'Starbucks Breakfast Blend', 233), ('starbucks_sumatra', 'Starbucks Sumatra', 234),
+  ('starbucks_french_roast', 'Starbucks French Roast', 235), ('starbucks_caffe_verona', 'Starbucks Caffè Verona', 236), ('starbucks_espresso_roast', 'Starbucks Espresso Roast', 237),
+  ('starbucks_blonde_espresso_roast', 'Starbucks Blonde Espresso Roast', 238), ('starbucks_italian_roast', 'Starbucks Italian Roast', 239), ('starbucks_sirens_blend', 'Starbucks Siren''s Blend', 240),
+  ('starbucks_decaf_pike_place_roast', 'Starbucks Decaf Pike Place Roast', 241), ('starbucks_christmas_blend', 'Starbucks Christmas Blend', 242), ('starbucks_via_instant', 'Starbucks VIA Instant', 243),
+  ('dunkin_original_blend', 'Dunkin'' Original Blend', 244), ('dunkin_midnight', 'Dunkin'' Midnight', 245), ('dunkin_french_vanilla', 'Dunkin'' French Vanilla', 246),
+  ('dunkin_hazelnut', 'Dunkin'' Hazelnut', 247), ('dunkin_100_colombian', 'Dunkin'' 100% Colombian', 248), ('dunkin_decaf', 'Dunkin'' Decaf', 249),
+  ('peets_major_dickasons_blend', 'Peet''s Major Dickason''s Blend', 250), ('peets_big_bang', 'Peet''s Big Bang', 251), ('peets_french_roast', 'Peet''s French Roast', 252),
+  ('peets_house_blend', 'Peet''s House Blend', 253), ('peets_cafe_domingo', 'Peet''s Café Domingo', 254), ('peets_luminosa_breakfast_blend', 'Peet''s Luminosa Breakfast Blend', 255),
+  ('peets_espresso_forte', 'Peet''s Espresso Forte', 256), ('peets_decaf_major_dickasons', 'Peet''s Decaf Major Dickason''s', 257), ('folgers_classic_roast', 'Folgers Classic Roast', 258),
+  ('folgers_black_silk', 'Folgers Black Silk', 259), ('folgers_breakfast_blend', 'Folgers Breakfast Blend', 260), ('folgers_100_colombian', 'Folgers 100% Colombian', 261),
+  ('folgers_half_caff', 'Folgers Half Caff', 262), ('maxwell_house_original_roast', 'Maxwell House Original Roast', 263), ('maxwell_house_house_blend', 'Maxwell House House Blend', 264),
+  ('maxwell_house_master_blend', 'Maxwell House Master Blend', 265), ('lavazza_super_crema', 'Lavazza Super Crema', 266), ('lavazza_qualita_rossa', 'Lavazza Qualità Rossa', 267),
+  ('lavazza_qualita_oro', 'Lavazza Qualità Oro', 268), ('lavazza_crema_e_gusto', 'Lavazza Crema e Gusto', 269), ('lavazza_gran_selezione', 'Lavazza Gran Selezione', 270),
+  ('lavazza_espresso_italiano', 'Lavazza Espresso Italiano', 271), ('lavazza_gran_espresso', 'Lavazza Gran Espresso', 272), ('illy_classico', 'Illy Classico', 273),
+  ('illy_intenso', 'Illy Intenso', 274), ('illy_forte', 'Illy Forte', 275), ('illy_decaf', 'Illy Decaf', 276),
+  ('kirkland_signature_house_blend', 'Kirkland Signature House Blend', 277), ('kirkland_signature_colombian_supremo', 'Kirkland Signature Colombian Supremo', 278), ('kirkland_signature_espresso_blend', 'Kirkland Signature Espresso Blend', 279),
+  ('trader_joes_joe_medium_roast', 'Trader Joe''s Joe Medium Roast', 280), ('trader_joes_french_roast', 'Trader Joe''s French Roast', 281), ('trader_joes_colombia_supremo', 'Trader Joe''s Colombia Supremo', 282),
+  ('green_mountain_breakfast_blend', 'Green Mountain Breakfast Blend', 283), ('green_mountain_nantucket_blend', 'Green Mountain Nantucket Blend', 284), ('green_mountain_dark_magic', 'Green Mountain Dark Magic', 285),
+  ('eight_oclock_the_original', 'Eight O''Clock The Original', 286), ('eight_oclock_colombian_peaks', 'Eight O''Clock Colombian Peaks', 287), ('eight_oclock_dark_italian_espresso', 'Eight O''Clock Dark Italian Espresso', 288),
+  ('community_coffee_breakfast_blend', 'Community Coffee Breakfast Blend', 289), ('community_coffee_signature_blend_dark_roast', 'Community Coffee Signature Blend Dark Roast', 290), ('community_coffee_cafe_special', 'Community Coffee Café Special', 291),
+  ('black_rifle_just_black', 'Black Rifle Just Black', 292), ('black_rifle_silencer_smooth', 'Black Rifle Silencer Smooth', 293), ('black_rifle_beyond_black', 'Black Rifle Beyond Black', 294),
+  ('counter_culture_hologram', 'Counter Culture Hologram', 295), ('counter_culture_big_trouble', 'Counter Culture Big Trouble', 296), ('counter_culture_forty_six', 'Counter Culture Forty-Six', 297),
+  ('counter_culture_apollo', 'Counter Culture Apollo', 298), ('counter_culture_fast_forward', 'Counter Culture Fast Forward', 299), ('counter_culture_slow_motion_decaf', 'Counter Culture Slow Motion Decaf', 300),
+  ('intelligentsia_black_cat_espresso', 'Intelligentsia Black Cat Espresso', 301), ('intelligentsia_house_blend', 'Intelligentsia House Blend', 302), ('intelligentsia_el_diablo', 'Intelligentsia El Diablo', 303),
+  ('intelligentsia_frequency', 'Intelligentsia Frequency', 304), ('stumptown_hair_bender', 'Stumptown Hair Bender', 305), ('stumptown_holler_mountain', 'Stumptown Holler Mountain', 306),
+  ('stumptown_house_blend', 'Stumptown House Blend', 307), ('stumptown_french_roast', 'Stumptown French Roast', 308), ('stumptown_trapper_creek_decaf', 'Stumptown Trapper Creek Decaf', 309),
+  ('blue_bottle_bella_donovan', 'Blue Bottle Bella Donovan', 310), ('blue_bottle_giant_steps', 'Blue Bottle Giant Steps', 311), ('blue_bottle_three_africas', 'Blue Bottle Three Africas', 312),
+  ('blue_bottle_hayes_valley_espresso', 'Blue Bottle Hayes Valley Espresso', 313), ('blue_bottle_17ft_ceiling', 'Blue Bottle 17ft Ceiling', 314), ('la_colombe_corsica', 'La Colombe Corsica', 315),
+  ('la_colombe_nizza', 'La Colombe Nizza', 316), ('la_colombe_monaco', 'La Colombe Monaco', 317), ('onyx_southern_weather', 'Onyx Southern Weather', 318),
+  ('onyx_monarch', 'Onyx Monarch', 319), ('onyx_geometry', 'Onyx Geometry', 320), ('onyx_tropical_weather', 'Onyx Tropical Weather', 321),
+  ('verve_streetlevel', 'Verve Streetlevel', 322), ('verve_sermon', 'Verve Sermon', 323), ('partners_brooklyn', 'Partners Brooklyn', 324),
+  ('partners_manhattan', 'Partners Manhattan', 325), ('partners_bedford', 'Partners Bedford', 326), ('partners_flatiron', 'Partners Flatiron', 327),
+  ('cafe_grumpy_heartbreaker', 'Café Grumpy Heartbreaker', 328), ('cafe_grumpy_momentum', 'Café Grumpy Momentum', 329)
+) AS v(code, label, n)
+JOIN brew_profile_field f ON f.code = 'cupboard_coffee'
+ON CONFLICT (field_id, code) DO NOTHING;
+
+-- the brands' rows, with their kind
+INSERT INTO brew_cupboard_brand (field_value_id, brand_kind_id)
+SELECT fv.id, k.id
+FROM (VALUES
+  ('dutch_bros', 'chain'), ('blank_street', 'chain'), ('gregorys_coffee', 'chain'), ('bluestone_lane', 'chain'),
+  ('joe_and_the_juice', 'chain'), ('pret_a_manger', 'chain'), ('panera', 'chain'), ('7_eleven', 'chain'),
+  ('tatte_bakery_and_cafe', 'chain'), ('philz_coffee', 'chain'), ('the_coffee_bean_and_tea_leaf', 'chain'), ('scooters_coffee', 'chain'),
+  ('biggby_coffee', 'chain'), ('krispy_kreme', 'chain'), ('sheetz', 'chain'), ('quickchek', 'chain'),
+  ('cumberland_farms', 'chain'), ('costa_coffee', 'chain'), ('paris_baguette', 'chain'), ('7_brew', 'chain'),
+  ('black_rock_coffee_bar', 'chain'), ('think_coffee', 'chain'), ('for_five_coffee', 'chain'), ('ninth_street_espresso', 'chain'),
+  ('nescafe', 'mass_market'), ('nespresso', 'mass_market'), ('keurig', 'mass_market'), ('cafe_la_llave', 'mass_market'),
+  ('cafe_el_pico', 'mass_market'), ('yuban', 'mass_market'), ('hills_bros', 'mass_market'), ('mjb', 'mass_market'),
+  ('don_franciscos', 'mass_market'), ('new_england_coffee', 'mass_market'), ('camerons_coffee', 'mass_market'), ('kicking_horse_coffee', 'mass_market'),
+  ('newmans_own_organics', 'mass_market'), ('melitta', 'mass_market'), ('medaglia_doro', 'mass_market'), ('kauai_coffee', 'mass_market'),
+  ('lion_coffee', 'mass_market'), ('cafe_du_monde', 'mass_market'), ('french_market', 'mass_market'), ('luzianne', 'mass_market'),
+  ('bones_coffee', 'mass_market'), ('lifeboost', 'mass_market'), ('volcanica_coffee', 'mass_market'), ('koffee_kult', 'mass_market'),
+  ('san_francisco_bay_coffee', 'mass_market'), ('mayorga_coffee', 'mass_market'), ('tullys', 'mass_market'), ('victor_allens', 'mass_market'),
+  ('martinson', 'mass_market'), ('segafredo_zanetti', 'mass_market'), ('kimbo', 'mass_market'), ('cafe_goya', 'mass_market'),
+  ('four_sigmatic', 'mass_market'), ('javy_coffee', 'mass_market'), ('cometeer', 'mass_market'), ('copper_cow_coffee', 'mass_market'),
+  ('chamberlain_coffee', 'mass_market'), ('grounds_and_hounds', 'mass_market'), ('wandering_bear', 'mass_market'), ('stok', 'mass_market'),
+  ('chameleon_cold_brew', 'mass_market'), ('purity_coffee', 'mass_market'), ('mauds_coffee', 'mass_market'), ('great_value', 'mass_market'),
+  ('good_and_gather', 'mass_market'), ('365_by_whole_foods_market', 'mass_market'), ('amazon_fresh_happy_belly', 'mass_market'), ('members_mark', 'mass_market'),
+  ('wellsley_farms', 'mass_market'), ('bowl_and_basket', 'mass_market'), ('wegmans', 'mass_market'), ('stop_and_shop', 'mass_market'),
+  ('private_selection', 'mass_market'), ('publix', 'mass_market'), ('george_howell_coffee', 'specialty'), ('black_and_white_coffee_roasters', 'specialty'),
+  ('heart_coffee_roasters', 'specialty'), ('coava_coffee_roasters', 'specialty'), ('sey_coffee', 'specialty'), ('la_cabra', 'specialty'),
+  ('passenger_coffee', 'specialty'), ('ruby_coffee_roasters', 'specialty'), ('madcap_coffee', 'specialty'), ('metric_coffee', 'specialty'),
+  ('dark_matter_coffee', 'specialty'), ('big_shoulders_coffee', 'specialty'), ('metropolis_coffee', 'specialty'), ('colectivo_coffee', 'specialty'),
+  ('kaldis_coffee', 'specialty'), ('pts_coffee', 'specialty'), ('messenger_coffee', 'specialty'), ('huckleberry_roasters', 'specialty'),
+  ('sweet_bloom_coffee', 'specialty'), ('corvus_coffee', 'specialty'), ('novo_coffee', 'specialty'), ('boxcar_coffee_roasters', 'specialty'),
+  ('cat_and_cloud', 'specialty'), ('temple_coffee_roasters', 'specialty'), ('chromatic_coffee', 'specialty'), ('sightglass_coffee', 'specialty'),
+  ('four_barrel_coffee', 'specialty'), ('andytown_coffee_roasters', 'specialty'), ('linea_caffe', 'specialty'), ('wrecking_ball_coffee', 'specialty'),
+  ('saint_frank_coffee', 'specialty'), ('red_bay_coffee', 'specialty'), ('klatch_coffee', 'specialty'), ('bird_rock_coffee_roasters', 'specialty'),
+  ('go_get_em_tiger', 'specialty'), ('cognoscenti_coffee', 'specialty'), ('portola_coffee', 'specialty'), ('olympia_coffee', 'specialty'),
+  ('victrola_coffee', 'specialty'), ('caffe_vita', 'specialty'), ('caffe_ladro', 'specialty'), ('elm_coffee_roasters', 'specialty'),
+  ('anchorhead_coffee', 'specialty'), ('camber_coffee', 'specialty'), ('water_avenue_coffee', 'specialty'), ('proud_mary_coffee', 'specialty'),
+  ('nossa_familia_coffee', 'specialty'), ('extracto_coffee', 'specialty'), ('panther_coffee', 'specialty'), ('lineage_coffee', 'specialty'),
+  ('methodical_coffee', 'specialty'), ('brandywine_coffee_roasters', 'specialty'), ('elixr_coffee', 'specialty'), ('reanimator_coffee', 'specialty'),
+  ('rival_bros_coffee', 'specialty'), ('ultimo_coffee', 'specialty'), ('ceremony_coffee_roasters', 'specialty'), ('vigilante_coffee', 'specialty'),
+  ('small_planes_coffee', 'specialty'), ('swings_coffee', 'specialty'), ('compass_coffee', 'specialty'), ('gracenote_coffee', 'specialty'),
+  ('broadsheet_coffee', 'specialty'), ('little_wolf_coffee', 'specialty'), ('barismo', 'specialty'), ('tandem_coffee_roasters', 'specialty'),
+  ('speckled_ax', 'specialty'), ('coffee_by_design', 'specialty'), ('vivid_coffee', 'specialty'), ('brio_coffeeworks', 'specialty'),
+  ('new_harvest_coffee', 'specialty'), ('bolt_coffee', 'specialty'), ('giv_coffee', 'specialty'), ('cuvee_coffee', 'specialty'),
+  ('greater_goods_coffee', 'specialty'), ('merit_coffee', 'specialty'), ('tweed_coffee_roasters', 'specialty'), ('cultivar_coffee', 'specialty'),
+  ('spyhouse_coffee', 'specialty'), ('dogwood_coffee', 'specialty'), ('peace_coffee', 'specialty'), ('anodyne_coffee', 'specialty'),
+  ('kickapoo_coffee', 'specialty'), ('hyperion_coffee', 'specialty'), ('populace_coffee', 'specialty'), ('deeper_roots_coffee', 'specialty'),
+  ('one_line_coffee', 'specialty'), ('crimson_cup', 'specialty'), ('quills_coffee', 'specialty'), ('sunergos_coffee', 'specialty'),
+  ('revelator_coffee', 'specialty'), ('stay_golden', 'specialty'), ('crema_coffee_roasters', 'specialty'), ('barista_parlor', 'specialty'),
+  ('frothy_monkey', 'specialty'), ('little_waves_coffee', 'specialty'), ('hex_coffee', 'specialty'), ('night_swim_coffee', 'specialty'),
+  ('perc_coffee', 'specialty'), ('brash_coffee', 'specialty'), ('east_pole_coffee', 'specialty'), ('publik_coffee', 'specialty'),
+  ('la_barba_coffee', 'specialty'), ('press_coffee', 'specialty'), ('cartel_roasting_co', 'specialty'), ('ozo_coffee', 'specialty'),
+  ('dragonfly_coffee_roasters', 'specialty'), ('mostra_coffee', 'specialty'), ('dark_horse_coffee_roasters', 'specialty'), ('james_coffee_co', 'specialty'),
+  ('big_island_coffee_roasters', 'specialty'), ('49th_parallel_coffee', 'specialty'), ('parlor_coffee', 'specialty'), ('cafe_integral', 'specialty'),
+  ('black_fox_coffee', 'specialty'), ('abraco', 'specialty'), ('nobletree_coffee', 'specialty'), ('dallis_bros_coffee', 'specialty'),
+  ('coffee_project_new_york', 'specialty'), ('gimme_coffee', 'specialty'), ('mud_coffee', 'specialty'), ('white_noise_coffee', 'specialty'),
+  ('driftaway_coffee', 'specialty'), ('trade_coffee', 'specialty'), ('atlas_coffee_club', 'specialty'), ('bean_box', 'specialty'),
+  ('mistobox', 'specialty'), ('coffee_bros', 'specialty'), ('deans_beans', 'specialty'), ('booskerdoo_coffee', 'specialty'),
+  ('black_river_roasters', 'specialty'), ('penstock_coffee_roasters', 'specialty'), ('boxwood_coffee_roasters', 'specialty'), ('port_coffee_roasters', 'specialty'),
+  ('turnstile_coffee_roasters', 'specialty'), ('royal_mile_coffee_roasters', 'specialty'), ('one_up_one_down', 'specialty'), ('revolution_coffee_roasters', 'specialty'),
+  ('endgrain_coffee_roasters', 'specialty'), ('the_coffee_mill_roasters', 'specialty'), ('koffeewagon_roasters', 'specialty'), ('java_love_coffee_roasting', 'specialty'),
+  ('rey_sol_coffee', 'specialty'), ('american_bulldog_coffee_roasters', 'specialty'), ('bwe_kafe', 'specialty'), ('empire_coffee_and_tea', 'specialty'),
+  ('afficionado_coffee_roasters', 'specialty'), ('fair_mountain_coffee_roasters', 'specialty'), ('greene_brothers_specialty_coffee_roasters', 'specialty'), ('moon_doggie_coffee_roasters', 'specialty'),
+  ('rojos_roastery', 'specialty')
+) AS v(code, kind)
+JOIN brew_profile_field f ON f.code = 'cupboard_coffee'
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = v.code
+JOIN brew_cupboard_brand_kind k ON k.code = v.kind
+ON CONFLICT (field_value_id) DO NOTHING;
+
+-- the products' rows: the parent's kind and parent_brand_id (no product under a partner roastery, G4.5)
+INSERT INTO brew_cupboard_brand (field_value_id, brand_kind_id, parent_brand_id)
+SELECT fv.id, pb.brand_kind_id, pb.id
+FROM (VALUES
+  ('starbucks_pike_place_roast', 'starbucks'), ('starbucks_veranda_blend', 'starbucks'), ('starbucks_house_blend', 'starbucks'),
+  ('starbucks_breakfast_blend', 'starbucks'), ('starbucks_sumatra', 'starbucks'), ('starbucks_french_roast', 'starbucks'),
+  ('starbucks_caffe_verona', 'starbucks'), ('starbucks_espresso_roast', 'starbucks'), ('starbucks_blonde_espresso_roast', 'starbucks'),
+  ('starbucks_italian_roast', 'starbucks'), ('starbucks_sirens_blend', 'starbucks'), ('starbucks_decaf_pike_place_roast', 'starbucks'),
+  ('starbucks_christmas_blend', 'starbucks'), ('starbucks_via_instant', 'starbucks'), ('dunkin_original_blend', 'dunkin'),
+  ('dunkin_midnight', 'dunkin'), ('dunkin_french_vanilla', 'dunkin'), ('dunkin_hazelnut', 'dunkin'),
+  ('dunkin_100_colombian', 'dunkin'), ('dunkin_decaf', 'dunkin'), ('peets_major_dickasons_blend', 'peets'),
+  ('peets_big_bang', 'peets'), ('peets_french_roast', 'peets'), ('peets_house_blend', 'peets'),
+  ('peets_cafe_domingo', 'peets'), ('peets_luminosa_breakfast_blend', 'peets'), ('peets_espresso_forte', 'peets'),
+  ('peets_decaf_major_dickasons', 'peets'), ('folgers_classic_roast', 'folgers'), ('folgers_black_silk', 'folgers'),
+  ('folgers_breakfast_blend', 'folgers'), ('folgers_100_colombian', 'folgers'), ('folgers_half_caff', 'folgers'),
+  ('maxwell_house_original_roast', 'maxwell_house'), ('maxwell_house_house_blend', 'maxwell_house'), ('maxwell_house_master_blend', 'maxwell_house'),
+  ('lavazza_super_crema', 'lavazza'), ('lavazza_qualita_rossa', 'lavazza'), ('lavazza_qualita_oro', 'lavazza'),
+  ('lavazza_crema_e_gusto', 'lavazza'), ('lavazza_gran_selezione', 'lavazza'), ('lavazza_espresso_italiano', 'lavazza'),
+  ('lavazza_gran_espresso', 'lavazza'), ('illy_classico', 'illy'), ('illy_intenso', 'illy'),
+  ('illy_forte', 'illy'), ('illy_decaf', 'illy'), ('kirkland_signature_house_blend', 'kirkland'),
+  ('kirkland_signature_colombian_supremo', 'kirkland'), ('kirkland_signature_espresso_blend', 'kirkland'), ('trader_joes_joe_medium_roast', 'trader_joes'),
+  ('trader_joes_french_roast', 'trader_joes'), ('trader_joes_colombia_supremo', 'trader_joes'), ('green_mountain_breakfast_blend', 'green_mountain'),
+  ('green_mountain_nantucket_blend', 'green_mountain'), ('green_mountain_dark_magic', 'green_mountain'), ('eight_oclock_the_original', 'eight_oclock'),
+  ('eight_oclock_colombian_peaks', 'eight_oclock'), ('eight_oclock_dark_italian_espresso', 'eight_oclock'), ('community_coffee_breakfast_blend', 'community'),
+  ('community_coffee_signature_blend_dark_roast', 'community'), ('community_coffee_cafe_special', 'community'), ('black_rifle_just_black', 'black_rifle'),
+  ('black_rifle_silencer_smooth', 'black_rifle'), ('black_rifle_beyond_black', 'black_rifle'), ('counter_culture_hologram', 'counter_culture'),
+  ('counter_culture_big_trouble', 'counter_culture'), ('counter_culture_forty_six', 'counter_culture'), ('counter_culture_apollo', 'counter_culture'),
+  ('counter_culture_fast_forward', 'counter_culture'), ('counter_culture_slow_motion_decaf', 'counter_culture'), ('intelligentsia_black_cat_espresso', 'intelligentsia'),
+  ('intelligentsia_house_blend', 'intelligentsia'), ('intelligentsia_el_diablo', 'intelligentsia'), ('intelligentsia_frequency', 'intelligentsia'),
+  ('stumptown_hair_bender', 'stumptown'), ('stumptown_holler_mountain', 'stumptown'), ('stumptown_house_blend', 'stumptown'),
+  ('stumptown_french_roast', 'stumptown'), ('stumptown_trapper_creek_decaf', 'stumptown'), ('blue_bottle_bella_donovan', 'blue_bottle'),
+  ('blue_bottle_giant_steps', 'blue_bottle'), ('blue_bottle_three_africas', 'blue_bottle'), ('blue_bottle_hayes_valley_espresso', 'blue_bottle'),
+  ('blue_bottle_17ft_ceiling', 'blue_bottle'), ('la_colombe_corsica', 'la_colombe'), ('la_colombe_nizza', 'la_colombe'),
+  ('la_colombe_monaco', 'la_colombe'), ('onyx_southern_weather', 'onyx'), ('onyx_monarch', 'onyx'),
+  ('onyx_geometry', 'onyx'), ('onyx_tropical_weather', 'onyx'), ('verve_streetlevel', 'verve'),
+  ('verve_sermon', 'verve'), ('partners_brooklyn', 'partners'), ('partners_manhattan', 'partners'),
+  ('partners_bedford', 'partners'), ('partners_flatiron', 'partners'), ('cafe_grumpy_heartbreaker', 'cafe_grumpy'),
+  ('cafe_grumpy_momentum', 'cafe_grumpy')
+) AS v(code, parent_code)
+JOIN brew_profile_field f ON f.code = 'cupboard_coffee'
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = v.code
+JOIN brew_profile_field_value pv ON pv.field_id = f.id AND pv.code = v.parent_code
+JOIN brew_cupboard_brand pb ON pb.field_value_id = pv.id AND pb.parent_brand_id IS NULL
+ON CONFLICT (field_value_id) DO NOTHING;
+
+-- the aliases, lower-cased (the CSV's "shoprite" on bowl_and_basket is not seeded: Dana, decision 1)
+INSERT INTO brew_cupboard_brand_alias (brand_id, alias)
+SELECT b.id, v.alias
+FROM (VALUES
+  ('dutch_bros', 'dutch brothers'), ('gregorys_coffee', 'gregorys'), ('pret_a_manger', 'pret'), ('7_eleven', '7 eleven'),
+  ('7_eleven', 'seven eleven'), ('tatte_bakery_and_cafe', 'tatte'), ('the_coffee_bean_and_tea_leaf', 'coffee bean'), ('nescafe', 'nescafe'),
+  ('keurig', 'k cups'), ('cafe_du_monde', 'cafe du monde'), ('cafe_du_monde', 'cdm'), ('san_francisco_bay_coffee', 'sf bay'),
+  ('365_by_whole_foods_market', 'whole foods'), ('amazon_fresh_happy_belly', 'amazon'), ('go_get_em_tiger', 'gget'), ('trade_coffee', 'trade')
+) AS v(code, alias)
+JOIN brew_profile_field f ON f.code = 'cupboard_coffee'
+JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = v.code
+JOIN brew_cupboard_brand b ON b.field_value_id = fv.id
+ON CONFLICT (brand_id, alias) DO NOTHING;
+-- ── END USUAL DRINK 4 rows (its view changes are v_brew_profile_field_current and v_customer_cupboard_coffee below) ──
+
 -- ── A5. views ──────────────────────────────────────────────────────────────
 -- The field list: one row per field x allowed value (a field with no value
 -- rows, aversions, once with NULL value columns). Inactive rows included; the
@@ -12642,13 +12904,18 @@ SELECT f.id AS field_id, f.code AS field_code, f.label AS field_label, f.prompt,
                  JOIN brew_cupboard_brand_alias a ON a.brand_id = b.id WHERE b.field_value_id = fv.id), ARRAY[]::text[]) AS aliases,
        fv.is_active AS value_is_active,
        g.code AS group_code, g.label AS group_label, g.sort_order AS group_sort_order,
-       sf.code AS values_from_field_code, f.is_on_card, fv.is_exclusive
+       sf.code AS values_from_field_code, f.is_on_card, fv.is_exclusive,
+       pfv.code AS parent_value_code
 FROM brew_profile_field f
 JOIN brew_profile_value_kind k ON k.id = f.value_kind_id
 JOIN brew_profile_picker p ON p.id = f.picker_id
 LEFT JOIN brew_profile_group g ON g.id = f.group_id
 LEFT JOIN brew_profile_field sf ON sf.id = f.values_from_field_id
-LEFT JOIN brew_profile_field_value fv ON fv.field_id = COALESCE(f.values_from_field_id, f.id);
+LEFT JOIN brew_profile_field_value fv ON fv.field_id = COALESCE(f.values_from_field_id, f.id)
+-- Usual Drink 4 (B1): a kitchen product's brand, by parent_brand_id (NULL for every other value)
+LEFT JOIN brew_cupboard_brand vcb ON vcb.field_value_id = fv.id
+LEFT JOIN brew_cupboard_brand pcb ON pcb.id = vcb.parent_brand_id
+LEFT JOIN brew_profile_field_value pfv ON pfv.id = pcb.field_value_id;
 
 -- Per canonical customer: the latest non-declined row of a field (source,
 -- quiz session) and the latest row carrying the customer's own words.
@@ -12686,6 +12953,12 @@ DROP VIEW IF EXISTS v_customer_cupboard_coffee CASCADE;
 -- values_from link) while it is still among the kitchen answers, else the only
 -- kitchen answer; several with no main give no row. Words: the latest set row,
 -- or an add that carries words (as v_customer_brew_profile_words).
+-- Usual Drink 4 (C3, Dana 2026-11-26): when that coffee is the words value
+-- ("Something else") and the customer's words, lower-cased and trimmed, equal
+-- the label of exactly one active brand, the row is that brand; when no label
+-- matches, an alias of exactly one active brand does the same. The stored row is
+-- never changed (G2.20) and customer_words is still returned. brand_code is the
+-- entry's brand: a product's parent, else the entry itself (/map's kitchen line).
 CREATE VIEW v_customer_cupboard_coffee AS
 WITH k AS (
   SELECT b.canonical_user_id, b.field, b.captured_at, b.source,
@@ -12705,26 +12978,53 @@ WITH k AS (
     ORDER BY mf.sort_order LIMIT 1
   ) m ON true
 )
-SELECT p.canonical_user_id, fv.id AS field_value_id, fv.code, fv.label,
+, stored AS (
+  SELECT p.canonical_user_id, p.field, p.captured_at, p.source, f.id AS field_id, fv.id AS stored_id, fv.accepts_words,
+         CASE WHEN fv.accepts_words THEN w.customer_words END AS customer_words
+  FROM pick p
+  JOIN brew_profile_field f ON f.code = p.field
+  JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = p.code
+  LEFT JOIN LATERAL (
+    SELECT c.customer_words FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
+    WHERE vi.canonical_user_id = p.canonical_user_id AND c.field = p.field
+      AND (c.op = 'set' OR (c.op = 'add' AND c.customer_words IS NOT NULL))
+    ORDER BY c.occurred_at DESC LIMIT 1
+  ) w ON true
+), resolved AS (
+  SELECT s.*,
+         CASE WHEN lab.n = 1 THEN lab.id WHEN lab.n = 0 AND al.n = 1 THEN al.id ELSE s.stored_id END AS entry_id
+  FROM stored s
+  LEFT JOIN LATERAL (
+    SELECT count(*)::int AS n, min(x.id) AS id
+    FROM brew_profile_field_value x JOIN brew_cupboard_brand xb ON xb.field_value_id = x.id
+    WHERE s.customer_words IS NOT NULL AND x.field_id = s.field_id AND x.is_active AND NOT x.accepts_words
+      AND lower(trim(x.label)) = lower(trim(s.customer_words))
+  ) lab ON true
+  LEFT JOIN LATERAL (
+    SELECT count(DISTINCT x.id)::int AS n, min(x.id) AS id
+    FROM brew_cupboard_brand_alias a
+    JOIN brew_cupboard_brand xb ON xb.id = a.brand_id
+    JOIN brew_profile_field_value x ON x.id = xb.field_value_id
+    WHERE s.customer_words IS NOT NULL AND x.field_id = s.field_id AND x.is_active AND NOT x.accepts_words
+      AND a.alias = lower(trim(s.customer_words))
+  ) al ON true
+)
+SELECT r.canonical_user_id, fv.id AS field_value_id, fv.code, fv.label,
        bk.code AS brand_kind, cb.roaster_id,
-       CASE WHEN fv.accepts_words THEN w.customer_words END AS customer_words,
-       p.captured_at, p.source, l.quiz_session_id
-FROM pick p
-JOIN brew_profile_field f ON f.code = p.field
-JOIN brew_profile_field_value fv ON fv.field_id = f.id AND fv.code = p.code
+       r.customer_words,
+       r.captured_at, r.source, l.quiz_session_id,
+       COALESCE(pfv.code, fv.code) AS brand_code
+FROM resolved r
+JOIN brew_profile_field_value fv ON fv.id = r.entry_id
 JOIN brew_cupboard_brand cb ON cb.field_value_id = fv.id
 JOIN brew_cupboard_brand_kind bk ON bk.id = cb.brand_kind_id
+LEFT JOIN brew_cupboard_brand pcb ON pcb.id = cb.parent_brand_id
+LEFT JOIN brew_profile_field_value pfv ON pfv.id = pcb.field_value_id
 LEFT JOIN LATERAL (
   SELECT c.quiz_session_id FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
-  WHERE vi.canonical_user_id = p.canonical_user_id AND c.field = p.field AND c.op <> 'declined'
+  WHERE vi.canonical_user_id = r.canonical_user_id AND c.field = r.field AND c.op <> 'declined'
   ORDER BY c.occurred_at DESC LIMIT 1
-) l ON true
-LEFT JOIN LATERAL (
-  SELECT c.customer_words FROM customer_brew_profile_change c JOIN v_customer_identity vi ON vi.user_id = c.user_id
-  WHERE vi.canonical_user_id = p.canonical_user_id AND c.field = p.field
-    AND (c.op = 'set' OR (c.op = 'add' AND c.customer_words IS NOT NULL))
-  ORDER BY c.occurred_at DESC LIMIT 1
-) w ON true;
+) l ON true;
 
 DROP VIEW IF EXISTS v_customer_coffee_feeling CASCADE;
 CREATE VIEW v_customer_coffee_feeling AS
