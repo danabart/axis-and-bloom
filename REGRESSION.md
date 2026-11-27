@@ -490,3 +490,15 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **A held-back dimension is not drawn:** Mouthfeel is held for both map roasters; "Show on /map" on the admin Calibration table (Roastery Feedback → a roastery → Calibration) brings it back on the next read, "Hide on /map" removes it; each asks for a reason; the roaster's answers never change.
 - [ ] **The button shows** for a coffee with a description, the roaster's ratings, or notes with a where-it-shines answer (all 18 map coffees today).
 - [ ] **The Bloom page's panel is unchanged:** "Reveal the full profile" shows "In the roaster's words", the brew tag, "Cupping profile" (A&B's 0 to 15 bars) and "See the notes wheel" exactly as before; it never reads `/roaster-profile`.
+
+## Ella's Bloom Map 14: what moves your spot, and walking the map (2026-11-27)
+
+- [ ] **The cart never moves the spot:** on `/map` the price chip adds one bag; the map, the top card and the trail do not change, and no row is written to `customer_match_decision`.
+- [ ] **Looking at a coffee writes nothing:** tapping a coffee's dot or a step card's name opens `/map?at=<id>` with "Looking at", the coffee's compare line and "Back to your spot: {coffee}"; the spot stays ringed; refresh keeps it, back returns; no row in any table.
+- [ ] **A first order is trail only:** "Ordered" on the trail; the spot stays.
+- [ ] **A reorder moves the spot:** the same coffee in a second separate order (manual or Liam-followed; renewals and gifts do not count; two bags in one order are one order).
+- [ ] **Positive feedback moves the spot** unless the spot's coffee has a higher rating; an unrated spot gives way; equal ratings move. Negative feedback never moves it, and that coffee is never the lead.
+- [ ] **A quiz retake** moves the spot only while it is still the Founder's pick.
+- [ ] **The rules are rows:** "What moves a spot" on `/admin/map` (effect, switch) and its numbers (`dial_spot_*`, `feedback_*`) change the spot on the next read.
+- [ ] **While looking at another coffee** the customer's own spot is a normal card and never the lead (`dial_spot_not_lead_when_looking`).
+- [ ] **Positive and negative** come from `feedback_positive_min_rating` / `feedback_negative_max_rating` everywhere (`v_customer_feedback_current`, `v_customer_timeline`, `getFeedbackCurrent`).

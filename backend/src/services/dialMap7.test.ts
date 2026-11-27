@@ -183,7 +183,10 @@ describe('the closed side (D)', () => {
 });
 
 describe('the page reads (D)', () => {
-  it('steps returns the published steps leaving the position and no calculated move; a step choice moves the dot; the trail names the step', async () => {
+  // Ella map 14 (2026-11-27): a step decision is still recorded through the door, and no longer moves the
+  // spot; looking at the coffee (at) composes its steps; positive feedback on it moves the spot (the
+  // spot's coffee is unrated); the trail is the spot's history.
+  it('steps returns the published steps leaving the position and no calculated move; a step choice is recorded and moves nothing; the trail is the spot history', async () => {
     await withRollback(async ({ client: c, savepoint }) => {
       await ensureStartRules(c);
       const p = await person(c, { primary: 'Balanced', scores: { Balanced: 9 } });
@@ -195,7 +198,7 @@ describe('the page reads (D)', () => {
       // Ella map 8: a step is named by the map's name (short name, else the coffee's name)
       const published = (await c.query(`SELECT a.map_name AS to_coffee_name, s.button_word FROM v_dial_step s JOIN v_dial_coffee_availability a ON a.coffee_id = s.to_coffee_id WHERE s.on_active_map AND s.from_coffee_id = $1`, [before.position!.coffeeId])).rows;
       expect(before.steps.map(s => s.name).sort()).toEqual(published.map(x => x.to_coffee_name).sort());
-      expect(Object.keys(before)).toEqual(['position', 'firstBag', 'steps', 'copy']);
+      expect(Object.keys(before)).toEqual(['position', 'firstBag', 'steps', 'copy', 'spot', 'lookingAt', 'startCoffeeId']); // Ella map 14: spot, lookingAt, startCoffeeId
       for (const s of before.steps) expect(Object.keys(s).sort()).toEqual(['coffeeId', 'familyLabel', 'isLead', 'line', 'name', 'notes', 'price', 'stepId', 'text', 'word']); // Ella map 8: familyLabel; Ella map 9: isLead, text
       // a coffee that is not a step is refused
       const notAStep = (await c.query<{ coffee_id: number }>(
@@ -208,20 +211,26 @@ describe('the page reads (D)', () => {
       const d = await match.decide({ userId: p.userId, trigger: 'hop', move: 'step', pickedCoffeeId: bolder.coffeeId, source: 'map', sourceId: randomUUID() }, c);
       expect(d.pickedCoffeeId).toBe(bolder.coffeeId);
       const after = await match.steps(p.userId, c);
-      expect(after.position?.coffeeId).toBe(bolder.coffeeId);
-      expect(after.position?.hasBag).toBe(true);
-      // Ella map 10: after a step the top card is "You are here" with its reason (it was absent before)
-      expect(after.firstBag?.labelCode).toBe('here_title');
+      expect(after.position?.coffeeId).toBe(before.position!.coffeeId);
+      expect(after.position?.hasBag).toBe(false);
+      expect(after.firstBag?.labelCode).toBe(before.firstBag?.labelCode);
+      // looking at it: its own steps, "Looking at"
+      const look = await match.steps(p.userId, c, { at: bolder.coffeeId });
+      expect(look.firstBag?.labelCode).toBe('looking_at_title');
       const next = (await c.query(`SELECT a.map_name AS to_coffee_name FROM v_dial_step s JOIN v_dial_coffee_availability a ON a.coffee_id = s.to_coffee_id WHERE s.on_active_map AND s.from_coffee_id = $1`, [bolder.coffeeId])).rows.map(x => x.to_coffee_name).sort();
-      expect(after.steps.map(s => s.name).sort()).toEqual(next);
-      // the trail: two choices in order, the second with the step's word, and the customer's own line
+      expect(look.steps.map(s => s.name).sort()).toEqual(next);
+      // positive feedback on it moves the spot (the spot's coffee is unrated); the trail: the Founder's pick, then the customer's words
       await c.query(
-        `INSERT INTO customer_feedback_event (user_id, source, source_id, coffee_id, rating, raw_text, channel) VALUES ($1, 'vitest', $2, $3, 4, 'Lovely with milk.', 'onsite')`,
+        `INSERT INTO customer_feedback_event (user_id, occurred_at, recorded_at, source, source_id, coffee_id, rating, raw_text, channel)
+         VALUES ($1, clock_timestamp(), clock_timestamp(), 'vitest', $2, $3, 4, 'Lovely with milk.', 'onsite')`,
         [p.userId, randomUUID(), bolder.coffeeId]);
       const me = await match.me(p.userId, c);
-      expect(me.trail.map(t => [t.name, t.moveWord])).toEqual([[before.position!.name, me.copy.trail_start], [bolder.name, 'Bolder']]);
+      expect(me.trail.map(t => [t.name, t.moveWord])).toEqual([[before.position!.name, "Founder's pick"], [bolder.name, 'You said']]);
       expect(me.trail[1].line).toBe('Lovely with milk.');
+      expect(me.trail[1].moved).toBe(true);
+      expect(me.position?.coffeeId).toBe(bolder.coffeeId);
       expect(me.firstBag).toBeNull();
+      expect((await match.steps(p.userId, c)).firstBag?.labelCode).toBe('here_title');
     });
   });
 });

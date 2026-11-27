@@ -7243,3 +7243,48 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
   - The view also gains `brand_code`. `/map`'s kitchen line reads it, so a product says its brand's line (Dana).
 - **Integrity:** the `cupboard_coffee` seed count goes from 59 to 388. New informational check 34: a product whose brand is retired or is itself a product.
 - **Production (2026-11-26):** `1ae3022`, revision 00905. The boot log is clean, with 11 fields. The kitchen values went from 59 to 388 and checks 25, 26 and 34 pass. The smoke as the test user passed: a product saved, then the kitchen was put back. `CATALOG.md` was regenerated.
+
+### 290. Ella's Bloom Map 14: what moves your spot, and walking the map (2026-11-27)
+
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_14_SPOT_AND_WALK.md` · design `DESIGN_MAP_POSITION_2026-11-26.md` · `CLOSING_REPORT_14.md`. Built on the test DB 2026-11-27; not pushed (STOP before the push).
+
+- **The spot moves on evidence only.**
+  - The events and their effects are rows: `dial_spot_event` (code, label, effect, trail word, order, switch; supersede and insert) and the lookup `dial_spot_effect` (sets_spot, moves_spot, trail_only, nothing).
+  - `/admin/map` edits them in section 6, "What moves a spot".
+  - Writer: `dialPlacementService.setSpotEventInTx`; read through `v_dial_spot_event`.
+- **The numbers are parameters** (`evidence_parameter`):
+  - `feedback_positive_min_rating` 4 and `feedback_negative_max_rating` 2;
+  - `dial_spot_reorder_count` 2;
+  - `dial_spot_skip_disliked_lead` 1;
+  - `dial_spot_not_lead_when_looking` 1 (Dana 2026-11-27, W1).
+- **Which orders count:** `customer_order_kind.counts_toward_reorder`. Manual and Liam-followed count; renewals and gift redemptions do not.
+- **The fold** is in `v_customer_spot_event`:
+  - It lists every customer's events in time order: decisions, the real orders per (drinker, order, coffee), and the current feedback.
+  - It folds them with a `WITH RECURSIVE`.
+  - `v_customer_match_current` keeps its name and readers, and is now the fold's last row with a spot, plus `spot_event_code` and `spot_since`.
+  - A step, a hop, "same again", Liam's pick and an email button move nothing. No quiz result means no spot.
+- **One definition of positive and negative:**
+  - `v_customer_feedback_current` and `v_customer_timeline` read the two rating parameters.
+  - `getFeedbackCurrent` filters on the view's `sentiment`. It also takes a profile id (G3.9).
+- **`/map`:**
+  - The price chip only adds the bag.
+  - A coffee's dot, or a step card's name, looks at that coffee (`?at=`). Nothing is saved; refresh and back work.
+  - The spot stays ringed (`EllaMapFace` props `lookingAtCoffeeId`, `startCoffeeId`).
+  - The top card reads "Founder's pick", "Your spot" (`here_title`'s new text) or "Looking at" (new `looking_at_title`).
+  - "Back to your spot: {coffee}" (new `back_to_spot`).
+  - While looking, the spot is a normal card, never the lead. A coffee rated at or below the negative limit is never the lead.
+  - `hasBag` is a real order. The closing line is the new text.
+- **The trail** (`me`, `MapTrail`) is the spot's history:
+  - Founder's pick, "Ordered", "You said" with the customer's words, and "Your spot moved here." (new `trail_moved`).
+  - `getMatchTrailLines` is removed.
+- **"Read it as"** shows the spot, its basis and since when, and the events with what each did.
+- **Integrity:**
+  - New check 17: every spot event is known, and the rating limits are set and apart.
+  - Check 11 now counts every spot off the active map.
+  - Checks 9 and 10 gain the new copy codes and keys.
+- **Seed:** `backend/src/scripts/ellaMapSpot_2026_11_26.ts` changes the text of `here_title` and `closing_line` through `setCustomerCopyInTx`, only while each still has its old text. The schema seeds the rows, parameters and new copy (insert if missing).
+- **Tests:**
+  - New `dialMap14.test.ts`: the 14 pinned cases plus the brief's other rules.
+  - `dialMap7`, `9`, `10` and `12` are updated: a step no longer moves the spot.
+  - Frontend `mapWalk.test.tsx`.
+- **After deploy:** run the seed with `--apply` on production, then `catalog:md` against prod, and commit CATALOG.md.

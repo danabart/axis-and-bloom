@@ -523,6 +523,65 @@ export async function setReasonChoiceInTx(tx: Tx, input: SetReasonChoiceInput): 
 }
 export const setReasonChoice = (input: SetReasonChoiceInput) => withTransaction(tx => setReasonChoiceInTx(tx, input));
 
+// ── Ella's Bloom Map 14 (2026-11-27), B: what moves a spot ───────────────────
+
+export interface SetSpotEventInput {
+  code: string;
+  /** the admin label; required for a new row, undefined keeps the current one */
+  label?: string;
+  /** a dial_spot_effect code; required for a new row, undefined keeps the current one */
+  effectCode?: string;
+  /** the word on the customer's trail; undefined keeps the current one, null clears it */
+  trailWord?: string | null;
+  /** undefined keeps the current order (a new row goes last) */
+  sortOrder?: number;
+  /** undefined keeps the current switch (a new row is on) */
+  isActive?: boolean;
+  adminUid?: string | null;
+}
+export interface SetSpotEventResult { id: number; unchanged: boolean; supersededId: number | null }
+
+/**
+ * The one writer of dial_spot_event: set an event's effect, trail word, order
+ * or switch, or enter a new one. Supersede and insert (one current row per
+ * code), a no-op when nothing changes; never deletes (G2.11). The code is not
+ * checked against what the views produce: an unknown code has no effect and is
+ * reported by data-catalog check 17.
+ */
+export async function setSpotEventInTx(tx: Tx, input: SetSpotEventInput): Promise<SetSpotEventResult> {
+  const code = String(input.code ?? '').trim();
+  if (!code) throw invalid('code is required');
+  const cur = (await tx.query<{ id: number; label: string; effect_id: number; trail_word: string | null; sort_order: number; is_active: boolean }>(
+    `SELECT id, label, effect_id, trail_word, sort_order, is_active FROM dial_spot_event WHERE code = $1 AND superseded_at IS NULL FOR UPDATE`,
+    [code])).rows[0];
+  const label = input.label !== undefined ? String(input.label).trim() : cur?.label ?? '';
+  if (!label) throw invalid('label is required');
+  let effectId = cur?.effect_id;
+  if (input.effectCode !== undefined) {
+    const e = (await tx.query<{ id: number }>(`SELECT id FROM dial_spot_effect WHERE code = $1`, [input.effectCode])).rows[0];
+    if (!e) throw invalid(`unknown spot effect ${input.effectCode}`);
+    effectId = e.id;
+  }
+  if (effectId === undefined) throw invalid('effectCode is required for a new event');
+  const trailWord = input.trailWord === undefined ? cur?.trail_word ?? null : input.trailWord === null ? null : String(input.trailWord).trim() || null;
+  let sortOrder = input.sortOrder ?? cur?.sort_order;
+  if (sortOrder === undefined) {
+    sortOrder = Number((await tx.query<{ n: number }>(`SELECT COALESCE(max(sort_order), 0) + 1 AS n FROM v_dial_spot_event WHERE is_current`)).rows[0].n);
+  }
+  if (!Number.isInteger(sortOrder) || sortOrder < 0) throw invalid('sortOrder must be a whole number, 0 or more');
+  const isActive = input.isActive ?? cur?.is_active ?? true;
+  if (cur && cur.label === label && cur.effect_id === effectId && cur.trail_word === trailWord && cur.sort_order === sortOrder && cur.is_active === isActive) {
+    return { id: cur.id, unchanged: true, supersededId: null };
+  }
+  if (cur) await tx.query(`UPDATE dial_spot_event SET superseded_at = clock_timestamp() WHERE id = $1`, [cur.id]);
+  const ins = await tx.query<{ id: number }>(
+    `INSERT INTO dial_spot_event (code, label, effect_id, trail_word, sort_order, is_active, decided_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [code, label, effectId, trailWord, sortOrder, isActive, input.adminUid ?? null]);
+  console.info('[ella-map] setSpotEvent', { code, effectId, sortOrder, isActive, id: ins.rows[0].id, actor: input.adminUid ?? null });
+  return { id: ins.rows[0].id, unchanged: false, supersededId: cur?.id ?? null };
+}
+export const setSpotEvent = (input: SetSpotEventInput) => withTransaction(tx => setSpotEventInTx(tx, input));
+
 export interface PublishInput { label: string; reason?: string | null; adminUid?: string | null }
 
 /**

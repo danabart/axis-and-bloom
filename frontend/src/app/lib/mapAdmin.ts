@@ -210,6 +210,15 @@ export interface ReasonChoice {
 export const getReasonChoices = (f: ApiFetch) => call<ReasonChoice[]>(f, `${B}/reason-choices`);
 export const setReasonChoice = (f: ApiFetch, body: { kind: string; code: string; sortOrder?: number; isActive?: boolean }) =>
   call<{ id: number; unchanged: boolean }>(f, `${B}/reason-choices`, json('PUT', body));
+// Ella's Bloom Map 14 (2026-11-27): what moves a spot
+export interface SpotEventConfig {
+  id: number; code: string; label: string; effect_code: string; effect_label: string; effect_order: number;
+  trail_word: string | null; sort_order: number; is_active: boolean; decided_by: string | null; created_at: string; superseded_at: string | null; is_current: boolean;
+}
+export const getSpotEvents = (f: ApiFetch) =>
+  call<{ events: SpotEventConfig[]; effects: Array<{ code: string; label: string; sort_order: number }> }>(f, `${B}/spot-events`);
+export const setSpotEvent = (f: ApiFetch, body: { code: string; effect?: string; trailWord?: string | null; sortOrder?: number; isActive?: boolean }) =>
+  call<{ id: number; unchanged: boolean }>(f, `${B}/spot-events`, json('PUT', body));
 /** PATCH /api/admin/catalog/coffees/:id (catalogService.updateCoffee): only mapLine is sent. */
 export const setMapLine = (f: ApiFetch, coffeeId: number, mapLine: string | null) =>
   call<unknown>(f, `/api/admin/catalog/coffees/${coffeeId}`, json('PATCH', { mapLine }));

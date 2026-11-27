@@ -64,6 +64,14 @@ export interface EllaMapFaceProps {
    * name (not even a tooltip). Off by default: the admin face is unchanged.
    */
   quietOthers?: boolean;
+  /**
+   * Ella map 14: the coffee the customer is looking at (/map?at=), drawn with a
+   * lighter ring; the arrows then leave it. highlightCoffeeId stays the
+   * customer's own spot, always ringed. Null = on the spot.
+   */
+  lookingAtCoffeeId?: number | null;
+  /** Ella map 14: the Founder's pick once the spot has moved off it, drawn with a small ring. */
+  startCoffeeId?: number | null;
 }
 
 const PAPER = 'rgb(242, 241, 234)'; // BloomDial's beige (fillEngine BEIGE)
@@ -77,7 +85,7 @@ const ARROW = '#2f6f68'; // Ella map 7: the customer's steps (chrome)
 // where the family names are drawn (and where the customer face's coffee names keep clear of them)
 const FAMILY_FONT = 26, FAMILY_OFFSET = 52, CENTER_FONT = 22, CENTER_OFFSET = 26;
 
-export default function EllaMapFace({ placements, wedges, seams = [], highlightCoffeeId = null, hops = [], path = [], size, labelMode, onTapCoffee, steps = [], dotStyle = 'sellable', arrowsTo = [], quietOthers = false }: EllaMapFaceProps) {
+export default function EllaMapFace({ placements, wedges, seams = [], highlightCoffeeId = null, hops = [], path = [], size, labelMode, onTapCoffee, steps = [], dotStyle = 'sellable', arrowsTo = [], quietOthers = false, lookingAtCoffeeId = null, startCoffeeId = null }: EllaMapFaceProps) {
   const markerId = `ella-arrow-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const arrowSet = new Set(arrowsTo);
   const g = faceGeometry(VIEW);
@@ -89,14 +97,17 @@ export default function EllaMapFace({ placements, wedges, seams = [], highlightC
   const byArchetype = Object.fromEntries(wedges.map(w => [w.archetype_code, w]));
   const center = wedges.find(w => w.is_center);
   const outerWedges = wedges.filter(w => !w.is_center);
-  const from = highlightCoffeeId !== null ? dotById.get(highlightCoffeeId) : undefined;
+  // Ella map 14: the arrows leave the coffee looked at, else the spot
+  const fromId = lookingAtCoffeeId ?? highlightCoffeeId;
+  const from = fromId !== null ? dotById.get(fromId) : undefined;
+  const isNamed = (id: number) => id === highlightCoffeeId || id === lookingAtCoffeeId || id === startCoffeeId || arrowSet.has(id);
   // Ella map 7: on the customer face only a few coffees are named, so each name
   // takes the first spot beside its dot that overlaps no other name or named dot.
   const QUIET_FONT = 22;
   const quietLabels = new Map<number, { x: number; y: number; anchor: 'start' | 'end' | 'middle'; text: string }>();
   if (quietOthers) {
     type Box = { x0: number; x1: number; y0: number; y1: number };
-    const named = dots.filter(d => d.coffee_id === highlightCoffeeId || arrowSet.has(d.coffee_id))
+    const named = dots.filter(d => isNamed(d.coffee_id))
       .sort((a, b) => Number(b.coffee_id === highlightCoffeeId) - Number(a.coffee_id === highlightCoffeeId));
     const boxes: Box[] = named.map(d => ({ x0: d.x - d.r - 4, x1: d.x + d.r + 4, y0: d.y - d.r - 4, y1: d.y + d.r + 4 }));
     // 2026-11-26 (Ella map 13 fix): a coffee's name never covers a family's name. The family names
@@ -229,16 +240,30 @@ export default function EllaMapFace({ placements, wedges, seams = [], highlightC
         const highlighted = d.coffee_id === highlightCoffeeId;
         const color = colorOf(p.archetype_code);
         const tap = onTapCoffee ? () => onTapCoffee(d.coffee_id) : undefined;
-        if (quietOthers && !highlighted && !arrowSet.has(d.coffee_id)) {
-          // Ella map 7: a quiet, unnamed dot
-          return <circle key={d.coffee_id} cx={d.x} cy={d.y} r={Math.max(6, d.r * 0.55)} fill={INK} fillOpacity={0.18} data-quiet="1" />;
+        if (quietOthers && !isNamed(d.coffee_id)) {
+          // Ella map 7: a quiet, unnamed dot; Ella map 14: a tap target too, when the page walks the map
+          const dot = <circle cx={d.x} cy={d.y} r={Math.max(6, d.r * 0.55)} fill={INK} fillOpacity={0.18} data-quiet="1" />;
+          return tap ? (
+            <g key={d.coffee_id} role="button" tabIndex={0} aria-label={p.coffee_name} style={{ cursor: 'pointer' }} onClick={tap} data-tap={d.coffee_id}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tap(); } }}>
+              <circle cx={d.x} cy={d.y} r={Math.max(18, d.r)} fill="transparent" />
+              {dot}
+            </g>
+          ) : <g key={d.coffee_id}>{dot}</g>;
         }
         return (
           <g key={d.coffee_id} role={tap ? 'button' : undefined} tabIndex={tap ? 0 : undefined} aria-label={p.coffee_name}
-            style={{ cursor: tap ? 'pointer' : 'default' }} onClick={tap}
+            style={{ cursor: tap ? 'pointer' : 'default' }} onClick={tap} data-tap={tap ? d.coffee_id : undefined}
             onKeyDown={tap ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tap(); } } : undefined}>
             <title>{p.coffee_name}</title>
-            {highlighted && <circle cx={d.x} cy={d.y} r={d.r + 9} fill="none" stroke={quietOthers ? ARROW : INK} strokeWidth={4} />}
+            {highlighted && <circle cx={d.x} cy={d.y} r={d.r + 9} fill="none" stroke={quietOthers ? ARROW : INK} strokeWidth={4} data-spot={quietOthers ? "1" : undefined} />}
+            {/* Ella map 14: the coffee looked at (a lighter ring) and the Founder's pick once the spot left it (a small ring) */}
+            {d.coffee_id === lookingAtCoffeeId && !highlighted && (
+              <circle cx={d.x} cy={d.y} r={d.r + 9} fill="none" stroke={ARROW} strokeOpacity={0.4} strokeWidth={4} strokeDasharray="6 6" data-looking="1" />
+            )}
+            {d.coffee_id === startCoffeeId && !highlighted && (
+              <circle cx={d.x} cy={d.y} r={d.r + 4} fill="none" stroke={INK} strokeOpacity={0.55} strokeWidth={2} data-start="1" />
+            )}
             {(() => {
               // Ella map 7: the customer face draws every named coffee solid (no price is the card's business)
               const solid = quietOthers || (dotStyle === 'size' ? p.size !== null && p.size !== undefined : p.is_sellable);

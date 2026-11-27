@@ -219,11 +219,15 @@ describe('the lead and the other steps (B2)', () => {
       await quizDecide(c, p);
       const first = await page(c, p.userId);
       const step = first.steps[0];
-      await match.decide({ userId: p.userId, trigger: 'hop', move: 'step', pickedCoffeeId: step.coffeeId, source: 'map', sourceId: randomUUID() }, c);
       // the session moves to another profile inside the rollback: the customer now has no quiz
       await c.query(`UPDATE quiz_session SET user_id = $2 WHERE id = $1`, [p.sessionId, await newProfile(c)]);
-      const r = await page(c, p.userId);
-      expect(r.firstBag).toBeNull();
+      const home = await page(c, p.userId);
+      expect(home.firstBag).toBeNull();
+      // Ella map 14: a step no longer moves the spot; looking at the coffee (at) composes from it. The top
+      // card is "Looking at" with its compare line only; no lead and nothing about the customer
+      const r = await page(c, p.userId, { withBasis: true, at: step.coffeeId });
+      expect(r.firstBag!.labelCode).toBe('looking_at_title');
+      expect(r.firstBag!.basis!.factCodes).toEqual([]);
       expect(r.steps.some(s => s.isLead)).toBe(false);
       for (const s of r.steps) expect(s.basis!.factCodes).toEqual([]);
     });

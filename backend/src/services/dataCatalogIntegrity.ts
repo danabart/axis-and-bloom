@@ -17,7 +17,7 @@ import type pg from 'pg';
 import { db } from '../db/client.js';
 import type { CatalogIntegrityCheck, CatalogIntegrityReport } from './catalogIntegrity.js';
 import { getParameters } from './evidenceReads.js';
-import { KNOWN_REASON_CHOICES } from './matchService.js';
+import { KNOWN_REASON_CHOICES, KNOWN_SPOT_EVENTS, KNOWN_SPOT_EFFECTS } from './matchService.js';
 import { listScales } from './cuppingReads.js';
 import {
   appWriterModules,
@@ -220,6 +220,8 @@ export const DIAL_SEED_CODES: Record<string, string[]> = {
   dial_said_back_source: ['quiz_answer', 'coffee_feeling', 'cupboard_coffee'],
   // Ella map 10 (2026-11-24)
   dial_reason_choice_kind: ['step_support', 'lead_source'],
+  // Ella map 14 (2026-11-27)
+  dial_spot_effect: ['sets_spot', 'moves_spot', 'trail_only', 'nothing'],
 };
 // Ella map 3 (2026-11-12): the dial_customer_copy codes matchService and the pages read
 export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_available', 'choose_this', 'see_whole_map', 'trail_title', 'trail_start', 'moved_to', 'email_map_intro',
@@ -234,7 +236,9 @@ export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_availa
   // Ella map 12 (2026-11-26): the /map button that opens the coffee's panel
   'more_about',
   // Ella map 13 (2026-11-26): the /map panel's headings
-  'where_it_shines', 'roaster_rates', 'roaster_rates_caption', 'roaster_words_title', 'notes_title', 'notes_heading'];
+  'where_it_shines', 'roaster_rates', 'roaster_rates_caption', 'roaster_words_title', 'notes_title', 'notes_heading',
+  // Ella map 14 (2026-11-27): the walk and the trail
+  'looking_at_title', 'back_to_spot', 'trail_moved'];
 export const DIAL_PARAMETER_KEYS = [
   'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
   'dial_w_ring', 'dial_w_body', 'dial_w_sweet', 'dial_w_lane', 'dial_cap_different',
@@ -248,6 +252,7 @@ export const DIAL_PARAMETER_KEYS = [
   'dial_quote_family_answers', 'dial_quote_other_answers', 'dial_away_max_points', // Ella map 9 (the last two read by nothing since Ella map 10; the rows stay)
   'dial_step_reuse_answer', // Ella map 10 follow-up (2026-11-25)
   'dial_roaster_rating_max', // Ella map 13 fix (2026-11-26): the top of the roaster's scale on /map
+  'dial_spot_reorder_count', 'dial_spot_skip_disliked_lead', 'dial_spot_not_lead_when_looking', // Ella map 14 (2026-11-27)
 ];
 
 export async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<CatalogIntegrityCheck[]> {
@@ -300,17 +305,17 @@ export async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<Ca
   const c10 = check(10, 'Ella map: every dial_ parameter key is present',
     DIAL_PARAMETER_KEYS.filter(k => !haveKeys.has(k)), `${DIAL_PARAMETER_KEYS.length} keys present`, n => `${n} key(s) missing`);
 
-  // Ella map 3 (B6): decisions stranded off the active map, and a surface on the map with no active version
+  // Ella map 3 (B6): spots stranded off the active map, and a surface on the map with no active version.
+  // Ella map 14 (Dana 2026-11-27, item 5): a spot set by an order or feedback has no decided
+  // version, so the check counts every spot on a coffee not placed in the active version.
   const stranded = (await runner.query<{ n: number }>(
-    `SELECT count(*)::int AS n FROM v_customer_match_current
-      WHERE decided_version_id IS DISTINCT FROM (SELECT id FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL)
-        AND NOT is_in_active_version`)).rows[0].n;
+    `SELECT count(*)::int AS n FROM v_customer_match_current WHERE NOT is_in_active_version`)).rows[0].n;
   const surfacesWithoutMap = (await runner.query<{ code: string }>(
     `SELECT code FROM v_dial_surface
       WHERE model_code = 'map' AND NOT EXISTS (SELECT 1 FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL)
       ORDER BY code`)).rows.map(r => `dial_surface ${r.code} is on the map with no active version`);
   const c11 = check(11, 'Ella map: positions stay on the active map; a map surface has an active version',
-    [...(stranded ? [`${stranded} position(s) on a coffee not placed in the active version, decided on another version`] : []), ...surfacesWithoutMap],
+    [...(stranded ? [`${stranded} spot(s) on a coffee not placed in the active version`] : []), ...surfacesWithoutMap],
     '0 findings', n => `${n} finding(s)`);
 
   // Ella map 9 (A8): what we say back. A phrase for a fact that is no longer
@@ -347,7 +352,26 @@ export async function dialMapChecks(runner: pg.Pool | pg.PoolClient): Promise<Ca
     `SELECT p.coffee_name FROM v_dial_placement p JOIN v_dial_coffee_availability av ON av.coffee_id = p.coffee_id
       WHERE av.map_line IS NULL ORDER BY p.coffee_name`)).rows.map(r => r.coffee_name);
   const c16 = check(16, 'Ella map: every coffee on the active map has a map_line', noLine, '0 coffees without one', n => `${n} coffee(s) without a map_line`);
-  return [c7, c8, c9, c10, c11, c12, c13, c14, c15, c16];
+  // Ella map 14 (A, Dana 2026-11-27): what moves a spot. A spot event row whose
+  // code the views do not produce, or whose effect the fold does not know (it has
+  // no effect); a code the views produce with no current row (that event has no
+  // effect); the two rating limits missing or overlapping.
+  const spotRows = (await runner.query<{ code: string; effect_code: string; is_active: boolean }>(
+    `SELECT code, effect_code, is_active FROM v_dial_spot_event WHERE is_current ORDER BY sort_order, code`)).rows;
+  const spotFindings = [
+    ...spotRows.filter(r => !(KNOWN_SPOT_EVENTS as readonly string[]).includes(r.code)).map(r => `spot event ${r.code}${r.is_active ? '' : ' (off)'} is not one the views produce`),
+    ...spotRows.filter(r => !(KNOWN_SPOT_EFFECTS as readonly string[]).includes(r.effect_code)).map(r => `spot event ${r.code} has an unknown effect ${r.effect_code}`),
+    ...KNOWN_SPOT_EVENTS.filter(c => !spotRows.some(r => r.code === c)).map(c => `no current spot event row for ${c}`),
+  ];
+  const limits = new Map((await getParameters('feedback_', runner)).map(p => [p.key, Number(p.value)]));
+  const pos = limits.get('feedback_positive_min_rating');
+  const neg = limits.get('feedback_negative_max_rating');
+  if (pos === undefined) spotFindings.push('parameter feedback_positive_min_rating is missing');
+  if (neg === undefined) spotFindings.push('parameter feedback_negative_max_rating is missing');
+  if (pos !== undefined && neg !== undefined && !(neg < pos)) spotFindings.push(`feedback_negative_max_rating (${neg}) is not below feedback_positive_min_rating (${pos})`);
+  const c17 = check(17, 'Ella map: every spot event is one the views produce; the rating limits are set and apart', spotFindings,
+    `${spotRows.length} spot event row(s), all known; limits ${neg ?? '?'} < ${pos ?? '?'}`, n => `${n} finding(s)`);
+  return [c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17];
 }
 
 // Boot log lines: one summary line, then one line per check with findings,

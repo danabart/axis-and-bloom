@@ -9,7 +9,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth.js';
 import * as dialReads from '../services/dialReads.js';
-import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, setStep, publish, setStartRule, setSaidBack, setReasonChoice, DialMapError } from '../services/dialPlacementService.js';
+import { cutVersion, activateVersion, setWedge, setFirstMatch, setHopPhrase, setSurfaceModel, setCustomerCopy, setStep, publish, setStartRule, setSaidBack, setReasonChoice, setSpotEvent, DialMapError } from '../services/dialPlacementService.js';
 import { getMatchDecisions, searchCustomersForMap } from '../services/customerReads.js';
 import { steps as composedSteps } from '../services/matchService.js';
 import { setLean, setRing, CatalogError } from '../services/catalogService.js';
@@ -260,6 +260,22 @@ router.put('/reason-choices', async (req: AuthRequest, res) => {
     const b = ReasonChoiceBody.parse(req.body ?? {});
     res.json(await setReasonChoice({ kindCode: b.kind, code: b.code, label: b.label, sortOrder: b.sortOrder, isActive: b.isActive, adminUid: req.uid ?? null }));
   } catch (err) { fail(res, 'set reason choice', err); }
+});
+// Ella map 14 (B): what moves a spot, the event rows (dial_spot_event) and the effects they may have
+router.get('/spot-events', read('spot events', req => dialReads.spotEventConfig({ history: req.query.history === '1' })));
+const SpotEventBody = z.object({
+  code: z.string().trim().min(1).max(60),
+  label: z.string().trim().min(1).max(160).optional(),
+  effect: z.string().trim().min(1).max(40).optional(),
+  trailWord: z.string().trim().max(60).nullable().optional(),
+  sortOrder: z.number().int().min(0).max(999).optional(),
+  isActive: z.boolean().optional(),
+});
+router.put('/spot-events', async (req: AuthRequest, res) => {
+  try {
+    const b = SpotEventBody.parse(req.body ?? {});
+    res.json(await setSpotEvent({ code: b.code, label: b.label, effectCode: b.effect, trailWord: b.trailWord, sortOrder: b.sortOrder, isActive: b.isActive, adminUid: req.uid ?? null }));
+  } catch (err) { fail(res, 'set spot event', err); }
 });
 // The picker: customers by email (at least 3 characters)
 router.get('/customers', read('customer search', req => searchCustomersForMap(z.string().trim().min(3).max(120).parse(req.query.q ?? ''))));

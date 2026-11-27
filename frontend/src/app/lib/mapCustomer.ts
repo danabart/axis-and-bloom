@@ -29,6 +29,9 @@ export interface MapTrailStep {
   /** Ella map 7: the customer's own words about this coffee, when they left some */
   line: string | null;
   onActiveMap: boolean;
+  /** Ella map 14: the spot's coffee changed at this event, and the line that says so (trail_moved) */
+  moved?: boolean;
+  movedLine?: string | null;
 }
 /** Ella map 7: the first-bag reason, before any bag; Ella map 9: its composed text and the founder's-pick label */
 export interface MapFirstBag {
@@ -57,9 +60,23 @@ export interface MapSteps {
   copy: Record<string, string>;
   /** Ella map 9: the position was read from the start rule (an admin's "Read it as", no decision yet) */
   readAs?: 'start_rule';
+  /** Ella map 14: the customer's own spot (always ringed), what put it there, since when, and the "Back to your spot" line */
+  spot?: { coffeeId: number; name: string; basis: string; since: string | null; backLine: string | null };
+  /** Ella map 14: the page is composed from a coffee the customer looks at (position); nothing is saved */
+  lookingAt?: boolean;
+  /** Ella map 14: the Founder's pick once the spot has moved off it */
+  startCoffeeId?: number | null;
+  /** Ella map 14 ("Read it as", admins only): the customer's spot events in order */
+  events?: MapSpotEvent[];
+}
+/** Ella map 14: one spot event, as "Read it as" shows it */
+export interface MapSpotEvent {
+  seq: number; at: string; kind: 'decision' | 'order' | 'feedback'; coffeeId: number; coffeeName: string;
+  eventCode: string; effectCode: string | null; trailWord: string | null; isActive: boolean; rating: number | null; rawText: string | null;
+  ordinal: number | null; setsBasis: boolean; moved: boolean; spotCoffeeId: number | null; spotEventCode: string | null; spotSince: string | null;
 }
 export interface MapMe {
-  position: null | { coffeeId: number; name: string; archetypeCode: string | null; isCenter: boolean; isInActiveVersion: boolean; available: boolean; sentence: string | null; move: string; byOther: boolean };
+  position: null | { coffeeId: number; name: string; archetypeCode: string | null; isCenter: boolean; isInActiveVersion: boolean; available: boolean; sentence: string | null; move: string | null; byOther: boolean; basis?: string; since?: string };
   firstBag: MapFirstBag | null;
   trail: MapTrailStep[]; versionLabel: string | null; copy: Record<string, string>;
 }
@@ -69,7 +86,8 @@ export const getMapSurfaces = (f: ApiFetch) => call<Record<string, string>>(f, `
 export const getMapFace = (f: ApiFetch) => call<MapFaceData>(f, `${B}/face`);
 export const getMapMe = (f: ApiFetch) => call<MapMe>(f, `${B}/me`);
 export const getMapMoves = (f: ApiFetch) => call<MapMoves>(f, `${B}/moves`);
-export const getMapSteps = (f: ApiFetch) => call<MapSteps>(f, `${B}/steps`);
+/** Ella map 14: at = a coffee the customer looks at (the page address ?at=); nothing is saved */
+export const getMapSteps = (f: ApiFetch, at?: number | null) => call<MapSteps>(f, `${B}/steps${at ? `?at=${encodeURIComponent(String(at))}` : ''}`);
 export const decideMove = (f: ApiFetch, body: { move: MapMoveOption['move'] | 'step'; coffeeId?: number; requestId: string }) =>
   call<{ decisionId: string; created: boolean; pickedCoffeeId: number }>(f, `${B}/decide`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),

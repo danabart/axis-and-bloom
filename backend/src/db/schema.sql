@@ -2882,8 +2882,10 @@ DROP VIEW IF EXISTS v_dial_start_input;       -- Ella map 7: reads v_customer_qu
 DROP VIEW IF EXISTS v_dial_start_rule;        -- Ella map 7
 DROP VIEW IF EXISTS v_dial_step;              -- Ella map 5: reads v_dial_placement
 DROP VIEW IF EXISTS v_coffee_ring_assignment_history;
+DROP VIEW IF EXISTS v_customer_match_current;  -- Ella map 14: the fold's last row per customer, reads v_customer_spot_event
+DROP VIEW IF EXISTS v_customer_spot_event;     -- Ella map 14: reads v_customer_match_trail, v_customer_bag_attribution, v_customer_feedback_current, v_dial_spot_event
+DROP VIEW IF EXISTS v_dial_spot_event;         -- Ella map 14
 DROP VIEW IF EXISTS v_customer_match_trail;   -- Ella map 3: read v_dial_placement
-DROP VIEW IF EXISTS v_customer_match_current;
 DROP VIEW IF EXISTS v_dial_surface;
 DROP VIEW IF EXISTS v_dial_customer_copy;
 DROP VIEW IF EXISTS v_dial_face;
@@ -6450,7 +6452,8 @@ SELECT
   cfe.raw_text,
   cfe.channel,
   cfe.source,
-  CASE WHEN cfe.rating >= 4 THEN 'positive' WHEN cfe.rating <= 2 THEN 'negative' ELSE 'neutral' END AS sentiment,
+  -- Ella map 14 (2026-11-27): the limits are parameters (G2.1), same results as the 4 and 2 they replace
+  CASE WHEN cfe.rating >= param('feedback_positive_min_rating') THEN 'positive' WHEN cfe.rating <= param('feedback_negative_max_rating') THEN 'negative' ELSE 'neutral' END AS sentiment,
   COALESCE(d.cupping_note_ids, ARRAY[]::UUID[]) AS descriptor_note_ids
 FROM customer_feedback_event cfe
 JOIN v_customer_identity vci ON vci.user_id = cfe.user_id
@@ -6676,7 +6679,8 @@ UNION ALL
 SELECT vci3.canonical_user_id, cfe.occurred_at, 'feedback'::text, cfe.id::text,
        cfe.coffee_id, NULL::int, NULL::archetype_enum, NULL::int,
        jsonb_build_object('rating', cfe.rating,
-         'sentiment', CASE WHEN cfe.rating >= 4 THEN 'positive' WHEN cfe.rating <= 2 THEN 'negative' ELSE 'neutral' END,
+         -- Ella map 14: the same two rating parameters as v_customer_feedback_current
+         'sentiment', CASE WHEN cfe.rating >= param('feedback_positive_min_rating') THEN 'positive' WHEN cfe.rating <= param('feedback_negative_max_rating') THEN 'negative' ELSE 'neutral' END,
          'expectation', cfe.expectation, 'raw_text', cfe.raw_text, 'channel', cfe.channel,
          'supersedes_id', cfe.supersedes_id, 'order_line_item_id', cfe.order_line_item_id,
          'is_current', (NOT EXISTS (SELECT 1 FROM customer_feedback_event newer WHERE newer.supersedes_id = cfe.id)))
@@ -11852,42 +11856,8 @@ JOIN dial_move m ON m.id = d.move_id
 JOIN coffees c ON c.id = d.picked_coffee_id
 LEFT JOIN v_dial_placement p ON p.coffee_id = d.picked_coffee_id;
 
--- CTO call 3: the position is the latest decision per canonical user, with
--- the coffee's placement in the active version or, when it has none there,
--- its most recent placement in any version (is_in_active_version false).
-CREATE VIEW v_customer_match_current AS
-WITH latest AS (
-  SELECT DISTINCT ON (vci.canonical_user_id) vci.canonical_user_id, d.*
-  FROM customer_match_decision d
-  JOIN v_customer_identity vci ON vci.user_id = d.user_id
-  ORDER BY vci.canonical_user_id, d.occurred_at DESC, d.created_at DESC, d.id DESC
-)
-SELECT l.canonical_user_id, l.id AS decision_id, l.user_id, l.actor_user_id, l.occurred_at,
-       l.version_id AS decided_version_id, m.code AS move_code, l.source,
-       l.picked_coffee_id AS coffee_id, c.name AS coffee_name,
-       (a.coffee_id IS NOT NULL) AS is_in_active_version,
-       COALESCE(a.version_id, h.version_id) AS placement_version_id,
-       COALESCE(a.archetype_code, h.archetype_code) AS archetype_code,
-       COALESCE(a.is_center, h.is_center) AS is_center,
-       COALESCE(a.ring, h.ring) AS ring,
-       COALESCE(a.lane_code, h.lane_code) AS lane_code,
-       COALESCE(a.size, h.size) AS size,
-       (c.is_active AND COALESCE(av.is_sellable, false)) AS is_sellable,
-       (c.is_active AND COALESCE(av.in_stock, false)) AS in_stock
-FROM latest l
-JOIN dial_move m ON m.id = l.move_id
-JOIN coffees c ON c.id = l.picked_coffee_id
-LEFT JOIN v_dial_coffee_availability av ON av.coffee_id = l.picked_coffee_id
-LEFT JOIN v_dial_placement a ON a.coffee_id = l.picked_coffee_id
-LEFT JOIN LATERAL (
-  SELECT dp.version_id, dp.archetype_code, dp.is_center, dp.ring, ln.code AS lane_code, dp.size
-  FROM dial_placement dp
-  JOIN dial_map_version v ON v.id = dp.version_id
-  JOIN dial_lane ln ON ln.id = dp.lane_id
-  WHERE dp.coffee_id = l.picked_coffee_id
-  ORDER BY v.cut_at DESC, dp.id DESC
-  LIMIT 1
-) h ON a.coffee_id IS NULL;
+-- v_customer_match_current: redefined in the ELLA'S BLOOM MAP 14 block (before the grants):
+-- the spot is the last row of the fold in v_customer_spot_event, not the latest decision.
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Ella's Bloom Map 5 (2026-11-16): decided steps between coffees. Additive;
@@ -14164,6 +14134,249 @@ WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = 'roaster_sku_
 -- END COMMERCE 6 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN ELLA'S BLOOM MAP 14 block (2026-11-27): what moves your spot, and walking the map
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_14_SPOT_AND_WALK.md
+-- The spot moves on evidence only. Which event moves it is a row
+-- (dial_spot_event, effect from dial_spot_effect); the numbers are parameters.
+-- v_customer_spot_event lists each customer's events in time order and folds
+-- them (WITH RECURSIVE); v_customer_match_current is the fold's last row with a
+-- spot. Nothing composed is stored; looking at a coffee writes nothing. The
+-- three views are in the Ella drop list near the top of this file.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- A1: what an event does to the spot (a lookup; the fold dispatches on the code).
+CREATE TABLE IF NOT EXISTS dial_spot_effect (
+  id         SERIAL PRIMARY KEY,
+  code       TEXT NOT NULL UNIQUE,
+  label      TEXT NOT NULL,
+  sort_order SMALLINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO dial_spot_effect (code, label, sort_order) VALUES
+  ('sets_spot',  'Sets the spot, while no order or feedback has moved it', 1),
+  ('moves_spot', 'Moves the spot',                                         2),
+  ('trail_only', 'Shows on the trail only',                                3),
+  ('nothing',    'Nothing',                                                4)
+ON CONFLICT (code) DO NOTHING;
+
+-- A1: one row per event, with its effect, its trail word and its switch
+-- (Dana edits them on /admin/map, "What moves a spot"). Supersede and insert,
+-- one current row per code; never deleted (G2.11). A code the views do not
+-- produce is reported by data-catalog check 17.
+CREATE TABLE IF NOT EXISTS dial_spot_event (
+  id            SERIAL PRIMARY KEY,
+  code          TEXT NOT NULL CHECK (btrim(code) <> ''),
+  label         TEXT NOT NULL CHECK (btrim(label) <> ''),
+  effect_id     INT NOT NULL REFERENCES dial_spot_effect(id),
+  trail_word    TEXT CHECK (trail_word IS NULL OR btrim(trail_word) <> ''),
+  sort_order    SMALLINT NOT NULL,
+  is_active     BOOLEAN NOT NULL DEFAULT true,
+  decided_by    TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dial_spot_event_one_current ON dial_spot_event (code) WHERE superseded_at IS NULL;
+-- Seeded here, not by a script, so the spot exists from the boot that creates it (insert if missing).
+INSERT INTO dial_spot_event (code, label, effect_id, trail_word, sort_order, decided_by)
+SELECT v.code, v.label, e.id, v.trail_word, v.sort_order, 'seed'
+FROM (VALUES
+  ('founders_pick',     'Quiz result (the Founder''s pick)',                                     'sets_spot',  'Founder''s pick', 1),
+  ('decision_other',    'A tap on the map, a hop, "same again", Liam''s pick, an email button',   'nothing',    NULL,              2),
+  ('first_order',       'An order of a coffee below the reorder count',                         'trail_only', 'Ordered',         3),
+  ('reorder',           'The same coffee again, in a separate order, at the reorder count',     'moves_spot', 'Ordered again',   4),
+  ('feedback_positive', 'Feedback at or above the positive rating',                             'moves_spot', 'You said',        5),
+  ('feedback_neutral',  'Feedback between the two ratings',                                     'trail_only', 'You said',        6),
+  ('feedback_negative', 'Feedback at or below the negative rating',                             'trail_only', 'You said',        7)
+) v(code, label, effect_code, trail_word, sort_order)
+JOIN dial_spot_effect e ON e.code = v.effect_code
+WHERE NOT EXISTS (SELECT 1 FROM dial_spot_event x WHERE x.code = v.code);
+
+CREATE VIEW v_dial_spot_event AS
+SELECT se.id, se.code, se.label, e.code AS effect_code, e.label AS effect_label, e.sort_order AS effect_order,
+       se.trail_word, se.sort_order, se.is_active, se.decided_by, se.created_at, se.superseded_at,
+       (se.superseded_at IS NULL) AS is_current
+FROM dial_spot_event se
+JOIN dial_spot_effect e ON e.id = se.effect_id;
+
+-- A2: which order kinds count toward a reorder. Set once, in the guard that
+-- adds the column, so a later boot never overrides an edit (G2.8).
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'customer_order_kind' AND column_name = 'counts_toward_reorder') THEN
+    ALTER TABLE customer_order_kind ADD COLUMN counts_toward_reorder BOOLEAN NOT NULL DEFAULT false;
+    UPDATE customer_order_kind SET counts_toward_reorder = true WHERE code IN ('manual', 'liam_followed');
+  END IF;
+END $$;
+
+-- A3: the numbers (insert if missing; not versioned). The two rating limits
+-- are read by v_customer_feedback_current and v_customer_timeline (param()).
+INSERT INTO evidence_parameter (key, value, note)
+SELECT v.key, v.value, v.note
+FROM (VALUES
+  ('feedback_positive_min_rating',    4::numeric, 'Ella map 14: a customer rating at or above this is positive feedback (v_customer_feedback_current.sentiment, v_customer_timeline, the spot rule); must stay above feedback_negative_max_rating (data-catalog check 17). Range: integer 1 <= value <= 5.'),
+  ('feedback_negative_max_rating',    2::numeric, 'Ella map 14: a customer rating at or below this is negative feedback (v_customer_feedback_current.sentiment, v_customer_timeline, the spot rule); must stay below feedback_positive_min_rating (data-catalog check 17). Range: integer 1 <= value <= 5.'),
+  ('dial_spot_reorder_count',         2::numeric, 'Ella map 14: the separate orders of one coffee (order kinds that count toward a reorder) that make a reorder; the order that reaches it, and every later one, is a reorder. Two bags in one order are one order. Range: integer 2 <= value <= 10.'),
+  ('dial_spot_skip_disliked_lead',    1::numeric, 'Ella map 14: 1 = a coffee the customer rated at or below feedback_negative_max_rating is never the lead on /map; 0 = it may be. Range: integer 0 <= value <= 1.'),
+  ('dial_spot_not_lead_when_looking', 1::numeric, 'Ella map 14 (Dana 2026-11-27, W1): 1 = while the customer looks at another coffee, their own spot is shown as a normal step card but is never the lead (the lead goes to the next step by the same lead-source rows); 0 = it may be the lead. Range: integer 0 <= value <= 1.')
+) AS v(key, value, note)
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
+
+-- A4: the /map words this brief adds (insert if missing). here_title and
+-- closing_line change text through the one writer (the seed script).
+INSERT INTO dial_customer_copy (code, text, decided_by)
+SELECT v.code, v.text, 'seed'
+FROM (VALUES
+  ('looking_at_title', 'Looking at'),
+  ('back_to_spot',     'Back to your spot: {coffee}'),
+  ('trail_moved',      'Your spot moved here.')
+) v(code, text)
+WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = v.code);
+
+-- A5: every customer's spot events in time order, with the fold (Task 0 item 3).
+-- Events: the match decisions (quiz_result is founders_pick, every other move
+-- decision_other), one row per (drinker, order, coffee) of the real orders
+-- (v_customer_bag_attribution: real orders only, counted for the drinker), and
+-- the current feedback (v_customer_feedback_current). Each takes its effect,
+-- trail word and switch from v_dial_spot_event; a switched-off or unknown row
+-- has no effect. The fold, per customer in seq order, carries the spot:
+--   sets_spot  applies while there is no spot or the spot was set by a sets_spot row;
+--   moves_spot applies once there is a spot, except that an event with a rating
+--              on another coffee leaves the spot when the customer's latest
+--              current rating of the spot's coffee, at or before the event, is
+--              higher (an unrated spot gives way; equal ratings move, F1);
+--   anything else leaves the spot as it is.
+-- sets_basis: the event became the spot's basis (also on the spot's own coffee, F2);
+-- moved: the spot's coffee changed at this event.
+CREATE VIEW v_customer_spot_event AS
+WITH RECURSIVE
+ev AS (SELECT code, effect_code, trail_word, sort_order, is_active FROM v_dial_spot_event WHERE is_current),
+ord AS (
+  SELECT vci.canonical_user_id, vba.order_id, vba.coffee_id, min(o.created_at) AS at,
+         bool_or(ok.counts_toward_reorder) AS counts
+  FROM v_customer_bag_attribution vba
+  JOIN "order" o ON o.id = vba.order_id
+  JOIN customer_order_kind ok ON ok.code = vba.order_kind
+  JOIN v_customer_identity vci ON vci.user_id = vba.drinker_user_id
+  GROUP BY vci.canonical_user_id, vba.order_id, vba.coffee_id
+),
+ordn AS (
+  SELECT ord.*,
+         CASE WHEN counts THEN sum(CASE WHEN counts THEN 1 ELSE 0 END)
+           OVER (PARTITION BY canonical_user_id, coffee_id ORDER BY at, order_id ROWS UNBOUNDED PRECEDING) END AS ordinal
+  FROM ord
+),
+raw AS (
+  SELECT t.canonical_user_id, t.occurred_at AS at, 'decision'::text AS kind, t.decision_id::text AS source_id, t.picked_coffee_id AS coffee_id,
+         CASE WHEN t.move_code = 'quiz_result' THEN 'founders_pick' ELSE 'decision_other' END AS event_code,
+         NULL::int AS rating, NULL::text AS raw_text, NULL::int AS ordinal, t.decision_id, t.actor_user_id
+  FROM v_customer_match_trail t
+  UNION ALL
+  SELECT canonical_user_id, at, 'order', order_id::text, coffee_id,
+         CASE WHEN counts AND ordinal >= param('dial_spot_reorder_count') THEN 'reorder' ELSE 'first_order' END,
+         NULL::int, NULL::text, ordinal::int, NULL::uuid, NULL::uuid
+  FROM ordn
+  UNION ALL
+  SELECT canonical_user_id, occurred_at, 'feedback', feedback_event_id::text, coffee_id,
+         CASE sentiment WHEN 'positive' THEN 'feedback_positive' WHEN 'negative' THEN 'feedback_negative' ELSE 'feedback_neutral' END,
+         rating, raw_text, NULL::int, NULL::uuid, NULL::uuid
+  FROM v_customer_feedback_current
+  WHERE coffee_id IS NOT NULL
+),
+e AS (
+  SELECT r.canonical_user_id, r.at, r.kind, r.source_id, r.coffee_id, r.event_code, r.rating, r.raw_text, r.ordinal,
+         r.decision_id, r.actor_user_id, ev.effect_code, ev.trail_word, COALESCE(ev.is_active, false) AS is_active,
+         row_number() OVER (PARTITION BY r.canonical_user_id ORDER BY r.at, ev.sort_order NULLS LAST, r.kind, r.source_id)::int AS seq
+  FROM raw r
+  LEFT JOIN ev ON ev.code = r.event_code
+),
+fold AS (
+  SELECT e.*, d.takes AS sets_basis, d.takes AS moved,
+         CASE WHEN d.takes THEN e.coffee_id END AS spot_coffee_id,
+         CASE WHEN d.takes THEN e.event_code END AS spot_event_code,
+         CASE WHEN d.takes THEN e.effect_code END AS spot_effect_code,
+         CASE WHEN d.takes THEN e.at END AS spot_since,
+         CASE WHEN d.takes THEN e.decision_id END AS spot_decision_id
+  FROM e
+  CROSS JOIN LATERAL (SELECT (e.is_active AND e.effect_code = 'sets_spot') AS takes) d
+  WHERE e.seq = 1
+  UNION ALL
+  SELECT n.*, d.takes AS sets_basis, (d.takes AND n.coffee_id IS DISTINCT FROM f.spot_coffee_id) AS moved,
+         CASE WHEN d.takes THEN n.coffee_id ELSE f.spot_coffee_id END,
+         CASE WHEN d.takes THEN n.event_code ELSE f.spot_event_code END,
+         CASE WHEN d.takes THEN n.effect_code ELSE f.spot_effect_code END,
+         CASE WHEN d.takes THEN n.at ELSE f.spot_since END,
+         CASE WHEN d.takes THEN n.decision_id ELSE f.spot_decision_id END
+  FROM fold f
+  JOIN e n ON n.canonical_user_id = f.canonical_user_id AND n.seq = f.seq + 1
+  CROSS JOIN LATERAL (
+    SELECT CASE
+      WHEN NOT n.is_active THEN false
+      WHEN n.effect_code = 'sets_spot' THEN (f.spot_coffee_id IS NULL OR f.spot_effect_code = 'sets_spot')
+      WHEN n.effect_code = 'moves_spot' THEN f.spot_coffee_id IS NOT NULL AND NOT (
+        n.rating IS NOT NULL AND n.coffee_id <> f.spot_coffee_id AND COALESCE((
+          SELECT fc.rating FROM v_customer_feedback_current fc
+           WHERE fc.canonical_user_id = n.canonical_user_id AND fc.coffee_id = f.spot_coffee_id
+             AND fc.rating IS NOT NULL AND fc.occurred_at <= n.at
+           ORDER BY fc.occurred_at DESC, fc.feedback_event_id DESC
+           LIMIT 1), 0) > n.rating)
+      ELSE false
+    END AS takes
+  ) d
+)
+SELECT f.canonical_user_id, f.seq, f.at, f.kind, f.source_id, f.coffee_id, c.name AS coffee_name,
+       f.event_code, f.effect_code, f.trail_word, f.is_active, f.rating, f.raw_text, f.ordinal,
+       f.decision_id, f.actor_user_id, f.sets_basis, f.moved,
+       f.spot_coffee_id, f.spot_event_code, f.spot_effect_code, f.spot_since, f.spot_decision_id
+FROM fold f
+JOIN coffees c ON c.id = f.coffee_id;
+
+-- A5: the position. Same name and readers (G2.5, brief call 6): the spot is the
+-- fold's last row with a spot per canonical customer, with the coffee's
+-- placement in the active version or, when it has none there, its most recent
+-- placement in any version (is_in_active_version false). Columns only a
+-- decision has are NULL when an order or feedback set the spot; no
+-- founders_pick event, no row. spot_event_code / spot_since are new.
+CREATE VIEW v_customer_match_current AS
+WITH latest AS (
+  SELECT DISTINCT ON (canonical_user_id) canonical_user_id, spot_coffee_id, spot_event_code, spot_since, spot_decision_id
+  FROM v_customer_spot_event
+  WHERE spot_coffee_id IS NOT NULL
+  ORDER BY canonical_user_id, seq DESC
+)
+SELECT l.canonical_user_id, d.id AS decision_id, d.user_id, d.actor_user_id, l.spot_since AS occurred_at,
+       d.version_id AS decided_version_id, m.code AS move_code, d.source,
+       l.spot_coffee_id AS coffee_id, c.name AS coffee_name,
+       (a.coffee_id IS NOT NULL) AS is_in_active_version,
+       COALESCE(a.version_id, h.version_id) AS placement_version_id,
+       COALESCE(a.archetype_code, h.archetype_code) AS archetype_code,
+       COALESCE(a.is_center, h.is_center) AS is_center,
+       COALESCE(a.ring, h.ring) AS ring,
+       COALESCE(a.lane_code, h.lane_code) AS lane_code,
+       COALESCE(a.size, h.size) AS size,
+       (c.is_active AND COALESCE(av.is_sellable, false)) AS is_sellable,
+       (c.is_active AND COALESCE(av.in_stock, false)) AS in_stock,
+       l.spot_event_code, l.spot_since
+FROM latest l
+LEFT JOIN customer_match_decision d ON d.id = l.spot_decision_id
+LEFT JOIN dial_move m ON m.id = d.move_id
+JOIN coffees c ON c.id = l.spot_coffee_id
+LEFT JOIN v_dial_coffee_availability av ON av.coffee_id = l.spot_coffee_id
+LEFT JOIN v_dial_placement a ON a.coffee_id = l.spot_coffee_id
+LEFT JOIN LATERAL (
+  SELECT dp.version_id, dp.archetype_code, dp.is_center, dp.ring, ln.code AS lane_code, dp.size
+  FROM dial_placement dp
+  JOIN dial_map_version v ON v.id = dp.version_id
+  JOIN dial_lane ln ON ln.id = dp.lane_id
+  WHERE dp.coffee_id = l.spot_coffee_id
+  ORDER BY v.cut_at DESC, dp.id DESC
+  LIMIT 1
+) h ON a.coffee_id IS NULL;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END ELLA'S BLOOM MAP 14 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.
@@ -14266,6 +14479,8 @@ REVOKE UPDATE, DELETE, TRUNCATE ON dial_said_back, dial_said_back_source FROM ab
 GRANT UPDATE (superseded_at) ON dial_said_back TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON dial_reason_choice, dial_reason_choice_kind FROM ab_app;   -- Ella map 10
 GRANT UPDATE (superseded_at) ON dial_reason_choice TO ab_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON dial_spot_event, dial_spot_effect FROM ab_app;   -- Ella map 14
+GRANT UPDATE (superseded_at) ON dial_spot_event TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
 -- Liam brand answers (2026-10-24): supersede only. The one UPDATE the writer
 -- makes sets superseded_at; nothing is ever deleted (lint:customer rule 8 is

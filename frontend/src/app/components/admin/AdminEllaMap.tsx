@@ -29,7 +29,7 @@ import {
   getDecidedMap, getVocabulary, getWedges, getStartRules, getRingHistory, setStep, setRing, publishMap, setStartRule, setMapLine,
   type DecidedMap, type DecisionNow, type StepRow, type Vocabulary, type Wedge, type Seam, type StartRule, type RingHistoryRow,
 } from '../../lib/mapAdmin';
-import { SaidBackTable, ReadItAs, ReasonChoicesCard } from './AdminEllaMapReasons';
+import { SaidBackTable, ReadItAs, ReasonChoicesCard, SpotEventsCard } from './AdminEllaMapReasons';
 
 const CARD = 'border border-stone-200 rounded-xl bg-white';
 const INPUT = 'w-full border border-stone-300 rounded px-2 py-1 text-sm';
@@ -133,6 +133,7 @@ export default function AdminEllaMap() {
           <SaidBackTable apiFetch={apiFetch} moves={vocab.moves} />
           <ReadItAs apiFetch={apiFetch} />
           <ReasonChoicesCard apiFetch={apiFetch} />
+          <SpotEventsCard apiFetch={apiFetch} />
         </div>
       </div>
     </div>

@@ -222,21 +222,20 @@ export interface FeedbackCurrentRow {
 // v_customer_feedback_current, optionally scoped to one order line (the
 // order-feedback / RECOMMENDATION_MISS call sites only need one row or the
 // negative subset — filtered here rather than pulling every row every time).
+// Ella map 14 (G3.9): keyed by the sign-in id (uid) or, for /map, by the
+// profile id ({ profileId }); the sentiment filter reads the view's own
+// sentiment, whose limits are the two rating parameters (G2.1).
 export async function getFeedbackCurrent(
-  uid: string,
+  uid: string | { profileId: string },
   opts: { orderLineItemId?: string; sentiment?: 'positive' | 'negative' | 'neutral' } = {},
   runner: Runner = db
 ): Promise<FeedbackCurrentRow[]> {
-  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  const canonicalId = typeof uid === 'string' ? await resolveCanonicalUserId(uid, runner) : await canonicalOfProfile(uid.profileId, runner);
   if (!canonicalId) return [];
   const conditions = ['vfc.canonical_user_id = $1'];
   const params: unknown[] = [canonicalId];
   if (opts.orderLineItemId) { params.push(opts.orderLineItemId); conditions.push(`vfc.order_line_item_id = $${params.length}`); }
-  if (opts.sentiment) {
-    if (opts.sentiment === 'positive') conditions.push(`vfc.rating >= 4`);
-    else if (opts.sentiment === 'negative') conditions.push(`vfc.rating <= 2`);
-    else conditions.push(`(vfc.rating IS NULL OR vfc.rating = 3)`);
-  }
+  if (opts.sentiment) { params.push(opts.sentiment); conditions.push(`vfc.sentiment = $${params.length}`); }
   const result = await runner.query(
     `SELECT vfc.*, oli.order_id
      FROM v_customer_feedback_current vfc
@@ -700,10 +699,13 @@ export async function getHouseholdClaimLink(memberId: string, runner: Runner = d
 // own); every read folds to the canonical user (v_customer_identity).
 
 export interface MatchCurrentRow {
-  canonicalUserId: string; decisionId: string; userId: string; actorUserId: string | null; occurredAt: string;
-  decidedVersionId: number; moveCode: string; source: string; coffeeId: number; coffeeName: string;
+  /** Ella map 14: the decision columns are null when an order or feedback set the spot (spotEventCode) */
+  canonicalUserId: string; decisionId: string | null; userId: string | null; actorUserId: string | null; occurredAt: string;
+  decidedVersionId: number | null; moveCode: string | null; source: string | null; coffeeId: number; coffeeName: string;
   isInActiveVersion: boolean; placementVersionId: number | null; archetypeCode: string | null; isCenter: boolean | null;
   ring: number | null; laneCode: string | null; size: number | null; isSellable: boolean; inStock: boolean;
+  /** Ella map 14: the dial_spot_event code that put the spot there (founders_pick, reorder, feedback_positive), and since when */
+  spotEventCode: string; spotSince: string;
 }
 
 async function canonicalOfProfile(profileId: string, runner: Runner): Promise<string | null> {
@@ -712,7 +714,7 @@ async function canonicalOfProfile(profileId: string, runner: Runner): Promise<st
   return r.rows[0]?.canonical_user_id ?? null;
 }
 
-/** The position (v_customer_match_current) for a profile, or null before the first decision. */
+/** The spot (v_customer_match_current: the fold over v_customer_spot_event) for a profile, or null before the first quiz result. */
 export async function getMatchCurrent(profileId: string, runner: Runner = db): Promise<MatchCurrentRow | null> {
   const canonical = await canonicalOfProfile(profileId, runner);
   if (!canonical) return null;
@@ -725,7 +727,34 @@ export async function getMatchCurrent(profileId: string, runner: Runner = db): P
     coffeeId: x.coffee_id, coffeeName: x.coffee_name, isInActiveVersion: x.is_in_active_version,
     placementVersionId: x.placement_version_id, archetypeCode: x.archetype_code, isCenter: x.is_center,
     ring: x.ring, laneCode: x.lane_code, size: x.size, isSellable: x.is_sellable, inStock: x.in_stock,
+    spotEventCode: x.spot_event_code, spotSince: x.spot_since,
   };
+}
+
+/** Ella map 14: one of the customer's spot events (v_customer_spot_event), with the fold's state after it. */
+export interface SpotEventRow {
+  seq: number; at: string; kind: 'decision' | 'order' | 'feedback'; sourceId: string; coffeeId: number; coffeeName: string;
+  eventCode: string; effectCode: string | null; trailWord: string | null; isActive: boolean;
+  rating: number | null; rawText: string | null; ordinal: number | null; decisionId: string | null; actorUserId: string | null;
+  /** setsBasis: the event became the spot's basis; moved: the spot's coffee changed at this event */
+  setsBasis: boolean; moved: boolean;
+  spotCoffeeId: number | null; spotEventCode: string | null; spotSince: string | null;
+}
+
+/** Ella map 14: every spot event of a profile's canonical customer, in order (v_customer_spot_event), switched-off rows included. */
+export async function getSpotTrail(profileId: string, runner: Runner = db): Promise<SpotEventRow[]> {
+  const canonical = await canonicalOfProfile(profileId, runner);
+  if (!canonical) return [];
+  const r = await runner.query(
+    `SELECT seq, at, kind, source_id, coffee_id, coffee_name, event_code, effect_code, trail_word, is_active, rating, raw_text, ordinal,
+            decision_id, actor_user_id, sets_basis, moved, spot_coffee_id, spot_event_code, spot_since
+       FROM v_customer_spot_event WHERE canonical_user_id = $1 ORDER BY seq`, [canonical]);
+  return r.rows.map(x => ({
+    seq: x.seq, at: x.at, kind: x.kind, sourceId: x.source_id, coffeeId: x.coffee_id, coffeeName: x.coffee_name,
+    eventCode: x.event_code, effectCode: x.effect_code, trailWord: x.trail_word, isActive: x.is_active,
+    rating: x.rating, rawText: x.raw_text, ordinal: x.ordinal, decisionId: x.decision_id, actorUserId: x.actor_user_id,
+    setsBasis: x.sets_basis, moved: x.moved, spotCoffeeId: x.spot_coffee_id, spotEventCode: x.spot_event_code, spotSince: x.spot_since,
+  }));
 }
 
 /** Every decision for a profile's canonical user, in order (v_customer_match_trail). */
@@ -737,21 +766,6 @@ export async function getMatchTrail(profileId: string, runner: Runner = db) {
             version_id, version_label, source, inputs, active_archetype_code, active_is_center, active_ring, active_lane_code, active_size
        FROM v_customer_match_trail WHERE canonical_user_id = $1 ORDER BY step`, [canonical]);
   return r.rows;
-}
-
-/**
- * Ella map 7 (B4): per coffee, the customer's own latest words about it
- * (v_customer_feedback_current.raw_text, the newest non-empty revision), for
- * the trail. Only the profile's canonical customer's own feedback.
- */
-export async function getMatchTrailLines(profileId: string, runner: Runner = db): Promise<Map<number, string>> {
-  const canonical = await canonicalOfProfile(profileId, runner);
-  if (!canonical) return new Map();
-  const r = await runner.query<{ coffee_id: number; raw_text: string }>(
-    `SELECT DISTINCT ON (coffee_id) coffee_id, raw_text FROM v_customer_feedback_current
-      WHERE canonical_user_id = $1 AND raw_text IS NOT NULL AND btrim(raw_text) <> ''
-      ORDER BY coffee_id, occurred_at DESC`, [canonical]);
-  return new Map(r.rows.map(x => [x.coffee_id, x.raw_text]));
 }
 
 /** The decision a (source, source_id) wrote, for the idempotent re-select. */

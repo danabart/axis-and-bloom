@@ -56,6 +56,23 @@ const placements = async (c: pg.PoolClient) => (await c.query(`SELECT * FROM v_d
 const param = async (c: pg.PoolClient, key: string) =>
   Number((await c.query(`SELECT parameters ->> $1 AS v FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL`, [key])).rows[0].v);
 
+/**
+ * Ella map 14: a decision (hop, Liam's pick) no longer moves the spot. These fixtures move it the
+ * ways that do: positive feedback on a coffee while the spot's coffee is unrated, or a quiz-result
+ * decision for a customer with no spot yet (a fixture row; the door needs a qualifying first match).
+ */
+async function likeIt(c: pg.PoolClient, userId: string, coffeeId: number) {
+  await c.query(
+    `INSERT INTO customer_feedback_event (user_id, occurred_at, recorded_at, source, source_id, coffee_id, rating, channel)
+     VALUES ($1, clock_timestamp(), clock_timestamp(), 'vitest', $2, $3, 5, 'onsite')`, [userId, `zzz-map3-${randomUUID()}`, coffeeId]);
+}
+async function quizFixture(c: pg.PoolClient, userId: string, coffeeId: number) {
+  await c.query(
+    `INSERT INTO customer_match_decision (user_id, version_id, move_id, picked_coffee_id, source, source_id)
+     SELECT $1, v.id, m.id, $2, 'quiz', $3 FROM dial_map_version v, dial_move m
+      WHERE v.activated_at IS NOT NULL AND v.retired_at IS NULL AND m.code = 'quiz_result'`, [userId, coffeeId, `zzz-map3-${randomUUID()}`]);
+}
+
 async function expectMatchError(p: Promise<unknown>, code: string) {
   await expect(p).rejects.toSatisfy((e: unknown) => e instanceof MatchError && e.code === code);
 }
@@ -152,7 +169,8 @@ describe('moves (D3)', () => {
       const p = await person(c, { match: 'Balanced' });
       await quizDecide(c, p);
       // decaf customer placed on the same position as p: every card is decaf-tagged or the move is at its edge
-      await match.decide({ userId: d.userId, trigger: 'liam', move: 'liam', pickedCoffeeId: (await match.me(p.userId, c)).position!.coffeeId, source: 'liam', sourceId: randomUUID() }, c);
+      // (Ella map 14: a fixture quiz-result row; Liam's pick no longer moves a spot)
+      await quizFixture(c, d.userId, (await match.me(p.userId, c)).position!.coffeeId);
       const dm = await match.moves(d.userId, c);
       const tagOf = new Map((await placements(c)).map(x => [x.coffee_id, x.category_codes as string[]]));
       for (const m of dm.moves.filter(x => x.move !== 'stay')) {
@@ -175,7 +193,7 @@ describe('moves (D3)', () => {
             AND NOT EXISTS (SELECT 1 FROM v_dial_hop h WHERE h.from_coffee_id = p.coffee_id AND h.relation = 'bolder')
           ORDER BY p.coffee_id LIMIT 1`)).rows[0]?.coffee_id;
       if (edgeCoffee) {
-        await match.decide({ userId: p.userId, trigger: 'liam', move: 'liam', pickedCoffeeId: edgeCoffee, source: 'liam', sourceId: randomUUID() }, c);
+        await likeIt(c, p.userId, edgeCoffee); // Ella map 14: positive feedback moves the (unrated) spot there
         const e = await match.moves(p.userId, c);
         const b = e.moves.find(x => x.move === 'bolder')!;
         expect(b.edge).toBe(true);
@@ -191,21 +209,21 @@ describe('moves (D3)', () => {
 });
 
 describe('position and trail (D4)', () => {
-  it('the latest decision is the position; a coffee outside the active version keeps the position with is_in_active_version false and a substitute', async () => {
+  // Ella map 14 (2026-11-27): the spot is the fold over the customer's events, not the latest decision.
+  it('a hop is recorded and moves nothing; positive feedback moves the spot; a coffee outside the active version keeps the spot with is_in_active_version false and a substitute', async () => {
     await withRollback(async ({ client: c }) => {
       const p = await person(c, { match: 'Balanced' });
       const first = await quizDecide(c, p);
       const m = await match.moves(p.userId, c);
       const open = m.moves.find(x => x.move !== 'stay' && !x.edge)!;
       const second = await match.decide({ userId: p.userId, trigger: 'hop', move: open.move, pickedCoffeeId: open.cards[0].coffeeId, source: 'map', sourceId: randomUUID() }, c);
+      expect((await match.me(p.userId, c)).position!.coffeeId).toBe(first.pickedCoffeeId);
+      await likeIt(c, p.userId, second.pickedCoffeeId);
       const me = await match.me(p.userId, c);
       expect(me.position!.coffeeId).toBe(second.pickedCoffeeId);
       expect(me.trail.map(t => t.coffeeId)).toEqual([first.pickedCoffeeId, second.pickedCoffeeId]);
-      expect(me.trail[0].moveWord).toBe(me.copy.trail_start);
-      // Ella map 7 (B4): a published step joining the two choices names the move; else the hop's own word
-      const stepWord = (await c.query(`SELECT button_word FROM v_dial_step WHERE on_active_map AND from_coffee_id = $1 AND to_coffee_id = $2`,
-        [first.pickedCoffeeId, second.pickedCoffeeId])).rows[0]?.button_word;
-      expect(me.trail[1].moveWord).toBe(stepWord ?? open.label);
+      expect(me.trail.map(t => t.move)).toEqual(['founders_pick', 'feedback_positive']);
+      expect(me.trail[1].moved).toBe(true);
 
       // a coffee placed only in an older (draft) version: copy a placed coffee's row onto an unplaced coffee
       const src = (await c.query(`SELECT p.* FROM dial_placement p JOIN v_dial_placement a ON a.placement_id = p.id WHERE NOT a.is_center AND a.is_sellable ORDER BY a.ring, a.coffee_id LIMIT 1`)).rows[0];
@@ -220,8 +238,11 @@ describe('position and trail (D4)', () => {
          SELECT $1, $2, archetype_code, is_center, ring, lane_id, size, ruler_dimension_id, ruler_value,
                 acidity, bitterness, body, sweetness, grade_id, n_sessions, n_cuppers, is_sellable_at_cut, inputs_used, flags
            FROM dial_placement WHERE id = $3`, [draft, other, src.id]);
-      await match.decide({ userId: p.userId, trigger: 'liam', move: 'liam', pickedCoffeeId: other, source: 'liam', sourceId: randomUUID() }, c);
-      const cur = (await c.query(`SELECT * FROM v_customer_match_current WHERE user_id = $1`, [p.userId])).rows[0];
+      // Ella map 14: the spot moves there by positive feedback (equal ratings move, F1); its decision columns are then NULL
+      await likeIt(c, p.userId, other);
+      const cur = (await c.query(`SELECT m.* FROM v_customer_match_current m JOIN v_customer_identity v ON v.canonical_user_id = m.canonical_user_id WHERE v.user_id = $1`, [p.userId])).rows[0];
+      expect(cur.decision_id).toBeNull();
+      expect(cur.spot_event_code).toBe('feedback_positive');
       expect(cur.coffee_id).toBe(other);
       expect(cur.is_in_active_version).toBe(false);
       expect(cur.placement_version_id).toBe(draft);

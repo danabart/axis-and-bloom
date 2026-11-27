@@ -43,7 +43,17 @@
 // every heading is a copy row. It shows for a coffee with a description, the
 // roaster's ratings, or notes with a where-it-shines answer.
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_13_LAPTOP_LAYOUT_AND_ROASTER_PROFILE.md
+// Ella map 14 (2026-11-27): the spot and the walk. The price chip only adds the
+// bag (nothing is recorded; the cart never moves the map). Tapping a coffee's
+// dot or a step card's name looks at that coffee: the page address carries it
+// (?at=<coffee id>, so refresh and back work) and nothing is saved. The
+// customer's own spot stays ringed; the coffee looked at has a lighter ring and
+// the arrows leave it; the Founder's pick keeps a small ring once the spot has
+// moved off it. The top card's label is a copy row (Founder's pick, here_title
+// "Your spot", looking_at_title "Looking at"); "Back to your spot" clears ?at=.
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_14_SPOT_AND_WALK.md
 import { useCallback, useEffect, useId, useState, type CSSProperties } from 'react';
+import { useSearchParams } from 'react-router';
 import EllaMapFace from './EllaMapFace';
 import { RevealedPanel, type MapPanelProfile } from '../RevealedPanel';
 import { useCoffeeDetail } from '../../coffee-info/useCoffeeDetail';
@@ -52,7 +62,7 @@ import { useCart } from '../../../context/CartContext';
 import { directCartItem } from '../cartItems';
 import type { CartItem } from '../types';
 import {
-  getMapFace, getMapSteps, decideMove, useMapFetch,
+  getMapFace, getMapSteps, useMapFetch,
   type MapFaceData, type MapSteps, type MapStepCard, type MapPrice,
 } from '../../../lib/mapCustomer';
 
@@ -160,20 +170,37 @@ export function MoreAbout({ coffeeId, copy, open, onToggle }: { coffeeId: number
   );
 }
 
-/** Ella map 9: the coffee's name, its composed text and the price chip; the chip records the step and adds one bag. */
-export function StepCard({ step, copy, busy, onChoose, open = false, onToggle = () => {} }: {
-  step: MapStepCard; copy: Record<string, string>; busy: boolean; onChoose: () => void;
+/** The price chip ("{price} · Add"): adds one bag to the cart, nothing else (Ella map 14). */
+function PriceAdd({ price, copy, onAdd }: { price: MapPrice; copy: Record<string, string>; onAdd: () => void }) {
+  return (
+    <button type="button" onClick={onAdd} data-testid="price-add"
+      className="mt-3 px-4 py-1.5 rounded-full text-sm font-semibold border" style={{ borderColor: TEAL, color: TEAL }}>
+      {(copy.price_add ?? '{price}').replace('{price}', priceWords(price))}
+    </button>
+  );
+}
+
+/**
+ * Ella map 9: the coffee's name, its composed text and the price chip. Ella map
+ * 14: the chip only adds one bag; the name looks at the coffee (onLook). A
+ * coffee with no price has no chip.
+ */
+export function StepCard({ step, copy, onAdd, onLook, open = false, onToggle = () => {} }: {
+  step: MapStepCard; copy: Record<string, string>; onAdd: () => void;
+  /** Ella map 14: look at this coffee (the page address ?at=); nothing is saved */
+  onLook?: () => void;
   /** Ella map 12: this card's "More about this coffee" panel is the open one */
   open?: boolean; onToggle?: () => void;
 }) {
   return (
     <div className={`rounded-xl bg-white border p-4 ${step.isLead ? 'border-[#2f6f68]' : 'border-[#e8e4dc]'} ${open ? 'lg:col-span-2' : ''}`} data-testid="step-card" data-lead={step.isLead ? '1' : '0'} data-open={open ? '1' : '0'}>
-      <h3 className={`text-lg font-semibold ${INK}`} data-testid="step-coffee">{step.name}</h3>
+      <h3 className={`text-lg font-semibold ${INK}`} data-testid="step-coffee">
+        {onLook
+          ? <button type="button" onClick={onLook} data-testid="step-look" className="text-left underline decoration-[#e8e4dc] underline-offset-4 hover:decoration-[#2f6f68] min-h-[44px]">{step.name}</button>
+          : step.name}
+      </h3>
       <p className={`text-sm ${SOFT} mt-1`} data-testid="step-text">{step.text}</p>
-      <button type="button" disabled={busy} onClick={onChoose} data-testid="price-add"
-        className="mt-3 px-4 py-1.5 rounded-full text-sm font-semibold border disabled:opacity-50" style={{ borderColor: TEAL, color: TEAL }}>
-        {step.price ? (copy.price_add ?? '{price}').replace('{price}', priceWords(step.price)) : copy.choose_this}
-      </button>
+      {step.price && <PriceAdd price={step.price} copy={copy} onAdd={onAdd} />}
       <MoreAbout coffeeId={step.coffeeId} copy={copy} open={open} onToggle={onToggle} />
     </div>
   );
@@ -184,9 +211,11 @@ export function StepCard({ step, copy, busy, onChoose, open = false, onToggle = 
  * top card's panel inside the card; from lg, the map beside the card and the
  * open panel across the page under both.
  */
-function TopRow({ face, data, copy, added, onAddFirstBag, open, onToggle }: {
+function TopRow({ face, data, copy, added, onAddFirstBag, open, onToggle, onLook, onBack }: {
   face: MapFaceData; data: MapSteps; copy: Record<string, string>; added: number | null;
   onAddFirstBag: (c: Parameters<typeof mapCartItem>[0]) => void; open: boolean; onToggle: () => void;
+  /** Ella map 14: look at a coffee (its dot), and go back to the spot */
+  onLook: (coffeeId: number) => void; onBack: () => void;
 }) {
   const pos = data.position!;
   const more = useMoreAbout(pos.coffeeId, copy);
@@ -197,12 +226,15 @@ function TopRow({ face, data, copy, added, onAddFirstBag, open, onToggle }: {
   // (Founder's pick on a first match, "You are here" after a step); with no quiz, the notes as before.
   const top = data.firstBag ?? null;
   const topLabel = top?.labelCode ? copy[top.labelCode] ?? null : null;
+  const looking = data.lookingAt === true;
   return (
     <>
       <div className="mb-6 lg:grid lg:grid-cols-2 lg:gap-8 lg:items-start" data-testid="top-row">
         <div className="mb-5 lg:mb-0" data-testid="map-face">
           <EllaMapFace placements={face.placements} wedges={face.wedges} size="full" labelMode="name"
-            highlightCoffeeId={pos.coffeeId} arrowsTo={data.steps.map(s => s.coffeeId)} quietOthers />
+            highlightCoffeeId={data.spot?.coffeeId ?? pos.coffeeId} lookingAtCoffeeId={looking ? pos.coffeeId : null}
+            startCoffeeId={data.startCoffeeId ?? null} onTapCoffee={onLook}
+            arrowsTo={data.steps.map(s => s.coffeeId)} quietOthers />
         </div>
 
         <section className="rounded-xl bg-white border border-[#e8e4dc] p-5" data-testid="position-card">
@@ -216,8 +248,17 @@ function TopRow({ face, data, copy, added, onAddFirstBag, open, onToggle }: {
           {top && (
             <p className={`text-sm ${SOFT} mt-2`} data-testid="first-bag-reason">{top.text ?? top.reason}</p>
           )}
-          <Price price={pos.price} />
-          {!pos.hasBag && pos.price && (
+          {!looking && <Price price={pos.price} />}
+          {looking && pos.price && <div><PriceAdd price={pos.price} copy={copy} onAdd={() => onAddFirstBag(pos)} /></div>}
+          {looking && data.spot?.backLine && (
+            <div>
+              <button type="button" onClick={onBack} data-testid="back-to-spot"
+                className={`mt-3 text-sm font-semibold underline underline-offset-4 min-h-[44px]`} style={{ color: TEAL }}>
+                {data.spot.backLine}
+              </button>
+            </div>
+          )}
+          {!looking && !pos.hasBag && pos.price && (
             <div>
               <button type="button" onClick={() => onAddFirstBag(pos)} data-testid="add-first-bag"
                 className="mt-3 px-4 py-2 rounded-full text-sm font-medium text-white" style={{ background: TEAL }}>
@@ -247,9 +288,12 @@ export default function MapPage() {
   const apiFetch = useMapFetch();
   const [face, setFace] = useState<MapFaceData | null>(null);
   const [data, setData] = useState<MapSteps | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [added, setAdded] = useState<number | null>(null);
+  // Ella map 14: the coffee looked at lives in the page address only (?at=)
+  const [searchParams, setSearchParams] = useSearchParams();
+  const atRaw = Number(searchParams.get('at'));
+  const at = Number.isInteger(atRaw) && atRaw > 0 ? atRaw : null;
   // Ella map 12: the one open "More about this coffee" panel ('top' or 'step:<id>')
   const [openPanel, setOpenPanel] = useState<string | null>(null);
   const toggle = (key: string) => setOpenPanel(cur => (cur === key ? null : key));
@@ -258,23 +302,25 @@ export default function MapPage() {
   const load = useCallback(async () => {
     if (!apiFetch) return;
     try {
-      const [f, s] = await Promise.all([getMapFace(apiFetch), getMapSteps(apiFetch)]);
+      const [f, s] = await Promise.all([getMapFace(apiFetch), getMapSteps(apiFetch, at)]);
       setFace(f); setData(s); setError('');
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-  }, [apiFetch]);
+  }, [apiFetch, at]);
   useEffect(() => { void load(); }, [load]);
 
-  const choose = async (step: MapStepCard) => {
-    if (!apiFetch) return;
-    setBusy(true);
-    try {
-      await decideMove(apiFetch, { move: 'step', coffeeId: step.coffeeId, requestId: crypto.randomUUID() });
-      const line = mapCartItem(step);
-      if (line) { addToCart(line); setAdded(step.coffeeId); }
-      await load();
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-    finally { setBusy(false); }
+  // Ella map 14: the chip adds one bag and nothing else; the map, the top card and the trail do not change.
+  const choose = (step: MapStepCard) => {
+    const line = mapCartItem(step);
+    if (line) { addToCart(line); setAdded(step.coffeeId); }
   };
+  /** Ella map 14: look at a coffee (its own spot clears ?at=); a new history entry, so back returns */
+  const look = (coffeeId: number) => {
+    setOpenPanel(null);
+    setAdded(null);
+    if (data?.spot && coffeeId === data.spot.coffeeId) setSearchParams({});
+    else setSearchParams({ at: String(coffeeId) });
+  };
+  const back = () => { setOpenPanel(null); setAdded(null); setSearchParams({}); };
   const addFirstBag = (c: Parameters<typeof mapCartItem>[0]) => {
     const line = mapCartItem(c);
     if (line) { addToCart(line); setAdded(c.coffeeId); }
@@ -295,13 +341,13 @@ export default function MapPage() {
       <p className={`text-sm ${SOFT} mt-2 mb-4 lg:mb-8 lg:max-w-2xl`}>{copy.map_intro}</p>
 
       <TopRow face={face} data={data} copy={copy} added={added} onAddFirstBag={addFirstBag}
-        open={openPanel === 'top'} onToggle={() => toggle('top')} />
+        open={openPanel === 'top'} onToggle={() => toggle('top')} onLook={look} onBack={back} />
 
       <div className="lg:grid lg:grid-cols-2 lg:gap-6">
         {lead && (
           <section className="mb-6 lg:mb-0 lg:col-span-2" data-testid="lead-step">
             <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="lead-title">{copy.lead_title}</p>
-            <StepCard step={lead} copy={copy} busy={busy} onChoose={() => choose(lead)}
+            <StepCard step={lead} copy={copy} onAdd={() => choose(lead)} onLook={() => look(lead.coffeeId)}
               open={openPanel === `step:${lead.stepId}`} onToggle={() => toggle(`step:${lead.stepId}`)} />
           </section>
         )}
@@ -309,7 +355,7 @@ export default function MapPage() {
           <section className="lg:col-span-2" data-testid="steps">
             <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="others-title">{lead ? copy.others_title : copy.steps_title}</p>
             <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start" data-testid="steps-grid">
-              {others.map(s => <StepCard key={s.stepId} step={s} copy={copy} busy={busy} onChoose={() => choose(s)}
+              {others.map(s => <StepCard key={s.stepId} step={s} copy={copy} onAdd={() => choose(s)} onLook={() => look(s.coffeeId)}
                 open={openPanel === `step:${s.stepId}`} onToggle={() => toggle(`step:${s.stepId}`)} />)}
             </div>
           </section>

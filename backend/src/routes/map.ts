@@ -67,7 +67,12 @@ router.get('/moves', async (req: AuthRequest, res) => {
 // Ella map 7 (B3): the page's read: position, first-bag reason, published steps
 router.get('/steps', async (req: AuthRequest, res) => {
   // Ella map 9 (B2): the rows each text used go to admins only
-  try { const s = await subject(req, MOVE_SURFACES); res.json(await matchService.steps(s.userId, undefined, { withBasis: s.isAdmin })); }
+  // Ella map 14: ?at=<coffee id> composes the page from a coffee the customer looks at; nothing is written
+  try {
+    const at = req.query.at === undefined || req.query.at === '' ? null : z.coerce.number().int().positive().parse(req.query.at);
+    const s = await subject(req, MOVE_SURFACES);
+    res.json(await matchService.steps(s.userId, undefined, { withBasis: s.isAdmin, at }));
+  }
   catch (err) { fail(res, 'steps', err); }
 });
 

@@ -11,13 +11,21 @@
 //    (picker; the options are the customer moves from the API), and "How a
 //    card is chosen" lists the ordered, switchable choices (dial_reason_choice;
 //    GET/PUT /reason-choices, dialPlacementService.setReasonChoice).
+//  * Ella map 14: "What moves a spot": one row per event (dial_spot_event) with
+//    its effect (a choice from dial_spot_effect), its trail word and its switch
+//    (GET/PUT /spot-events, dialPlacementService.setSpotEvent), and the numbers
+//    behind them (the evidence-parameter card, keys dial_spot_ and feedback_).
+//    "Read it as" also shows the customer's spot, its basis and since when,
+//    and their events in order with what each did.
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_14_SPOT_AND_WALK.md
 // The page types in only chrome (headings, button verbs); every customer word
 // comes from the API (G4.2).
 // backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_9_PERSONAL_REASONS.md
 import { useEffect, useState } from 'react';
 import type { ApiFetch } from '../../lib/catalogWrites';
-import { getSaidBack, setSaidBack, searchMapCustomers, getReasons, getReasonChoices, setReasonChoice,
-  type SaidBackFact, type MapCustomerHit, type ReasonChoice } from '../../lib/mapAdmin';
+import { getSaidBack, setSaidBack, searchMapCustomers, getReasons, getReasonChoices, setReasonChoice, getSpotEvents, setSpotEvent,
+  type SaidBackFact, type MapCustomerHit, type ReasonChoice, type SpotEventConfig } from '../../lib/mapAdmin';
+import EvidenceParametersCard from './EvidenceParametersCard';
 import type { MapSteps } from '../../lib/mapCustomer';
 
 const CARD = 'border border-stone-200 rounded-xl bg-white';
@@ -168,6 +176,25 @@ export function ReadItAs({ apiFetch }: { apiFetch: ApiFetch }) {
               <p className="mt-1 font-medium">{page.position.name}{page.firstBag?.labelCode ? ` · ${page.copy[page.firstBag.labelCode] ?? page.firstBag.labelCode}` : ''}</p>
               {page.firstBag && <p className="text-stone-700" data-testid="read-it-as-first">{page.firstBag.text ?? page.firstBag.reason}</p>}
               {page.firstBag?.basis && <p className="text-xs text-stone-400">{basisLine(page.firstBag.basis)}</p>}
+              {page.spot && (
+                <p className="text-xs text-stone-500 mt-1" data-testid="read-it-as-spot">
+                  Spot: {page.spot.name} · set by {page.spot.basis}{page.spot.since ? ` · since ${new Date(page.spot.since).toLocaleString()}` : ''}
+                </p>
+              )}
+              {page.events && page.events.length > 0 && (
+                <details className="mt-1" data-testid="read-it-as-events">
+                  <summary className="text-xs text-stone-500 cursor-pointer">Events ({page.events.length})</summary>
+                  <ol className="text-xs text-stone-600 mt-1 space-y-0.5">
+                    {page.events.map(e => (
+                      <li key={e.seq} data-testid="read-it-as-event" data-code={e.eventCode}>
+                        {new Date(e.at).toLocaleString()} · {e.eventCode}{e.isActive ? '' : ' (off)'} · {e.coffeeName}
+                        {e.rating !== null ? ` · rated ${e.rating}` : ''}{e.ordinal !== null ? ` · order ${e.ordinal}` : ''}
+                        {' · '}{e.moved ? 'moved the spot' : e.setsBasis ? 'became the basis' : 'no change'}
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              )}
               <ul className="mt-2 space-y-2">
                 {page.steps.map(s => (
                   <li key={s.stepId} data-testid="read-it-as-step" data-lead={s.isLead ? '1' : '0'}>
@@ -238,6 +265,63 @@ export function ReasonChoicesCard({ apiFetch }: { apiFetch: ApiFetch }) {
       })}
       {rows.length === 0 && <p className="text-xs text-stone-500 mt-2">No choices yet.</p>}
       {msg && <p className="text-xs text-stone-700 mt-2" data-testid="reason-msg">{msg}</p>}
+    </section>
+  );
+}
+
+
+/**
+ * Ella map 14: "What moves a spot": one row per event (dial_spot_event), its
+ * effect from the lookup, its trail word and its switch; then the numbers
+ * (evidence parameters dial_spot_ and feedback_). Each change supersedes and
+ * inserts; the next read of /map and "Read it as" follow it.
+ */
+export function SpotEventsCard({ apiFetch }: { apiFetch: ApiFetch }) {
+  const [rows, setRows] = useState<SpotEventConfig[]>([]);
+  const [effects, setEffects] = useState<Array<{ code: string; label: string }>>([]);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    try { const r = await getSpotEvents(apiFetch); setRows(r.events); setEffects(r.effects); }
+    catch (err) { setMsg(err instanceof Error ? err.message : 'Failed to load'); }
+  };
+  useEffect(() => { void load(); }, [apiFetch]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true); setMsg('');
+    try { await fn(); setMsg('Saved. It applies on the next read of the page.'); await load(); }
+    catch (err) { setMsg(err instanceof Error ? err.message : 'Save failed'); }
+    finally { setBusy(false); }
+  }
+  return (
+    <section className={`${CARD} p-4`} data-testid="spot-events">
+      <h2 className="text-sm font-medium text-stone-800">6. What moves a spot</h2>
+      <p className="text-xs text-stone-500 mt-1">Each event, what it does to the customer's spot, and the word on their trail. An event switched off does nothing and leaves the trail.</p>
+      <ol className="mt-2 space-y-1">
+        {rows.map(r => (
+          <li key={r.code} className="flex flex-wrap items-center gap-2 text-sm" data-testid="spot-event" data-code={r.code} data-active={r.is_active ? '1' : '0'} data-effect={r.effect_code}>
+            <span className={`flex-1 min-w-[12rem] ${r.is_active ? 'text-stone-800' : 'text-stone-400 line-through'}`}>{r.label}</span>
+            <select className="border border-stone-300 rounded px-1 py-0.5 text-xs" value={r.effect_code} disabled={busy}
+              onChange={e => run(() => setSpotEvent(apiFetch, { code: r.code, effect: e.target.value }))} data-testid="spot-effect">
+              {effects.map(x => <option key={x.code} value={x.code}>{x.label}</option>)}
+            </select>
+            <span className="text-xs text-stone-500 w-24" data-testid="spot-word">{r.trail_word ?? ''}</span>
+            <label className="text-xs flex items-center gap-1">
+              <input type="checkbox" checked={r.is_active} disabled={busy}
+                onChange={e => run(() => setSpotEvent(apiFetch, { code: r.code, isActive: e.target.checked }))} data-testid="spot-on" /> On
+            </label>
+          </li>
+        ))}
+      </ol>
+      {rows.length === 0 && <p className="text-xs text-stone-500 mt-2">No events yet.</p>}
+      {msg && <p className="text-xs text-stone-700 mt-2" data-testid="spot-msg">{msg}</p>}
+      <div className="mt-4 space-y-3">
+        <EvidenceParametersCard title="The numbers behind a spot" prefix="dial_spot_" testId="spot-parameters"
+          intro="How many separate orders make a reorder, and the lead switches. A save writes a new row; nothing is overwritten."
+          footer="Applies on the next read of the page." />
+        <EvidenceParametersCard title="What counts as liked and disliked" prefix="feedback_" testId="feedback-parameters"
+          intro="The customer ratings that count as positive and negative feedback, everywhere a sentiment is read."
+          footer="Applies on the next read of every page that reads a sentiment." />
+      </div>
     </section>
   );
 }

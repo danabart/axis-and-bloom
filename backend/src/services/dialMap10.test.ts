@@ -116,7 +116,8 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
       const p = await danaLike(c, 'happy');
       const r = await page(c, p.userId);
       expect(r.position!.name).toBe('Tiger Stripe');
-      expect(r.position!.hasBag).toBe(true);
+      // Ella map 14: hasBag is an attributed real order; her "same again" row is a decision, not a bag
+      expect(r.position!.hasBag).toBe(false);
       expect(r.firstBag!.labelCode).toBe('founder_pick');
       expect(r.firstBag!.text).toBe('Coffee should feel like a reward for you: warm, rich, comforting. A little bitterness tastes serious to you. Chocolate first, with a little lift. Built for espresso.');
       expect(cards(r)).toEqual([
@@ -209,10 +210,21 @@ describe('the top card in each state (B2)', () => {
       const same = await page(c, p.userId);
       expect(same.firstBag!.labelCode).toBe('founder_pick');
       expect(same.firstBag!.text).toBe(first.firstBag!.text);
-      // a step: You are here, answers for this coffee's families, then its map_line
+      // Ella map 14: a step decision no longer moves the spot; a reorder does. Then here_title ("Your spot"),
+      // answers for this coffee's families, then its map_line. Two real orders of the coffee, in two orders.
       const step = first.steps.find(s => !s.isLead)!;
       await match.decide({ userId: p.userId, trigger: 'hop', move: 'step', pickedCoffeeId: step.coffeeId, source: 'map', sourceId: randomUUID() }, c);
+      expect((await page(c, p.userId)).firstBag!.labelCode).toBe('founder_pick');
+      const sku = (await c.query<{ id: string }>(`SELECT id FROM coffee_sku WHERE coffee_id = $1 ORDER BY is_active DESC, id LIMIT 1`, [step.coffeeId])).rows[0].id;
+      for (const secs of [1, 2]) {
+        const o = (await c.query<{ id: string }>(
+          `INSERT INTO "order" (user_id, total_amount_paid, paid_at, created_at, stripe_mode) VALUES ($1, 29, clock_timestamp() + make_interval(secs => $2), clock_timestamp() + make_interval(secs => $2), 'live') RETURNING id`,
+          [p.userId, secs])).rows[0].id;
+        await c.query(`INSERT INTO order_line_item (order_id, blend_id, quantity, intended_for_user_id) VALUES ($1, $2, 1, $3)`, [o, sku, p.userId]);
+        await c.query(`INSERT INTO order_event (order_id, event_kind, payment_status, source) VALUES ($1, 'paid', 'paid', 'webhook')`, [o]);
+      }
       const after = await page(c, p.userId);
+      expect(after.position!.coffeeId).toBe(step.coffeeId);
       expect(after.firstBag!.labelCode).toBe('here_title');
       const mapLine = (await c.query<{ map_line: string }>(`SELECT map_line FROM v_dial_coffee_availability WHERE coffee_id = $1`, [step.coffeeId])).rows[0].map_line;
       expect(after.firstBag!.text.endsWith(mapLine)).toBe(true);

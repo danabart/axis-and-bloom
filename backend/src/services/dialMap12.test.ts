@@ -87,15 +87,15 @@ describe('step lines compare to the coffee the customer is on ({from})', () => {
       const froms = [...new Set(DATA_1.map(d => d.from))];
       const tos = new Map((await c.query<{ coffee_id: number; map_name: string }>(
         `SELECT p.coffee_id, a.map_name FROM v_dial_placement p JOIN v_dial_coffee_availability a ON a.coffee_id = p.coffee_id`)).rows.map(r => [r.map_name, r.coffee_id]));
-      const version = (await c.query<{ id: number }>(`SELECT id FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL`)).rows[0].id;
       let seen = 0;
-      for (const [i, from] of froms.entries()) {
-        // move the position: a fixture step decision to `from` (test DB only, rolled back; decide() takes one step at a time)
-        await c.query(
-          `INSERT INTO customer_match_decision (user_id, occurred_at, version_id, move_id, picked_coffee_id, source, source_id, inputs)
-           SELECT $1, timezone('utc', now()) + make_interval(secs => $5), $2, m.id, $3, 'map', $4, '{}' FROM dial_move m WHERE m.code = 'step'`,
-          [p.userId, version, tos.get(from)!, `zzz-map12-${randomUUID()}`, i + 1]);
-        const r = await page(c, p.userId);
+      for (const from of froms) {
+        // Ella map 14: look at `from` (?at=); nothing is written, and a step decision no longer moves
+        // the spot. A coffee this customer may not be shown (the decaf tag filter) is refused for at.
+        const r = await match.steps(p.userId, c, { withBasis: true, at: tos.get(from)! }).catch((e: unknown) => {
+          if (e instanceof match.MatchError && e.code === 'NOT_ON_MAP') return null;
+          throw e;
+        });
+        if (!r) continue;
         expect(r.position!.name).toBe(from);
         for (const s of r.steps) {
           seen++;
@@ -108,7 +108,7 @@ describe('step lines compare to the coffee the customer is on ({from})', () => {
       }
       expect(seen).toBeGreaterThanOrEqual(30); // decaf steps are filtered by the tag filter for some customers
     });
-  });
+  }, 900_000); // Ella map 14: one page read per map coffee over the proxy; each read now also folds the spot
 
   it('the seed writes only the line; a second run writes nothing and publishes nothing; the placements do not move', async () => {
     await withRollback(async ({ client: c }) => {

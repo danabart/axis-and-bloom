@@ -636,6 +636,35 @@ export async function reasonChoices(opts: { history?: boolean } = {}, runner: Ru
   return r.rows;
 }
 
+// ── Ella's Bloom Map 14 (2026-11-27), B: what moves a spot ───────────────────
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_14_SPOT_AND_WALK.md
+
+export interface SpotEventConfigRow {
+  id: number; code: string; label: string; effect_code: string; effect_label: string; effect_order: number;
+  trail_word: string | null; sort_order: number; is_active: boolean; decided_by: string | null;
+  created_at: string; superseded_at: string | null; is_current: boolean;
+}
+
+/** What moves a spot (v_dial_spot_event): current rows in sort order; with history, every row, newest first within a code. */
+export async function spotEvents(opts: { history?: boolean } = {}, runner: Pick<typeof db, 'query'> = db): Promise<SpotEventConfigRow[]> {
+  const r = await runner.query(
+    `SELECT id, code, label, effect_code, effect_label, effect_order, trail_word, sort_order, is_active, decided_by, created_at, superseded_at, is_current
+       FROM v_dial_spot_event ${opts.history ? '' : 'WHERE is_current'}
+      ORDER BY sort_order, code, created_at DESC, id DESC`);
+  return r.rows as SpotEventConfigRow[];
+}
+
+/** /admin/map "What moves a spot": the event rows and the effects they may have. */
+export async function spotEventConfig(opts: { history?: boolean } = {}, runner: Pick<typeof db, 'query'> = db) {
+  return { events: await spotEvents(opts, runner), effects: await spotEffects(runner) };
+}
+
+/** The effects an event may have (dial_spot_effect), for the admin's choice. */
+export async function spotEffects(runner: Pick<typeof db, 'query'> = db): Promise<Array<{ code: string; label: string; sort_order: number }>> {
+  const r = await runner.query(`SELECT code, label, sort_order FROM dial_spot_effect ORDER BY sort_order`);
+  return r.rows as Array<{ code: string; label: string; sort_order: number }>;
+}
+
 /** dial_move code -> the code of its opposite move (bolder <-> gentler); moves without one are absent. Read by nothing since Ella map 10 (step_against retired). */
 export async function moveOpposites(runner: Runner = db): Promise<Map<string, string>> {
   const r = await runner.query<{ code: string; opposite: string }>(

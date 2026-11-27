@@ -19,7 +19,7 @@ import * as dialReads from './dialReads.js';
 import { record, type MatchSource } from './customerFacts.js';
 import {
   getMatchCurrent, getMatchTrail, getMatchDecisionBySource, getMatchQuizContext, getCurrentQuizSessionId,
-  getBrewDecafByProfile, getMatchTrailLines, getCupboardCoffee, getCoffeeFeeling, type MatchCurrentRow,
+  getBrewDecafByProfile, getSpotTrail, getFeedbackCurrent, getCupboardCoffee, getCoffeeFeeling, type MatchCurrentRow, type SpotEventRow,
 } from './customerReads.js';
 import { getParameters } from './evidenceReads.js';
 import { getCardPresentations } from './coffeeCardReads.js';
@@ -46,6 +46,20 @@ const DECAF_TAG = 'decaf';
 // (v_dial_start); when no row wins, the center family's row with this
 // condition code (the brief: Balanced's "always" row). A code, like DECAF_TAG.
 const FALLBACK_CONDITION = 'always';
+
+// Ella map 14 (2026-11-27): the spot. The codes v_customer_spot_event gives an
+// event and the effects its fold applies; which event has which effect, its
+// trail word and its switch are rows (dial_spot_event), the numbers parameters.
+// A row whose code is not here has no effect and is reported by data-catalog
+// check 17, the way check 15 reports KNOWN_REASON_CHOICES.
+export const KNOWN_SPOT_EVENTS = ['founders_pick', 'decision_other', 'first_order', 'reorder', 'feedback_positive', 'feedback_neutral', 'feedback_negative'] as const;
+export const KNOWN_SPOT_EFFECTS = ['sets_spot', 'moves_spot', 'trail_only', 'nothing'] as const;
+/** The event a quiz result is (the spot's start, "Founder's pick"). */
+const FOUNDERS_PICK = 'founders_pick';
+/** The effect that leaves no mark on the trail. */
+const NO_EFFECT = 'nothing';
+/** The effect that moves the spot (its trail row carries trail_moved when the coffee changed). */
+const MOVES_SPOT = 'moves_spot';
 
 // ── The customer's context ────────────────────────────────────────────────────
 
@@ -369,41 +383,36 @@ export async function decide(input: DecideInput, runner: Runner = db): Promise<D
 
 // ── Position and trail (CTO call 3) ───────────────────────────────────────────
 
-/** GET /api/map/me: the position, its start or "no longer available" sentence, the first-bag reason before any bag, the trail on the active version. */
+/**
+ * Ella map 14: the customer's trail, a short true history: the spot events in
+ * order (v_customer_spot_event), each switched-on row whose effect leaves a
+ * mark, with its trail word (dial_spot_event.trail_word), the customer's own
+ * words on a feedback row, and trail_moved where the spot's coffee changed. No
+ * cart tap and no map tap is on it (decision_other's effect is nothing).
+ */
+export function trailOf(events: SpotEventRow[], copy: Record<string, string>, nameOf: (id: number, fallback: string) => string, onMap: (id: number) => boolean) {
+  return events.filter(e => e.isActive && e.effectCode !== null && e.effectCode !== NO_EFFECT).map(e => ({
+    step: e.seq, occurredAt: e.at, move: e.eventCode, moveWord: e.trailWord,
+    coffeeId: e.coffeeId, name: nameOf(e.coffeeId, e.coffeeName), byOther: e.actorUserId !== null,
+    line: e.rawText && e.rawText.trim() ? e.rawText : null,
+    moved: e.moved,
+    movedLine: e.moved && e.effectCode === MOVES_SPOT ? copy.trail_moved ?? null : null,
+    // drawn on the active version (R3.9): the face places the dot; no ring, lane or cell goes to the customer
+    onActiveMap: onMap(e.coffeeId),
+  }));
+}
+
+/** GET /api/map/me: the spot, its start or "no longer available" sentence, the first-bag reason while the spot is the Founder's pick, the trail (Ella map 14: the spot events). */
 export async function me(profileId: string, runner: Runner = db) {
   const copy = await dialReads.customerCopy(runner);
   const version = await dialReads.activeVersion(runner);
   const pos = await getMatchCurrent(profileId, runner);
-  const trailRows = await getMatchTrail(profileId, runner);
-  const phrases = (await dialReads.phrases(runner)).resolved as Array<{ archetype_code: string; move_code: string; button_label: string }>;
+  const events = await getSpotTrail(profileId, runner);
   const placed = await dialReads.placementActive(runner) as PlacementRow[];
-  const familyOf = new Map(placed.map(p => [p.coffee_id, p.archetype_code]));
-  const stepWords = await dialReads.activeStepWords(runner);
-  const lines = await getMatchTrailLines(profileId, runner);
-  // Ella map 7 (B4): the word of the published step that joins two consecutive
-  // choices; the start word for the quiz; a calculated hop keeps its phrase.
-  const moveWord = (row: { move_code: string; from_coffee_id: number | null; picked_coffee_id: number }, prevPicked: number | null) => {
-    if (row.move_code === 'quiz_result') return copy.trail_start ?? null;
-    if (prevPicked !== null) {
-      const w = stepWords.get(`${prevPicked}>${row.picked_coffee_id}`);
-      if (w) return w;
-    }
-    if (row.move_code === STEP_MOVE) return null;
-    const fam = row.from_coffee_id ? familyOf.get(row.from_coffee_id) : undefined;
-    return phrases.find(p => p.archetype_code === fam && p.move_code === row.move_code)?.button_label
-      ?? phrases.find(p => p.move_code === row.move_code)?.button_label ?? null;
-  };
-  const names = await dialReads.mapCoffees([...new Set([...trailRows.map(t => t.picked_coffee_id), ...(pos ? [pos.coffeeId] : [])])], runner);
+  const placedIds = new Set(placed.map(p => p.coffee_id));
+  const names = await dialReads.mapCoffees([...new Set([...events.map(t => t.coffeeId), ...(pos ? [pos.coffeeId] : [])])], runner);
   const nameOf = (id: number, fallback: string) => names.get(id)?.map_name ?? fallback;
-  const trail = trailRows.map((t, i) => ({
-    step: t.step, occurredAt: t.occurred_at, move: t.move_code,
-    moveWord: moveWord(t, i > 0 ? trailRows[i - 1].picked_coffee_id : null),
-    coffeeId: t.picked_coffee_id, name: nameOf(t.picked_coffee_id, t.picked_coffee_name), byOther: t.actor_user_id !== null,
-    // the customer's own words about this coffee, when they left some (v_customer_feedback_current)
-    line: lines.get(t.picked_coffee_id) ?? null,
-    // drawn on the active version (R3.9): the face places the dot; no ring, lane or cell goes to the customer
-    onActiveMap: t.active_archetype_code !== null,
-  }));
+  const trail = trailOf(events, copy, nameOf, id => placedIds.has(id));
   if (!pos) return { position: null, firstBag: null, trail, versionLabel: version?.label ?? null, copy };
   const available = pos.isInActiveVersion && pos.isSellable && pos.inStock;
   let sentence: string | null;
@@ -422,6 +431,8 @@ export async function me(profileId: string, runner: Runner = db) {
       coffeeId: pos.coffeeId, name: nameOf(pos.coffeeId, pos.coffeeName), archetypeCode: pos.archetypeCode, isCenter: pos.isCenter === true,
       isInActiveVersion: pos.isInActiveVersion, available, sentence, move: pos.moveCode, occurredAt: pos.occurredAt,
       byOther: pos.actorUserId !== null,
+      // Ella map 14: what put the spot there, and since when
+      basis: pos.spotEventCode, since: pos.spotSince,
     },
     firstBag: await firstBagReason(profileId, pos, runner),
     trail, versionLabel: version?.label ?? null, copy,
@@ -450,16 +461,15 @@ const ruleOf = (r: RuleLike): FirstBagRule => ({
 interface TrailDecision { decision_id: string; move_code: string; picked_coffee_id: number; inputs: unknown }
 
 /**
- * Ella map 10 (Task 0 item 2, Dana 2026-11-24): the position is a first match
- * when its coffee is the coffee of the customer's latest quiz-result decision
- * and no decision since then picked another coffee ("Same again" keeps it).
- * Returns that quiz-result decision, else null.
+ * Ella map 14: the quiz-result decision behind a spot set by the quiz (basis
+ * founders_pick, v_customer_match_current.decision_id), else null. Replaces
+ * Ella map 10's reading of the decision log: a step decision no longer moves
+ * the spot, so it no longer ends a first match.
  */
-function firstMatchDecision(trail: TrailDecision[], coffeeId: number): TrailDecision | null {
-  let i = trail.length - 1;
-  while (i >= 0 && trail[i].move_code !== 'quiz_result') i--;
-  if (i < 0) return null;
-  return trail.slice(i).every(t => t.picked_coffee_id === coffeeId) ? trail[i] : null;
+async function foundersPickDecision(profileId: string, pos: MatchCurrentRow, runner: Runner): Promise<TrailDecision | null> {
+  if (pos.spotEventCode !== FOUNDERS_PICK || !pos.decisionId) return null;
+  const trail = await getMatchTrail(profileId, runner) as TrailDecision[];
+  return trail.find(t => t.decision_id === pos.decisionId) ?? null;
 }
 
 /**
@@ -482,9 +492,7 @@ async function ruleForDecision(decision: TrailDecision, coffeeId: number, runner
 
 /** The one reason under the first bag (me(): the trail page keeps its shape; before any bag only). */
 async function firstBagReason(profileId: string, pos: MatchCurrentRow, runner: Runner): Promise<{ coffeeId: number; reason: string } | null> {
-  if (pos.moveCode !== 'quiz_result') return null;
-  const trail = await getMatchTrail(profileId, runner) as TrailDecision[];
-  const decision = trail.find(t => t.decision_id === pos.decisionId);
+  const decision = await foundersPickDecision(profileId, pos, runner);
   const r = decision ? await ruleForDecision(decision, pos.coffeeId, runner) : null;
   return r ? { coffeeId: r.coffeeId, reason: r.reason } : null;
 }
@@ -557,6 +565,18 @@ export interface MapStepsResult {
   copy: Record<string, string>;
   /** Ella map 9 (C8): set when the position is read from the start rule ("Read it as" a customer with no decision); nothing is written */
   readAs?: 'start_rule';
+  /**
+   * Ella map 14: the customer's own spot (always drawn ringed), what put it
+   * there and since when, and the "Back to your spot" line. position is the
+   * coffee the page is composed from: the spot, or the coffee looked at.
+   */
+  spot?: { coffeeId: number; name: string; basis: string; since: string | null; backLine: string | null };
+  /** Ella map 14: true when the page is composed from a coffee the customer looks at (?at=); nothing is written */
+  lookingAt?: boolean;
+  /** Ella map 14: the Founder's pick, when the spot has moved off it (the small start marker) */
+  startCoffeeId?: number | null;
+  /** Ella map 14 ("Read it as", admins only): the customer's spot events in order, with the fold's state after each */
+  events?: SpotEventRow[];
 }
 
 /** A sentence with its closing stop (a notes list has none). */
@@ -567,6 +587,8 @@ export interface StepsOptions {
   withBasis?: boolean;
   /** Ella map 9 (C8): with no decision, read the session's winning start rule as the position (read only) */
   readAsRule?: boolean;
+  /** Ella map 14: compose the page from this coffee, which the customer looks at; it must be on the active map for them. Writes nothing. */
+  at?: number | null;
 }
 
 /** Ella map 10: one thing the page may say about the customer: a self-taken quiz answer or the setup feeling, through its approved sentence. */
@@ -622,33 +644,50 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
   const ctx = await customerContext(profileId, null, runner);
   const start = ctx.quizSessionId ? await dialReads.startForSession(ctx.quizSessionId, runner) : null;
 
-  // The position, whether it is a first match, and the rule that names it.
+  // The spot, whether it is the Founder's pick, and the rule that names it.
   // With no decision, "Read it as" reads the start rule as a first match (C8).
-  let positionCoffee: { id: number; name: string } | null = null;
+  // Ella map 14: the spot is the fold (v_customer_match_current); a first match
+  // is a spot whose basis is founders_pick; hasBag is an attributed real order.
+  let spotCoffee: { id: number; name: string } | null = null;
   let rule: FirstBagRule | null = null;
   let hasBag = false;
   let firstMatch = false;
   let readAs: 'start_rule' | undefined;
+  let events: SpotEventRow[] = [];
   if (pos) {
-    positionCoffee = { id: pos.coffeeId, name: pos.coffeeName };
-    hasBag = pos.moveCode !== 'quiz_result';
-    const decision = firstMatchDecision(await getMatchTrail(profileId, runner) as TrailDecision[], pos.coffeeId);
+    spotCoffee = { id: pos.coffeeId, name: pos.coffeeName };
+    events = await getSpotTrail(profileId, runner);
+    hasBag = events.some(e => e.kind === 'order');
+    const decision = await foundersPickDecision(profileId, pos, runner);
     firstMatch = decision !== null;
     rule = decision ? await ruleForDecision(decision, pos.coffeeId, runner) : null;
   } else if (opts.readAsRule && start) {
     const row = start.rule_id ? start : await dialReads.startFallback(FALLBACK_CONDITION, runner);
     if (row) {
       rule = ruleOf(row as RuleLike);
-      positionCoffee = { id: rule.coffeeId, name: String((row as { coffee_name: string }).coffee_name) };
+      spotCoffee = { id: rule.coffeeId, name: String((row as { coffee_name: string }).coffee_name) };
       firstMatch = true;
       readAs = 'start_rule';
     }
   }
-  if (!positionCoffee) return { position: null, firstBag: null, steps: [], copy };
-  const here = positionCoffee.id;
+  if (!spotCoffee) return { position: null, firstBag: null, steps: [], copy };
+
+  // Ella map 14: looking at another coffee (?at=). It must be placed on the
+  // active map, active, and pass the customer's tag filter (W3); the page is
+  // then composed from it as it is from the spot. Nothing is written.
+  let here = spotCoffee.id;
+  let hereName = spotCoffee.name;
+  let looking = false;
+  if (opts.at !== undefined && opts.at !== null && opts.at !== spotCoffee.id) {
+    const p = (await dialReads.placementActive(runner) as Array<PlacementRow & { coffee_is_active: boolean }>).find(x => x.coffee_id === opts.at);
+    if (!p || !p.coffee_is_active || !passesTagFilter(p.category_codes, ctx.decaf)) throw new MatchError(404, 'NOT_ON_MAP', 'That coffee is not on the map.');
+    here = opts.at;
+    looking = true;
+    hereName = p.coffee_name;
+  }
 
   const offered = await offeredSteps(here, ctx.decaf, runner);
-  const ids = [here, ...offered.map(x => x.to_coffee_id)];
+  const ids = [here, spotCoffee.id, ...offered.map(x => x.to_coffee_id)];
   const [pres, facts] = await Promise.all([getCardPresentations(ids), mapFacts(ids, runner)]);
   // Ella map 8 (B1, item 8b): the roaster's own words, else today's signature descriptors.
   const notes = (id: number) => { const w = facts.roasterWords(id); return w.length ? w : pres.get(id)?.signatureNotes ?? []; };
@@ -659,7 +698,8 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
    * Ella map 12: the line is a comparison to the coffee the customer is on;
    * {from} is filled with its map name here, the one place a step line reaches a customer.
    */
-  const fromName = facts.name(here, positionCoffee.name);
+  const fromName = facts.name(here, hereName);
+  const spotName = facts.name(spotCoffee.id, spotCoffee.name);
   const stepLine = (x: { to_coffee_id: number; customer_line: string | null }) =>
     x.customer_line !== null ? fill(x.customer_line, { from: fromName }) : coffeeSentence(x.to_coffee_id);
 
@@ -752,8 +792,21 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
   // coffee, the rule's customer_reason (Dana 2026-11-24). After a step: "You are
   // here", answers for this coffee's families, then its sentence. The kitchen
   // sentence opens it. No quiz: no top card, the notes as before.
+  // Ella map 14: on the spot, "Founder's pick" while the quiz set it, else
+  // here_title ("Your spot"). Looking at another coffee: "Looking at", and one
+  // line comparing it to the spot: the published step line from the spot to it
+  // ({from} = the spot's map name) when that step exists, else its map_line.
+  // No answer is used on it, so they stay for the step cards.
   let firstBag: MapStepsResult['firstBag'] = null;
-  if (ctx.quizSessionId) {
+  if (looking) {
+    const fromSpot = (await dialReads.stepsFrom(spotCoffee.id, runner)).find(s => s.to_coffee_id === here);
+    const line = fromSpot?.customer_line ? fill(fromSpot.customer_line, { from: spotName }) : coffeeSentence(here);
+    const c = compose([{ text: line }], { stepId: fromSpot?.id, choice: 'looking_at_title' });
+    firstBag = {
+      coffeeId: here, reason: '', text: c.text, labelCode: 'looking_at_title', isFounderPick: false,
+      ...(opts.withBasis ? { basis: c.basis } : {}),
+    };
+  } else if (ctx.quizSessionId) {
     const n = params.dial_quote_family_answers ?? 0;
     const parts: Part[] = [];
     if (kitchen) parts.push({ code: 'kitchen', text: fill(copy.kitchen, { brand: kitchen.says_back }), said: [kitchen] });
@@ -783,24 +836,35 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
   //    lead, then step order (Dana 2026-11-24); the feeling's sentence, then the step's line.
   //  start_rule: on a first match, the rule's lead with the rule's lead sentence.
   //  strongest_support: the step with the strongest support; its fact, then the step's line.
+  // Ella map 14: a step may be the lead only when it is leadable: not a coffee the
+  // customer rated at or below the negative limit (parameter
+  // dial_spot_skip_disliked_lead), and, while looking at another coffee, not the
+  // spot itself (parameter dial_spot_not_lead_when_looking; the spot stays a
+  // normal card). The start rule's lead belongs to the spot page only (W2).
   type Offered = (typeof offered)[number];
+  const notLead = new Set<number>();
+  if ((params.dial_spot_skip_disliked_lead ?? 0) === 1) {
+    for (const f of await getFeedbackCurrent({ profileId }, { sentiment: 'negative' }, runner)) notLead.add(f.coffeeId);
+  }
+  if (looking && (params.dial_spot_not_lead_when_looking ?? 0) === 1) notLead.add(spotCoffee.id);
+  const leadable = offered.filter(x => !notLead.has(x.to_coffee_id));
   let lead: { step: Offered; parts: Part[]; choice: string; ruleId?: number | null } | null = null;
   for (const source of leadSources) {
     if (source === 'setup_answer') {
       if (!feeling || feeling.move === null) continue;
-      const ranked = offered.map((x, i) => ({ x, i, s: supportFor(x, quizFacts) })).filter(r => r.x.move_code === feeling.move);
+      const ranked = leadable.map((x, i) => ({ x, i, s: supportFor(x, quizFacts) })).filter(r => r.x.move_code === feeling.move);
       if (!ranked.length) continue;
       const ruleLead = (r: { x: Offered }) => Number(rule !== null && r.x.to_coffee_id === rule.leadToCoffeeId);
       ranked.sort((a, b) => supportOrder(a.s, b.s) || ruleLead(b) - ruleLead(a) || a.i - b.i);
       used.add(feeling.key);
       lead = { step: ranked[0].x, parts: [factPart(feeling), { text: stepLine(ranked[0].x) }], choice: source };
     } else if (source === 'start_rule') {
-      if (!firstMatch || !rule || rule.leadToCoffeeId === null) continue;
-      const x = offered.find(s => s.to_coffee_id === rule!.leadToCoffeeId);
+      if (looking || !firstMatch || !rule || rule.leadToCoffeeId === null) continue;
+      const x = leadable.find(s => s.to_coffee_id === rule!.leadToCoffeeId);
       if (!x) continue;
       lead = { step: x, parts: [{ text: rule.leadLine ?? stepLine(x) }], choice: source, ruleId: rule.ruleId };
     } else if (source === 'strongest_support') {
-      const ranked = offered.map((x, i) => ({ x, i, s: supportFor(x, allFacts) })).filter(r => r.s !== null);
+      const ranked = leadable.map((x, i) => ({ x, i, s: supportFor(x, allFacts) })).filter(r => r.s !== null);
       if (!ranked.length) continue;
       ranked.sort((a, b) => supportOrder(a.s, b.s) || a.i - b.i);
       const best = ranked[0];
@@ -846,15 +910,25 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
   });
   cards.sort((a, b) => Number(b.isLead) - Number(a.isLead));
 
+  // Ella map 14: the Founder's pick, once the spot has moved off it (the latest quiz result that set or would set the spot).
+  const pick = [...events].reverse().find(e => e.eventCode === FOUNDERS_PICK && e.isActive);
+  const startCoffeeId = pick && pick.coffeeId !== spotCoffee.id ? pick.coffeeId : null;
   return {
     position: {
-      coffeeId: here, name: facts.name(here, positionCoffee.name), notes: notes(here),
+      coffeeId: here, name: fromName, notes: notes(here),
       price: facts.price(here), familyLabel: facts.familyLabel(here), hasBag,
     },
     firstBag,
     steps: cards,
     copy,
     ...(readAs ? { readAs } : {}),
+    spot: {
+      coffeeId: spotCoffee.id, name: spotName, basis: pos?.spotEventCode ?? FOUNDERS_PICK, since: pos?.spotSince ?? null,
+      backLine: copy.back_to_spot ? fill(copy.back_to_spot, { coffee: spotName }) : null,
+    },
+    lookingAt: looking,
+    startCoffeeId,
+    ...(opts.withBasis ? { events } : {}),
   };
 }
 

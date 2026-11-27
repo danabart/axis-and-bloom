@@ -6,6 +6,10 @@
 // Ella map 7 (C2): the list as on page 4 of Dana's PDF: each chosen coffee in
 // order, the word of the published step that led to it, the date, and the
 // customer's own words about it when they left some.
+// Ella map 14 (2026-11-27): the trail is the spot's true history (GET
+// /api/map/me): the Founder's pick, what was ordered, what the customer said,
+// and where the spot moved (trail_moved); no cart or map tap. The line on the
+// face joins the coffees the spot sat on, in order.
 import { useEffect, useRef, useState } from 'react';
 import EllaMapFace from './EllaMapFace';
 import { getMapSurfaces, getMapMe, getMapFace, useMapFetch, type MapMe, type MapFaceData } from '../../../lib/mapCustomer';
@@ -53,6 +57,7 @@ export default function MapTrail({ onContent, hideHeading }: { onContent?: (hasC
                 <span className="font-medium" data-testid="trail-coffee">{t.name}</span>
                 <span className="text-xs text-[#6b5a56] ml-2" data-testid="trail-date">{new Date(t.occurredAt).toLocaleDateString()}</span>
                 {t.line && <span className="block text-sm italic text-[#6b5a56]" data-testid="trail-line">“{t.line}”</span>}
+                {t.movedLine && <span className="block text-xs text-[#a33726]/70" data-testid="trail-moved">{t.movedLine}</span>}
               </span>
             </li>
           ))}
@@ -60,7 +65,7 @@ export default function MapTrail({ onContent, hideHeading }: { onContent?: (hasC
         <div className="w-full md:w-[320px]">
           {/* Ella map 8 (C3): no dot is dashed for sellability; the others are quiet dots, as on /map */}
           <EllaMapFace placements={face.placements} wedges={face.wedges} size="full" labelMode="none"
-            highlightCoffeeId={me.position?.coffeeId ?? null} path={me.trail.map(t => t.coffeeId)} quietOthers />
+            highlightCoffeeId={me.position?.coffeeId ?? null} path={me.trail.filter(t => t.moved).map(t => t.coffeeId)} quietOthers />
         </div>
       </div>
     </div>
