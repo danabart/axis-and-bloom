@@ -7324,3 +7324,26 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
 - **Seed:** `backend/src/scripts/ellaMapCardsAboutYou_2026_11_27.ts`, through `setStepInTx`, `setReasonChoiceInTx`, `setCustomerCopyInTx` and `publishInTx`. It refuses if a placement would move; a row edited since is kept.
 - **Integrity:** check 15 knows the new codes; checks 9 and 10 gain the copy codes and the key.
 - **Tests:** new `dialMap15.test.ts` (Dana's production pages word for word, the late kinds, the opposite switch, the tags, the proxy quiz, no "elsewhere"); earlier pins updated; frontend `mapTags.test.tsx`.
+
+### 292. Ella's Bloom Map 16: every card is measured from your spot (2026-11-27)
+
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_16_MEASURED_FROM_YOUR_SPOT.md` · `CLOSING_REPORT_16.md`. Built on the test DB 2026-11-28 with Dana's 7 answers at the Task 0 STOP; STOP before the push.
+
+- **While looking at a coffee (`/map?at=`), every card is measured from the spot** (`matchService.steps`):
+  - **The tag is the distance** in steps: the fewest published, shown steps from the spot, in each step's direction (`shortestWays`, over `dialReads.activeStepWords`, now extended with the step id, basis order and move). The tags are "One step from your spot", "{n} steps from your spot", "Outside your comfort zone · …" beyond `dial_path_comfort_zone_steps` (1), "Your spot", and "A different part of the map" when there is no way.
+  - **Ties** between equally short ways (Dana Q1 b): prefer a way with no change and its opposite, then the fewest kinds of change, then step-card order.
+  - **The "Looking at" card:**
+    - inside the comfort zone, the coffee's spot-page step card, word for word;
+    - otherwise the summary of what is different, then the coffee's own line.
+  - **The summary** (`pathSummary`): each kind of change once, wherever it sits on the way (Dana Q1 a). Two steps of the same kind read "much", three or more "far". Parts are joined by `path_join` and `path_last_join`.
+  - **No summary**, only the tag and the coffee's line, when the way holds a change and its opposite (opposite moves by `dial_move`, or two words that are the two directions of one step pair on the active map, read from the step rows; Dana Q2, amended 2026-11-28), or more kinds than `dial_path_max_changes` (3; Dana Q3).
+  - **Step cards** are their line alone: no quiz answer, no lead.
+- **The spot page is unchanged:** the same top card, sentences and lead. Its step cards carry no tag, because the brief 15 `spot_relation` rows are off.
+- **Switched off through `setReasonChoice`, not deleted:** `own_family`, `same_family`, `joined_by_step`, `leans_to_spot_family`, `other_direction`. `family_lean` stays on.
+- **Step word renamed** (Dana Q4 d): "More body, keep the fruit" (La Familia → Geometric) is now "More body". The line keeps the fruit. Published as the next `L<n> measured from your spot (Ella map 16)`.
+- **Seeded:** eight copy rows (`tag_steps_one`, `tag_steps_many`, `tag_outside_comfort`, `tag_no_way`, `path_join`, `path_last_join`, `path_twice`, `path_more`) and two parameters, both on the new admin card "How far a coffee is from the spot" (Dana Q6).
+- **Seed script:** `backend/src/scripts/ellaMapMeasuredFromSpot_2026_11_27.ts`.
+- **"Read it as"** reads any customer's page while they look at a coffee (`GET /api/admin/map/reasons?at=`, a "Look at …" link on each card, "Back to the spot"). Each card shows its distance, the way taken and the summary's state and words.
+- **Tests:**
+  - New `dialMap16.test.ts`.
+  - The pinned pages of briefs 14 and 15 are updated.

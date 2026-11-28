@@ -42,7 +42,9 @@ export interface MapFirstBag {
   tag?: string | null;
 }
 /** Ella map 9 (admins only): the rows and facts a composed text used */
-export interface MapTextBasis { ruleId?: number | null; stepId?: number; copyCodes: string[]; saidBackIds: number[]; factCodes: string[]; /** Ella map 10: the reason choice that picked it */ choice?: string | null; /** Ella map 15: the spot_relation row that gave the tag */ tagCode?: string | null }
+export interface MapTextBasis { ruleId?: number | null; stepId?: number; copyCodes: string[]; saidBackIds: number[]; factCodes: string[]; /** Ella map 10: the reason choice that picked it */ choice?: string | null; /** Ella map 15: the spot_relation row that gave the tag */ tagCode?: string | null;
+  /** Ella map 16 (admins): the distance from the spot in steps (null: no way), the way taken, the summary's state and words */
+  distance?: number | null; way?: Array<{ stepId: number; word: string; to: string }>; summary?: string; summaryWords?: string[] }
 /** Ella map 8: a buyable coffee's anchor-size price (null price = not buyable) */
 export interface MapPrice { cents: number; sizeLabel: string; weightOz: number }
 /** Ella map 7: one published step leaving the customer's coffee */

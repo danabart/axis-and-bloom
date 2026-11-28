@@ -565,11 +565,20 @@ export async function stepsFrom(coffeeId: number, runner: Runner = db) {
   return r.rows as Array<{ id: number; from_coffee_id: number; to_coffee_id: number; to_coffee_name: string; button_word: string; customer_line: string | null; basis_sort_order: number; move_code: string | null }>;
 }
 
-/** Every step on the active map as (from, to) -> word: the trail's words. */
-export async function activeStepWords(runner: Runner = db): Promise<Map<string, string>> {
-  const r = await runner.query<{ from_coffee_id: number; to_coffee_id: number; button_word: string }>(
-    `SELECT from_coffee_id, to_coffee_id, button_word FROM v_dial_step WHERE on_active_map`);
-  return new Map(r.rows.map(x => [`${x.from_coffee_id}>${x.to_coffee_id}`, x.button_word]));
+/** Ella map 16: one published, shown step on the active map (v_dial_step on_active_map). */
+export interface ActiveStep { id: number; from_coffee_id: number; to_coffee_id: number; to_coffee_name: string; button_word: string; basis_sort_order: number; move_code: string | null }
+
+/**
+ * Every step on the active map, keyed (from, to), in step-card order (basis
+ * order, then word, then the destination's name, then id): the step pairs the
+ * brief 15 tag (joined_by_step) and the brief 16 distance from the spot read.
+ */
+export async function activeStepWords(runner: Runner = db): Promise<Map<string, ActiveStep>> {
+  const r = await runner.query<ActiveStep>(
+    `SELECT id, from_coffee_id, to_coffee_id, to_coffee_name, button_word, basis_sort_order, move_code
+       FROM v_dial_step WHERE on_active_map
+      ORDER BY basis_sort_order, button_word, to_coffee_name, id`);
+  return new Map(r.rows.map(x => [`${x.from_coffee_id}>${x.to_coffee_id}`, x]));
 }
 
 /** May a coffee of this family lean this way (v_dial_wedge_lane)? Null when the family or lane is unknown. */

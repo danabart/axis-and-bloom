@@ -14411,6 +14411,37 @@ WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = 'dial_step_op
 -- END ELLA'S BLOOM MAP 15 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN ELLA'S BLOOM MAP 16 block (2026-11-27): every card is measured from your spot
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_16_MEASURED_FROM_YOUR_SPOT.md
+-- No new table or view. The distance tags and the summary's joiners and
+-- strength words (insert if missing); the rows switched off and the renamed
+-- step go in through the writers (script ellaMapMeasuredFromSpot_2026_11_27).
+-- ═══════════════════════════════════════════════════════════════════════════
+INSERT INTO dial_customer_copy (code, text, decided_by)
+SELECT v.code, v.text, 'seed' FROM (VALUES
+  ('tag_steps_one',       'One step from your spot'),
+  ('tag_steps_many',      '{n} steps from your spot'),
+  ('tag_outside_comfort', 'Outside your comfort zone · {steps}'),
+  ('tag_no_way',          'A different part of the map'),
+  ('path_join',           ', '),
+  ('path_last_join',      ', and '),
+  ('path_twice',          'much {word}'),
+  ('path_more',           'far {word}')
+) AS v(code, text)
+WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = v.code);
+
+-- Dana Task 0 Q6: one admin card, prefix dial_path_ (insert if missing; not versioned).
+INSERT INTO evidence_parameter (key, value, note)
+SELECT 'dial_path_comfort_zone_steps', 1, 'Ella map 16: the comfort zone is the spot and this many steps around it (fewest published, shown steps from the spot). A coffee further out is tagged "Outside your comfort zone"; inside it a looked-at one-step coffee repeats its spot-page card. Range: integer 1 <= value <= 5.'
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = 'dial_path_comfort_zone_steps');
+INSERT INTO evidence_parameter (key, value, note)
+SELECT 'dial_path_max_changes', 3, 'Ella map 16: the most kinds of change a looked-at card''s summary names. A way with more kinds of change shows no summary, only the tag and the coffee''s own line (Dana Task 0 Q3). Range: integer 1 <= value <= 6.'
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = 'dial_path_max_changes');
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END ELLA'S BLOOM MAP 16 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.

@@ -223,8 +223,8 @@ export const setSpotEvent = (f: ApiFetch, body: { code: string; effect?: string;
 export const setMapLine = (f: ApiFetch, coffeeId: number, mapLine: string | null) =>
   call<unknown>(f, `/api/admin/catalog/coffees/${coffeeId}`, json('PATCH', { mapLine }));
 export const searchMapCustomers = (f: ApiFetch, q: string) => call<MapCustomerHit[]>(f, `${B}/customers?q=${encodeURIComponent(q)}`);
-export const getReasons = (f: ApiFetch, profileId: string) =>
-  call<import('./mapCustomer').MapSteps>(f, `${B}/reasons?profileId=${encodeURIComponent(profileId)}`);
+export const getReasons = (f: ApiFetch, profileId: string, at?: number | null) =>
+  call<import('./mapCustomer').MapSteps>(f, `${B}/reasons?profileId=${encodeURIComponent(profileId)}${at ? `&at=${at}` : ''}`);
 export const setRing = (f: ApiFetch, coffeeId: number, body: { ring: number; basis: string }) =>
   call<{ result: { coffeeId: number; unchanged: boolean } }>(f, `${B}/ring/${coffeeId}`, json('PATCH', body));
 export const publishMap = (f: ApiFetch, body: { label: string; reason: string }) =>

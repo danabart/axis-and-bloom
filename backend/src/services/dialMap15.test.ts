@@ -25,6 +25,7 @@ import { applyRev2 } from '../scripts/ellaMapReasonsRev2_2026_11_23.js';
 import { applyReasons } from '../scripts/ellaMapReasons_2026_11_20.js';
 import { applyComparisons } from '../scripts/ellaMapStepComparisons_2026_11_25.js';
 import { applyCards, planCards, DATA_1, LABEL_TAIL } from '../scripts/ellaMapCardsAboutYou_2026_11_27.js';
+import { applyMeasured } from '../scripts/ellaMapMeasuredFromSpot_2026_11_27.js';
 
 vi.setConfig({ testTimeout: 240_000 });
 afterAll(async () => { await db.end(); });
@@ -38,6 +39,8 @@ async function ensure15(c: pg.PoolClient) {
   await applyRev2(tx(c));
   await applyComparisons(tx(c));
   await applyCards(tx(c));
+  // Ella map 16 (2026-11-27): five rows off, one step word renamed (published in the rollback when needed)
+  await applyMeasured(tx(c));
 }
 
 interface Fixture {
@@ -78,9 +81,9 @@ const placedId = async (c: pg.PoolClient, mapName: string) =>
 
 const DANA_ANSWERS = ['v7_q1_a', 'v7_q2_a', 'v7_q3_a', 'v7_q4_a', 'v7_q5_a', 'v7_q6_c'];
 /** Dana's account on production: the Chocolate & Nutty quiz, Founder's pick on Tiger Stripe, the feeling "happy" (never said back). */
-async function danaLike(c: pg.PoolClient, answers = DANA_ANSWERS) {
+async function danaLike(c: pg.PoolClient, answers = DANA_ANSWERS, spotName = 'Tiger Stripe') {
   const p = await person(c, { primary: 'Chocolate & Nutty', scores: { 'Chocolate & Nutty': 9 }, branch: 'v7_branch_cn_stay', answers, feeling: 'happy' });
-  const tiger = await placedId(c, 'Tiger Stripe');
+  const tiger = await placedId(c, spotName);
   await c.query(
     `INSERT INTO customer_match_decision (user_id, occurred_at, version_id, move_id, picked_coffee_id, source, source_id, inputs)
      SELECT $1, timezone('utc', now()) - interval '2 hours', v.id, m.id, $2, 'quiz', $3, $4
@@ -98,6 +101,8 @@ const choice = (c: pg.PoolClient, kindCode: string, code: string, patch: { sortO
 const SAME = 'Same family as your spot';
 const CLOSE = 'Close to your spot';
 const SPOT = 'Your spot';
+const ONE = 'One step from your spot';
+const OUT = (n: number) => `Outside your comfort zone · ${n} steps from your spot`;
 const A1 = 'Coffee should feel like a reward for you: warm, rich, comforting.';
 const A2 = 'A little bitterness tastes serious to you.';
 const A3 = 'For you, a good cup is strong and satisfying.';
@@ -105,6 +110,13 @@ const A4 = 'A coffee with no bitterness would bother you.';
 const A5 = "Coffee is a daily ritual for you, and you're particular about it.";
 const A6 = 'You taste a black coffee first, then make it richer.';
 const TREAT = "Next to your coffee, you'd reach for something fresh and lively.";
+// Ella map 16: the late kinds on a spot page whose spot is Fabricator (all on; family_lean off; both off), pinned from the run
+const LATE = [
+  [['Tiger Stripe', 'strongest_support'], ['Geometric', 'treat'], ['Brazil', 'family_lean'], ['Benchmark', 'family_lean']],
+  [['Tiger Stripe', 'strongest_support'], ['Geometric', 'treat'], ['Brazil', 'own_family'], ['Benchmark', 'own_family']],
+  [['Tiger Stripe', 'strongest_support'], ['Geometric', 'treat'], ['Brazil', null], ['Benchmark', null]],
+];
+const OPP_ON = ['family_lean', ['v7_branch_cn_stay']];
 
 describe('the two pairs: one change from Tiger Stripe (Data 1)', () => {
   it('four steps through setStepInTx, basis our_guess, published once; no placement moves; a second run writes nothing', async () => {
@@ -121,7 +133,8 @@ describe('the two pairs: one change from Tiger Stripe (Data 1)', () => {
       expect(again.written).toBe(0);
       expect(again.published).toBeNull();
       const av = (await c.query<{ label: string }>(`SELECT label FROM dial_map_version WHERE activated_at IS NOT NULL AND retired_at IS NULL`)).rows[0].label;
-      expect(av.endsWith(LABEL_TAIL)).toBe(true);
+      // Ella map 16 publishes after this brief (a renamed step word): the active version is this brief's or the next one's
+      expect(av.endsWith(LABEL_TAIL) || av.endsWith('(Ella map 16)')).toBe(true);
       const tiger = await placedId(c, 'Tiger Stripe');
       const out = (await c.query<{ to_coffee_name: string }>(`SELECT to_coffee_name FROM v_dial_step WHERE on_active_map AND from_coffee_id = $1`, [tiger])).rows;
       expect(out.length).toBe(5);
@@ -140,7 +153,7 @@ describe('the two pairs: one change from Tiger Stripe (Data 1)', () => {
 });
 
 describe("Dana's pages, word for word (CLOSING_REPORT_15, with Dana's answers)", () => {
-  it('on her spot: five steps from Tiger Stripe, each answer once, a tag on every step card and none on the top card', async () => {
+  it('on her spot: five steps from Tiger Stripe, each answer once; no tags (Ella map 16: the spot_relation rows are off)', async () => {
     await withRollback(async ({ client: c }) => {
       await ensure15(c);
       const p = await danaLike(c);
@@ -149,35 +162,35 @@ describe("Dana's pages, word for word (CLOSING_REPORT_15, with Dana's answers)",
       expect(r.firstBag!.tag ?? null).toBeNull();
       expect(r.firstBag!.text).toBe(`${A1} ${A2} Chocolate first, with a little lift. Built for espresso.`);
       expect(cards(r)).toEqual([
-        ['Blossom', SAME, true, 'strongest_support', `${A3} A darker roast than Tiger Stripe, with a fuller body.`],
-        ['Geometric', CLOSE, false, 'treat', `${TREAT} More fruit than Tiger Stripe: fruit comes first here, sweeter and lighter, with the chocolate behind it.`],
-        ['The Daily', SAME, false, 'family', `${A5} Tiger Stripe without the fruit: chocolate and caramel, with a bit more bite.`],
-        ['Fabricator', SAME, false, 'family', `${A6} Tiger Stripe with a different accent: hazelnut, citrus and cinnamon where the cherry was, in a lighter body.`],
-        ['The Waverly', SAME, false, 'family', `${A4} Close to Tiger Stripe: chocolate underneath, with more fruit on top, fig and orange.`],
+        ['Blossom', null, true, 'strongest_support', `${A3} A darker roast than Tiger Stripe, with a fuller body.`],
+        ['Geometric', null, false, 'treat', `${TREAT} More fruit than Tiger Stripe: fruit comes first here, sweeter and lighter, with the chocolate behind it.`],
+        ['The Daily', null, false, 'family', `${A5} Tiger Stripe without the fruit: chocolate and caramel, with a bit more bite.`],
+        ['Fabricator', null, false, 'family', `${A6} Tiger Stripe with a different accent: hazelnut, citrus and cinnamon where the cherry was, in a lighter body.`],
+        ['The Waverly', null, false, 'family', `${A4} Close to Tiger Stripe: chocolate underneath, with more fruit on top, fig and orange.`],
       ]);
-      expect(r.steps.find(s => s.name === 'Geometric')!.basis!.tagCode).toBe('joined_by_step');
+      expect(r.steps.find(s => s.name === 'Geometric')!.basis!.tagCode).toBeNull();
       const facts = [...r.firstBag!.basis!.factCodes, ...r.steps.flatMap(s => s.basis!.factCodes)];
       expect(new Set(facts).size).toBe(facts.length);
     });
   });
 
-  it('looking at Fabricator: Brazil and Benchmark open with her answers (family_lean), Tiger Stripe is "Your spot" and never the lead, no lead', async () => {
+  it('looking at Fabricator (Ella map 16): its spot-page card; each step card its line with its distance from the spot; Tiger Stripe is "Your spot"; no lead', async () => {
     await withRollback(async ({ client: c }) => {
       await ensure15(c);
       const p = await danaLike(c);
       const r = await page(c, p.userId, 'Fabricator');
       expect(r.lookingAt).toBe(true);
       expect(r.firstBag!.labelCode).toBe('looking_at_title');
-      expect(r.firstBag!.tag).toBe(SAME);
+      expect(r.firstBag!.tag).toBe(ONE);
       expect(r.firstBag!.basis!.choice).toBe('family');
-      expect(r.firstBag!.text).toBe(`${A1} Tiger Stripe with a different accent: hazelnut, citrus and cinnamon where the cherry was, in a lighter body.`);
+      expect(r.firstBag!.text).toBe(`${A6} Tiger Stripe with a different accent: hazelnut, citrus and cinnamon where the cherry was, in a lighter body.`);
       expect(cards(r)).toEqual([
-        ['Geometric', CLOSE, false, 'treat', `${TREAT} Made from the same coffees as Fabricator, with more fruit, and sweeter.`],
-        ['Brazil', CLOSE, false, 'family_lean', `${A5} Simpler than Fabricator: chocolate, almond, honey.`],
-        ['Tiger Stripe', SPOT, false, 'family_and_direction', `${A2} More body than Fabricator, with cherry where the citrus was. Built for espresso.`],
-        ['Benchmark', CLOSE, false, 'family_lean', `${A6} Rounder than Fabricator: pure chocolate, softer, no citrus.`],
+        ['Geometric', ONE, false, null, 'Made from the same coffees as Fabricator, with more fruit, and sweeter.'],
+        ['Brazil', OUT(2), false, null, 'Simpler than Fabricator: chocolate, almond, honey.'],
+        ['Tiger Stripe', SPOT, false, null, 'More body than Fabricator, with cherry where the citrus was. Built for espresso.'],
+        ['Benchmark', OUT(2), false, null, 'Rounder than Fabricator: pure chocolate, softer, no citrus.'],
       ]);
-      expect(r.steps.find(s => s.name === 'Brazil')!.basis!.tagCode).toBe('leans_to_spot_family');
+      expect(r.steps.find(s => s.name === 'Brazil')!.basis!.tagCode).toBe('outside_comfort');
     });
   });
 
@@ -186,53 +199,49 @@ describe("Dana's pages, word for word (CLOSING_REPORT_15, with Dana's answers)",
       await ensure15(c);
       const p = await danaLike(c);
       const b = await page(c, p.userId, 'Benchmark');
-      expect([b.firstBag!.tag, b.firstBag!.basis!.choice, b.firstBag!.text]).toEqual([CLOSE, 'family_lean',
-        `${A1} This is the cup where nothing sticks out: pure chocolate, round and soft.`]);
+      // Ella map 16: two steps out, the summary and the coffee's own line, no answer of hers
+      expect([b.firstBag!.tag, b.firstBag!.basis!.choice, b.firstBag!.text]).toEqual([OUT(2), null,
+        'Less fruit, and lighter. This is the cup where nothing sticks out: pure chocolate, round and soft.']);
       expect(cards(b)).toEqual([
-        ['The Daily', SAME, true, 'strongest_support', `${A2} The same chocolate as Benchmark, livelier, with a bit more bite.`],
-        ['La Familia', 'A different direction: Fruity', false, 'treat', `${TREAT} Lighter in the cup than Benchmark: caramel and honey, with a little clementine.`],
-        ['Fabricator', SAME, false, 'family', `${A5} More going on than Benchmark: hazelnut, a little citrus, a dry finish.`],
+        ['The Daily', ONE, false, null, 'The same chocolate as Benchmark, livelier, with a bit more bite.'],
+        ['La Familia', OUT(2), false, null, 'Lighter in the cup than Benchmark: caramel and honey, with a little clementine.'],
+        ['Fabricator', ONE, false, null, 'More going on than Benchmark: hazelnut, a little citrus, a dry finish.'],
       ]);
       const d = await page(c, p.userId, 'The Daily');
-      expect([d.firstBag!.tag, d.firstBag!.text]).toEqual([SAME, `${A1} Tiger Stripe without the fruit: chocolate and caramel, with a bit more bite.`]);
+      expect([d.firstBag!.tag, d.firstBag!.text]).toEqual([ONE, `${A5} Tiger Stripe without the fruit: chocolate and caramel, with a bit more bite.`]);
       expect(cards(d)).toEqual([
-        ['Amsterdam', SAME, true, 'strongest_support', `${A2} A step darker than The Daily: smoother, with less acidity.`],
-        ['Benchmark', CLOSE, false, 'family_lean', `${A5} The same chocolate as The Daily, rounder and softer.`],
-        ['Tiger Stripe', SPOT, false, 'family', `${A6} The Daily with a fruit edge: chocolate first, cherry behind. Built for espresso.`],
+        ['Benchmark', OUT(2), false, null, 'The same chocolate as The Daily, rounder and softer.'],
+        ['Amsterdam', OUT(2), false, null, 'A step darker than The Daily: smoother, with less acidity.'],
+        ['Tiger Stripe', SPOT, false, null, 'The Daily with a fruit edge: chocolate first, cherry behind. Built for espresso.'],
       ]);
       const v = await page(c, p.userId, 'The Village');
-      expect([v.firstBag!.tag, v.firstBag!.basis!.choice, v.firstBag!.text]).toEqual(['A different direction: Floral', 'own_family',
-        `${A1} Floral, with apple blossom and grapefruit.`]);
+      expect([v.firstBag!.tag, v.firstBag!.basis!.choice, v.firstBag!.text]).toEqual([OUT(3), null,
+        'More fruit, lighter, and more delicate. Floral, with apple blossom and grapefruit.']);
       expect(cards(v)).toEqual([
-        ['Cafè Feminista', 'A different direction: Fruity', false, 'treat', `${TREAT} Creamier than The Village: papaya and candied coconut.`],
-        ['La Familia', 'A different direction: Fruity', false, 'treat', `${TREAT} Softer and sweeter than The Village: caramel and honey.`],
+        ['Cafè Feminista', OUT(4), false, null, 'Creamier than The Village: papaya and candied coconut.'],
+        ['La Familia', OUT(2), false, null, 'Softer and sweeter than The Village: caramel and honey.'],
       ]);
     });
   });
 });
 
 describe('the late kinds: family_lean and own_family', () => {
+  // Ella map 16: the late kinds serve step cards on a spot page only (no answer is quoted on a card while looking),
+  // and own_family is off; these read a spot page whose spot is Fabricator, with own_family on again in the rollback.
   it('never decide a lead; each is skipped when its row is off; with both off a card carries its line alone', async () => {
     await withRollback(async ({ client: c }) => {
       await ensure15(c);
-      const p = await danaLike(c);
-      const fab = await page(c, p.userId, 'Fabricator');
-      expect(fab.steps.some(s => s.isLead)).toBe(false); // Brazil and Benchmark have family_lean only: no lead
-      for (const r of [fab, await page(c, p.userId), await page(c, p.userId, 'The Village')]) {
-        for (const s of r.steps.filter(x => x.isLead)) expect(['family_lean', 'own_family']).not.toContain(s.basis!.choice);
-      }
+      await choice(c, 'step_support', 'own_family', { isActive: true });
+      const p = await danaLike(c, DANA_ANSWERS, 'Fabricator');
+      const pages = [await page(c, p.userId)];
       await choice(c, 'step_support', 'family_lean', { isActive: false });
-      const noLean = await page(c, p.userId, 'Fabricator');
-      expect(noLean.steps.find(s => s.name === 'Brazil')!.basis!.choice).toBe('own_family');
-      expect(noLean.steps.some(s => s.isLead)).toBe(false);
+      pages.push(await page(c, p.userId));
       await choice(c, 'step_support', 'own_family', { isActive: false });
-      const none = await page(c, p.userId, 'Fabricator');
-      const brazil = none.steps.find(s => s.name === 'Brazil')!;
-      expect(brazil.basis!.choice).toBeNull();
-      expect(brazil.text).toBe('Simpler than Fabricator: chocolate, almond, honey.');
-      const village = await page(c, p.userId, 'The Village');
-      expect(village.firstBag!.text).toBe('Floral, with apple blossom and grapefruit.');
-      expect(village.firstBag!.tag).toBe('A different direction: Floral');
+      pages.push(await page(c, p.userId));
+      for (const r of pages) for (const s of r.steps.filter(x => x.isLead)) expect(['family_lean', 'own_family']).not.toContain(s.basis!.choice);
+      const choices = pages.map(r => r.steps.map(s => [s.name, s.basis!.choice]));
+      expect(choices).toEqual(LATE);
+      for (const s of pages[2].steps.filter(x => x.basis!.choice === null)) expect(s.text.replace(/\.$/, '')).toBe((s.line ?? '').replace(/\.$/, ''));
     });
   });
 
@@ -240,13 +249,13 @@ describe('the late kinds: family_lean and own_family', () => {
     await withRollback(async ({ client: c }) => {
       await ensure15(c);
       // Chocolate & Nutty answers argue bolder (q2_a, q4_a, q5_a) or none (the branch); q1_c and q3_c are Fruity
-      const p = await danaLike(c, ['v7_q1_c', 'v7_q2_a', 'v7_q3_c', 'v7_q4_a', 'v7_q5_a', 'v7_q6_c']);
-      const on = await page(c, p.userId, 'Fabricator');
-      expect(on.firstBag!.basis!.factCodes).toEqual(['v7_branch_cn_stay']);
+      // Ella map 16: on a spot page (spot Fabricator); while looking no step card quotes an answer
+      const p = await danaLike(c, ['v7_q1_c', 'v7_q2_a', 'v7_q3_c', 'v7_q4_a', 'v7_q5_a', 'v7_q6_c'], 'Fabricator');
+      const on = await page(c, p.userId);
       const brazilOn = on.steps.find(s => s.name === 'Brazil')!; // gentler; leans Chocolate & Nutty
-      expect([brazilOn.basis!.choice, brazilOn.basis!.factCodes]).toEqual(['family_lean', ['v7_branch_cn_stay']]);
+      expect([brazilOn.basis!.choice, brazilOn.basis!.factCodes]).toEqual(OPP_ON);
       await setParameterInTx(tx(c), { key: 'dial_step_opposite_last', value: 0, adminId: 'zzz-map15' });
-      const off = await page(c, p.userId, 'Fabricator');
+      const off = await page(c, p.userId);
       const brazilOff = off.steps.find(s => s.name === 'Brazil')!;
       expect(brazilOff.basis!.choice).toBe('family_lean');
       expect(brazilOff.basis!.factCodes).not.toEqual(['v7_branch_cn_stay']);
@@ -263,27 +272,31 @@ describe('the tag, relative to the spot (spot_relation rows)', () => {
       await ensure15(c);
       const p = await danaLike(c);
       const tagOf = (r: match.MapStepsResult, name: string) => r.steps.find(s => s.name === name)!.tag;
+      // Ella map 16: the rows are off and tag only the spot page's cards; on again in the rollback
+      for (const code of ['same_family', 'joined_by_step', 'leans_to_spot_family', 'other_direction']) await choice(c, 'spot_relation', code, { isActive: true });
+      expect(tagOf(await page(c, p.userId), 'The Daily')).toBe(SAME);
       await choice(c, 'spot_relation', 'same_family', { isActive: false });
       const r1 = await page(c, p.userId);
       expect(tagOf(r1, 'The Daily')).toBe(CLOSE); // joined by the new step
       expect(r1.steps.find(s => s.name === 'The Daily')!.basis!.tagCode).toBe('joined_by_step');
       await choice(c, 'spot_relation', 'joined_by_step', { isActive: false });
-      const r2 = await page(c, p.userId, 'Fabricator');
+      const r2 = await page(c, p.userId);
       // Geometric is Fruity and leans toward Chocolate & Nutty, Tiger Stripe's family: the next row holds
       expect(tagOf(r2, 'Geometric')).toBe(CLOSE);
       expect(r2.steps.find(s => s.name === 'Geometric')!.basis!.tagCode).toBe('leans_to_spot_family');
       await choice(c, 'spot_relation', 'same_family', { isActive: true });
       await choice(c, 'spot_relation', 'other_direction', { sortOrder: 0 });
-      const r3 = await page(c, p.userId, 'Fabricator');
-      expect(tagOf(r3, 'Brazil')).toBe('A different direction: Balanced');
-      expect(tagOf(r3, 'Tiger Stripe')).toBe(SPOT);
-      expect(r3.firstBag!.tag).toBe('A different direction: Chocolate & Nutty');
+      const r3 = await page(c, p.userId);
+      expect(tagOf(r3, 'Blossom')).toBe('A different direction: Chocolate & Nutty');
+      // while looking, the tag is the distance from the spot whatever these rows say (Ella map 16)
+      const r4 = await page(c, p.userId, 'Fabricator');
+      expect([tagOf(r4, 'Brazil'), tagOf(r4, 'Tiger Stripe'), r4.firstBag!.tag]).toEqual([OUT(2), SPOT, ONE]);
     });
   });
 });
 
 describe('a quiz taken by someone else (G2.19, Dana Q9)', () => {
-  it("the top card is the rule's coffee line only, no card speaks from that quiz, the customer's own feeling still does, and every card has a tag", async () => {
+  it("the top card is the rule's coffee line only, no card speaks from that quiz, the customer's own feeling still does (Ella map 16: no tags on the spot page)", async () => {
     await withRollback(async ({ client: c }) => {
       await ensure15(c);
       const p = await person(c, { primary: 'Fruity', scores: { Fruity: 9 }, branch: 'v7_branch_fruity_stay', proxy: true, feeling: 'gentler',
@@ -297,7 +310,7 @@ describe('a quiz taken by someone else (G2.19, Dana Q9)', () => {
       expect(r.firstBag!.text).not.toBe(start.customer_reason);
       const quizCodes = (await c.query<{ answer_code: string }>(`SELECT answer_code FROM v_dial_quiz_answer WHERE quiz_session_id = $1`, [p.sessionId])).rows.map(x => x.answer_code);
       for (const s of r.steps) {
-        expect(s.tag).toBeTruthy();
+        expect(s.tag).toBeNull();
         for (const f of s.basis!.factCodes) expect(quizCodes).not.toContain(f);
       }
       // the setup feeling is the customer's own: a gentler step leads with it
@@ -324,12 +337,13 @@ describe('no card rules a coffee out', () => {
       for (const r of pages) {
         for (const t of [r.firstBag?.text ?? '', ...r.steps.map(s => s.text)]) expect(t.toLowerCase()).not.toContain('elsewhere');
         for (const b of [r.firstBag?.basis, ...r.steps.map(s => s.basis)]) expect(b?.copyCodes ?? []).not.toContain('no_support');
-        // a usable quiz: every step card speaks about the customer (a start rule's lead carries the rule's own lead line, brief 10)
-        for (const s of r.steps.filter(x => x.basis!.choice !== 'start_rule')) expect(s.basis!.factCodes.length).toBeGreaterThan(0);
-        for (const s of r.steps) expect(s.tag).toBeTruthy();
+        // a usable quiz: every step card on a spot page speaks about the customer (a start rule's lead carries the rule's
+        // own lead line, brief 10); Ella map 16: while looking, step cards are their line alone
+        if (!r.lookingAt) for (const s of r.steps.filter(x => x.basis!.choice !== 'start_rule')) expect(s.basis!.factCodes.length).toBeGreaterThan(0);
+        else for (const s of r.steps) expect(s.basis!.factCodes).toEqual([]);
       }
     });
-  });
+  }, 900_000);
 });
 
 describe('integrity', () => {

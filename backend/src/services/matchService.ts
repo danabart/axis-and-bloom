@@ -541,7 +541,14 @@ async function mapFacts(coffeeIds: number[], runner: Runner) {
 export interface MapPrice { cents: number; sizeLabel: string; weightOz: number }
 
 /** Ella map 9 (B2, admins only): the rows and facts a composed text used; Ella map 10: the reason choice that picked it. */
-export interface TextBasis { ruleId?: number | null; stepId?: number; copyCodes: string[]; saidBackIds: number[]; factCodes: string[]; choice?: string | null; tagCode?: string | null }
+export interface TextBasis {
+  ruleId?: number | null; stepId?: number; copyCodes: string[]; saidBackIds: number[]; factCodes: string[]; choice?: string | null; tagCode?: string | null;
+  /** Ella map 16 ("Read it as"): the coffee's distance from the spot in steps (null: no way), the way taken, and the summary's state and words */
+  distance?: number | null;
+  way?: Array<{ stepId: number; word: string; to: string }>;
+  summary?: SummaryState;
+  summaryWords?: string[];
+}
 
 export interface MapStepCard {
   stepId: number; word: string; coffeeId: number;
@@ -626,6 +633,115 @@ const LATE_SUPPORT = new Set(['treat', 'family_lean', 'own_family']);
 const supportOrder = (a: Support | null, b: Support | null) =>
   a && b ? a.rank - b.rank || b.fact.weight - a.fact.weight : a ? -1 : b ? 1 : 0;
 
+// ── Measured from the spot (Ella map 16) ─────────────────────────────────────
+// backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_16_MEASURED_FROM_YOUR_SPOT.md
+
+/** One kind of change on a way: the step word (lower-cased), how many steps say it, and their directions. */
+export interface PathPart { word: string; count: number; moves: string[] }
+/**
+ * Dana Task 0 Q1 (a): every kind of change once, wherever it sits on the way,
+ * counted; in the order each first appears.
+ */
+export function pathParts(way: Array<{ button_word: string; move_code: string | null }>): PathPart[] {
+  const parts: PathPart[] = [];
+  for (const s of way) {
+    const word = s.button_word.trim().toLowerCase();
+    const p = parts.find(x => x.word === word);
+    if (p) { p.count++; if (s.move_code && !p.moves.includes(s.move_code)) p.moves.push(s.move_code); }
+    else parts.push({ word, count: 1, moves: s.move_code ? [s.move_code] : [] });
+  }
+  return parts;
+}
+/**
+ * Dana 2026-11-28: two step words are opposites when they are the two directions
+ * of the same step pair on the active map (A -> B says one, B -> A the other),
+ * read from the step rows; lower-cased, kept both ways round as "a|b".
+ */
+export function stepWordOpposites(stepList: Array<{ from_coffee_id: number; to_coffee_id: number; button_word: string }>): Set<string> {
+  const word = new Map(stepList.map(s => [`${s.from_coffee_id}>${s.to_coffee_id}`, s.button_word.trim().toLowerCase()]));
+  const out = new Set<string>();
+  for (const s of stepList) {
+    const back = word.get(`${s.to_coffee_id}>${s.from_coffee_id}`);
+    const fwd = s.button_word.trim().toLowerCase();
+    if (back !== undefined && back !== fwd) { out.add(`${fwd}|${back}`); out.add(`${back}|${fwd}`); }
+  }
+  return out;
+}
+/**
+ * Dana Task 0 Q2 (as amended 2026-11-28): a way holds a change and its opposite
+ * when two of its kinds of change have opposite moves (dial_move.opposite_move_id),
+ * or their words are the two directions of one step pair (stepWordOpposites).
+ */
+export function hasOpposite(parts: PathPart[], opposites: Map<string, string>, wordOpposites: Set<string>): boolean {
+  for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
+    const a = parts[i]; const b = parts[j];
+    if (a.moves.some(m => b.moves.includes(opposites.get(m) ?? ''))) return true;
+    if (wordOpposites.has(`${a.word}|${b.word}`)) return true;
+  }
+  return false;
+}
+/**
+ * The fewest published, shown steps from the spot to every coffee, following
+ * each step in its own direction, and the way taken. Among equally short ways
+ * (Dana Task 0 Q1 b): one with no change and its opposite, then the fewest kinds
+ * of change, then step-card order. Steps come in step-card order
+ * (dialReads.activeStepWords). The spot itself is at 0 with no way.
+ */
+export function shortestWays(spotId: number, stepList: dialReads.ActiveStep[], opposites: Map<string, string>): Map<number, dialReads.ActiveStep[]> {
+  const order = new Map(stepList.map((s, i) => [s.id, i]));
+  const wordOpp = stepWordOpposites(stepList);
+  const all = new Map<number, dialReads.ActiveStep[][]>([[spotId, [[]]]]);
+  let frontier = [spotId];
+  while (frontier.length) {
+    const next = new Map<number, dialReads.ActiveStep[][]>();
+    for (const at of frontier) for (const s of stepList) {
+      if (s.from_coffee_id !== at || all.has(s.to_coffee_id)) continue;
+      const ways = next.get(s.to_coffee_id) ?? [];
+      for (const w of all.get(at)!) ways.push([...w, s]);
+      next.set(s.to_coffee_id, ways);
+    }
+    for (const [to, ways] of next) all.set(to, ways);
+    frontier = [...next.keys()];
+  }
+  const rank = (w: dialReads.ActiveStep[]) => { const p = pathParts(w); return [Number(hasOpposite(p, opposites, wordOpp)), p.length]; };
+  const byOrder = (a: dialReads.ActiveStep[], b: dialReads.ActiveStep[]) => {
+    for (let i = 0; i < a.length; i++) { const d = order.get(a[i].id)! - order.get(b[i].id)!; if (d) return d; }
+    return 0;
+  };
+  const best = new Map<number, dialReads.ActiveStep[]>();
+  for (const [to, ways] of all) {
+    best.set(to, ways.map(w => ({ w, r: rank(w) })).sort((a, b) => a.r[0] - b.r[0] || a.r[1] - b.r[1] || byOrder(a.w, b.w))[0].w);
+  }
+  return best;
+}
+/** Why a looked-at card has or has no summary (admins, "Read it as"). */
+export type SummaryState = 'shown' | 'within_zone' | 'opposites' | 'over_limit' | 'no_way';
+/**
+ * The summary of what is different along a way, when it is clean: each kind of
+ * change once (path_twice for two steps, path_more for three or more), joined by
+ * path_join and path_last_join, capital first, full stop. Dana Task 0 Q2 and Q3:
+ * no summary when the way holds a change and its opposite, or names more kinds
+ * of change than dial_path_max_changes. Composed at read; nothing is stored.
+ */
+export function pathSummary(way: Array<{ button_word: string; move_code: string | null }>, copy: Record<string, string>, maxChanges: number, opposites: Map<string, string>, wordOpposites: Set<string>):
+  { text: string | null; state: SummaryState; words: string[] } {
+  const parts = pathParts(way);
+  const words = parts.map(p => p.word);
+  if (hasOpposite(parts, opposites, wordOpposites)) return { text: null, state: 'opposites', words };
+  if (parts.length > maxChanges) return { text: null, state: 'over_limit', words };
+  const said = parts.map(p => (p.count === 1 ? p.word : fill(p.count === 2 ? copy.path_twice ?? '{word}' : copy.path_more ?? '{word}', { word: p.word }) ?? p.word));
+  const joined = said.length === 1 ? said[0] : said.slice(0, -1).join(copy.path_join ?? ', ') + (copy.path_last_join ?? ', and ') + said[said.length - 1];
+  return { text: sentenceOf(joined.charAt(0).toUpperCase() + joined.slice(1)), state: 'shown', words };
+}
+/** The tag of a coffee at this distance from the spot: Your spot; one or {n} steps; outside the comfort zone; no way. */
+export function distanceTag(d: number | null, zone: number, copy: Record<string, string>): { code: string; text: string | null } {
+  if (d === null) return { code: 'no_way', text: copy.tag_no_way ?? null };
+  if (d === 0) return { code: 'your_spot', text: copy.tag_your_spot ?? null };
+  const steps = d === 1 ? copy.tag_steps_one ?? null : copy.tag_steps_many ? fill(copy.tag_steps_many, { n: String(d) }) : null;
+  if (d <= zone) return { code: d === 1 ? 'steps_one' : 'steps_many', text: steps };
+  return { code: 'outside_comfort', text: steps && copy.tag_outside_comfort ? fill(copy.tag_outside_comfort, { steps }) : steps };
+}
+
 /**
  * GET /api/map/steps (Ella map 7, B3; Ella map 9, B2; Ella map 10, B2): the
  * position, its top card and the published steps leaving it, each with its
@@ -646,7 +762,12 @@ const supportOrder = (a: Support | null, b: Support | null) =>
  * before no_support, a step card tries the treat answer (step support treat,
  * when its row is on), whose food signal is the destination's family; the top
  * card and the lead never read it. Every step line is a comparison to the
- * coffee the customer is on ({from}, filled with its map name). Composed at read;
+ * coffee the customer is on ({from}, filled with its map name). Ella map 16:
+ * while looking (?at=) the page is measured from the spot: every card's tag is
+ * its distance in steps (distanceTag, dial_path_comfort_zone_steps); the
+ * looked-at card is the coffee's spot-page card inside the comfort zone, else
+ * the clean summary of the way (pathSummary, dial_path_max_changes) and the
+ * coffee's own line; step cards are their line alone; no lead. Composed at read;
  * nothing is stored, no model writes a word, and no family, answer, move or
  * coffee id appears here: every comparison is between rows. No ring, lane,
  * grade, version or basis leaves this function (basis only with withBasis,
@@ -871,7 +992,7 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
    * two, either way; leans_to_spot_family: the coffee's lane leans toward the
    * spot's family; other_direction: anything else.
    */
-  const stepWords = relationKinds.length ? await dialReads.activeStepWords(runner) : new Map<string, string>();
+  const stepWords = relationKinds.length ? await dialReads.activeStepWords(runner) : new Map<string, dialReads.ActiveStep>();
   const spotFamily = facts.family(spotCoffee.id);
   const spotId = spotCoffee.id;
   const tagOf = (coffeeId: number): { code: string; text: string | null } | null => {
@@ -907,17 +1028,60 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
   // (the same support rows against the looked-at coffee, taken first in page
   // order; the direction kinds only when a published step joins the spot to it;
   // never the treat, Dana Q7), then that line.
+  // Ella map 16: while looking, every card is measured from the spot: its tag is
+  // the distance in steps (the fewest published, shown steps from the spot, in
+  // each step's direction); beyond dial_path_comfort_zone_steps it is "Outside
+  // your comfort zone". The looked-at card: inside the comfort zone, a coffee
+  // with a step card on the spot page says exactly what that card says (the same
+  // answer, the same line); otherwise the summary of what is different, when it is
+  // clean (no change and its opposite, at most dial_path_max_changes kinds), then
+  // the coffee's own line. No quiz answer is quoted anywhere else while looking.
+  const zone = params.dial_path_comfort_zone_steps ?? 1;
+  const maxChanges = params.dial_path_max_changes ?? 0;
+  let distanceOf: (id: number) => number | null = () => null;
+  let wayTo: (id: number) => dialReads.ActiveStep[] | null = () => null;
+  let opp = new Map<string, string>();
+  let wordOpp = new Set<string>();
+  if (looking) {
+    opp = opposites.size ? opposites : await dialReads.moveOpposites(runner);
+    const pairs = stepWords.size ? stepWords : await dialReads.activeStepWords(runner);
+    const stepList = [...pairs.values()];
+    const ways = shortestWays(spotCoffee.id, stepList, opp);
+    wordOpp = stepWordOpposites(stepList);
+    wayTo = id => ways.get(id) ?? null;
+    distanceOf = id => ways.get(id)?.length ?? null;
+  }
+  const measuredTag = (id: number) => (id === spotCoffee!.id ? { code: 'your_spot', text: copy.tag_your_spot ?? null } : distanceTag(distanceOf(id), zone, copy));
+  const wayBasis = (id: number) => ({
+    distance: distanceOf(id),
+    way: (wayTo(id) ?? []).map(s => ({ stepId: s.id, word: s.button_word, to: facts.name(s.to_coffee_id, s.to_coffee_name) })),
+  });
+
   let firstBag: MapStepsResult['firstBag'] = null;
   if (looking) {
-    const fromSpot = (await dialReads.stepsFrom(spotCoffee.id, runner)).find(s => s.to_coffee_id === here);
-    const line = fromSpot?.customer_line ? fill(fromSpot.customer_line, { from: spotName }) : coffeeSentence(here);
-    const s = supportOf({ to_coffee_id: here, move_code: fromSpot?.move_code ?? null }, false);
-    if (s) used.add(s.fact.key);
-    const tag = tagOf(here);
-    const c = compose([s ? factPart(s.fact) : null, { text: line }], { stepId: fromSpot?.id, choice: s?.choice ?? null, tagCode: tag?.code ?? null });
+    const d = distanceOf(here);
+    const tag = measuredTag(here);
+    // inside the comfort zone: the coffee's own card on the spot page, word for word
+    const onSpot = d !== null && d <= zone
+      ? (await steps(profileId, runner, { ...opts, at: undefined })).steps.find(c => c.coffeeId === here) ?? null
+      : null;
+    let text: string;
+    let basis: TextBasis;
+    if (onSpot) {
+      text = onSpot.text;
+      basis = { ...(onSpot.basis ?? { copyCodes: [], saidBackIds: [], factCodes: [] }), tagCode: tag.code, ...wayBasis(here), summary: 'within_zone' };
+    } else {
+      const way = wayTo(here);
+      const sum = d === null ? { text: null, state: 'no_way' as SummaryState, words: [] }
+        : d <= 1 ? { text: null, state: 'within_zone' as SummaryState, words: [] }
+        : pathSummary(way ?? [], copy, maxChanges, opp, wordOpp);
+      const c = compose([{ text: sum.text }, { text: coffeeSentence(here) }], { choice: null, tagCode: tag.code });
+      text = c.text;
+      basis = { ...c.basis, ...wayBasis(here), summary: sum.state, summaryWords: sum.words };
+    }
     firstBag = {
-      coffeeId: here, reason: '', text: c.text, labelCode: 'looking_at_title', isFounderPick: false, tag: tag?.text ?? null,
-      ...(opts.withBasis ? { basis: c.basis } : {}),
+      coffeeId: here, reason: '', text, labelCode: 'looking_at_title', isFounderPick: false, tag: tag.text,
+      ...(opts.withBasis ? { basis } : {}),
     };
   } else if (ctx.quizSessionId) {
     const n = params.dial_quote_family_answers ?? 0;
@@ -963,7 +1127,8 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
   if (looking && (params.dial_spot_not_lead_when_looking ?? 0) === 1) notLead.add(spotCoffee.id);
   const leadable = offered.filter(x => !notLead.has(x.to_coffee_id));
   let lead: { step: Offered; parts: Part[]; choice: string; ruleId?: number | null } | null = null;
-  for (const source of leadSources) {
+  // Ella map 16 (decision 7): "Where we'd take you next" is the spot page's alone; while looking no step leads.
+  for (const source of looking ? [] : leadSources) {
     if (source === 'setup_answer') {
       if (!feeling || feeling.move === null) continue;
       const ranked = leadable.map((x, i) => ({ x, i, s: supportFor(x, quizFacts) })).filter(r => r.x.move_code === feeling.move);
@@ -996,6 +1161,8 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
   if (lead) texts.set(lead.step.id, compose(lead.parts, { stepId: lead.step.id, choice: lead.choice, ...(lead.ruleId !== undefined ? { ruleId: lead.ruleId } : {}) }));
   for (const x of offered) {
     if (texts.has(x.id)) continue;
+    // Ella map 16: while looking, a step card is its line alone: no quiz answer (decision 5)
+    if (looking) { texts.set(x.id, compose([{ text: stepLine(x) }], { stepId: x.id, choice: null })); continue; }
     const s = supportOf(x, true);
     if (s) used.add(s.fact.key);
     texts.set(x.id, compose([s ? factPart(s.fact) : null, { text: stepLine(x) }], { stepId: x.id, choice: s?.choice ?? null }));
@@ -1003,12 +1170,13 @@ export async function steps(profileId: string, runner: Runner = db, opts: StepsO
 
   const cards: MapStepCard[] = offered.map(x => {
     const c = texts.get(x.id)!;
-    const tag = tagOf(x.to_coffee_id);
+    // Ella map 16: while looking, the tag is the coffee's distance from the spot; on the spot page, the spot_relation rows (all off)
+    const tag = looking ? measuredTag(x.to_coffee_id) : tagOf(x.to_coffee_id);
     return {
       stepId: x.id, word: x.button_word, coffeeId: x.to_coffee_id, name: facts.name(x.to_coffee_id, x.to_coffee_name),
       line: stepLine(x), notes: notes(x.to_coffee_id), price: facts.price(x.to_coffee_id), familyLabel: facts.familyLabel(x.to_coffee_id),
       isLead: lead?.step.id === x.id, text: c.text, tag: tag?.text ?? null,
-      ...(opts.withBasis ? { basis: { ...c.basis, tagCode: tag?.code ?? null } } : {}),
+      ...(opts.withBasis ? { basis: { ...c.basis, tagCode: tag?.code ?? null, ...(looking ? wayBasis(x.to_coffee_id) : {}) } } : {}),
     };
   });
   cards.sort((a, b) => Number(b.isLead) - Number(a.isLead));

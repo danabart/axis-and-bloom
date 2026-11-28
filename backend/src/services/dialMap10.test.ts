@@ -20,6 +20,7 @@ import { applyRev2 } from '../scripts/ellaMapReasonsRev2_2026_11_23.js';
 import { applyReasons } from '../scripts/ellaMapReasons_2026_11_20.js';
 import { applyComparisons } from '../scripts/ellaMapStepComparisons_2026_11_25.js';
 import { applyCards } from '../scripts/ellaMapCardsAboutYou_2026_11_27.js';
+import { applyMeasured } from '../scripts/ellaMapMeasuredFromSpot_2026_11_27.js';
 
 vi.setConfig({ testTimeout: 240_000 });
 afterAll(async () => { await db.end(); });
@@ -34,6 +35,8 @@ async function ensureRev2(c: pg.PoolClient) {
   await applyComparisons(tx(c));
   // Ella map 15 (2026-11-27): the late kinds, the tag rows and the two Tiger Stripe pairs (published in the rollback)
   await applyCards(tx(c));
+  // Ella map 16 (2026-11-27): five rows off, one step word renamed (published in the rollback when needed)
+  await applyMeasured(tx(c));
 }
 
 interface Fixture {
@@ -190,13 +193,13 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
         expect(new Set(firstUse).size).toBe(firstUse.length);
       }
       // with the parameter off, each answer is used once per page; Ella map 15: the reusing cards take a
-      // late kind instead of no_support (own_family for 85, family_lean for 23)
+      // late kind instead of no_support (family_lean for 23); Ella map 16: own_family is off, so 85's Geometric carries its line alone
       await setParameterInTx(tx(c), { key: 'dial_step_reuse_answer', value: 0, adminId: 'zzz-map10' });
       for (const r of [await read(P85), await read(P23)]) {
         const facts = [...r.firstBag!.basis!.factCodes, ...r.steps.flatMap(s => s.basis!.factCodes)];
         expect(new Set(facts).size).toBe(facts.length);
       }
-      expect(cards(await read(P85)).find(x => x[0] === 'Geometric')![2]).toBe('You smooth a black coffee before you try it. Keeps the fruit of La Familia and adds weight: bright fruit over caramel.');
+      expect(cards(await read(P85)).find(x => x[0] === 'Geometric')![2]).toBe('Keeps the fruit of La Familia and adds weight: bright fruit over caramel.');
       expect(cards(await read(P23)).find(x => x[0] === 'Tiger Stripe')![2]).toBe('With a black coffee, your first thought is what flavors are in it. More chocolate and body than Geometric, with the fruit behind.');
     });
   });

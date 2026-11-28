@@ -24,6 +24,7 @@ import { applyReasons } from '../scripts/ellaMapReasons_2026_11_20.js';
 import { applyComparisons } from '../scripts/ellaMapStepComparisons_2026_11_25.js';
 import { applySpot, planSpot } from '../scripts/ellaMapSpot_2026_11_26.js';
 import { applyCards } from '../scripts/ellaMapCardsAboutYou_2026_11_27.js';
+import { applyMeasured } from '../scripts/ellaMapMeasuredFromSpot_2026_11_27.js';
 
 vi.setConfig({ testTimeout: 240_000 });
 afterAll(async () => { await db.end(); });
@@ -257,6 +258,8 @@ async function ensureAll(c: pg.PoolClient) {
   await applySpot(tx(c));
   // Ella map 15 (2026-11-27): the late kinds, the tag rows and the two Tiger Stripe pairs (published in the rollback)
   await applyCards(tx(c));
+  // Ella map 16 (2026-11-27): five rows off, one step word renamed (published in the rollback when needed)
+  await applyMeasured(tx(c));
 }
 const answerId = async (c: pg.PoolClient, code: string) =>
   (await c.query<{ id: string }>(`SELECT id FROM quiz_answer WHERE answer_code = $1 AND is_current`, [code])).rows[0].id;
@@ -305,35 +308,38 @@ describe('walking the map (?at=)', () => {
       expect(look.position!.coffeeId).toBe(blossom);
       expect(look.spot!.coffeeId).toBe(p.tiger);
       expect(look.firstBag!.labelCode).toBe('looking_at_title');
-      // Ella map 15: the "Looking at" card is built like a step card: her answer for the step's direction, then the line
-      expect(look.firstBag!.text).toBe('A little bitterness tastes serious to you. A darker roast than Tiger Stripe, with a fuller body.');
-      expect(look.firstBag!.basis!.choice).toBe('family_and_direction');
+      // Ella map 16: a one-step coffee's "Looking at" card is its spot-page step card, word for word
+      expect(look.firstBag!.text).toBe(home.steps.find(s => s.coffeeId === blossom)!.text);
+      expect(look.firstBag!.text).toBe('For you, a good cup is strong and satisfying. A darker roast than Tiger Stripe, with a fuller body.');
+      expect(look.firstBag!.basis!.choice).toBe('strongest_support');
+      expect(look.firstBag!.tag).toBe('One step from your spot');
       expect(look.spot!.backLine).toBe('Back to your spot: Tiger Stripe');
       for (const s of look.steps) expect(s.line).toContain('Blossom');
       // W1: her own spot is a normal card, never the lead (parameter on)
       const tigerCard = look.steps.find(s => s.coffeeId === p.tiger)!;
       expect(tigerCard).toBeDefined();
       expect(tigerCard.isLead).toBe(false);
-      expect(look.steps.some(s => s.isLead)).toBe(true);
-      // W2: the start rule's lead is never the lead source while looking
-      expect(look.steps.filter(s => s.isLead).map(s => s.basis!.choice)).not.toContain('start_rule');
+      // Ella map 16 (decision 7): no step leads while looking
+      expect(look.steps.some(s => s.isLead)).toBe(false);
 
       const further = await match.steps(p.userId, c, { withBasis: true, at: brazil });
-      // no step joins Tiger Stripe and Brazil: Brazil's map_line, after one of her answers (Ella map 15: family_lean, Brazil leans Chocolate & Nutty)
+      // no step joins Tiger Stripe and Brazil: two steps out, the summary of the way and Brazil's map_line, no answer of hers (Ella map 16)
       expect(further.firstBag!.text.endsWith((await c.query<{ map_line: string }>(`SELECT map_line FROM coffees WHERE id = $1`, [brazil])).rows[0].map_line)).toBe(true);
-      expect(further.firstBag!.basis!.choice).toBe('family_lean');
+      expect(further.firstBag!.text.startsWith('Lighter, and simpler.')).toBe(true);
+      expect(further.firstBag!.basis!.factCodes).toEqual([]);
       expect(further.spot!.coffeeId).toBe(p.tiger);
     });
   });
 
-  it('with dial_spot_not_lead_when_looking at 0, the spot may be the lead again', async () => {
+  // Ella map 16 (decision 7): no step leads while looking, whatever dial_spot_not_lead_when_looking says (read by nothing now, OT-198)
+  it('with dial_spot_not_lead_when_looking at 0, still no lead while looking (Ella map 16)', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureAll(c);
       const p = await danaLike(c);
       const blossom = await coffee(c, 'Blossom');
       await setParameterInTx(tx(c), { key: 'dial_spot_not_lead_when_looking', value: 0, adminId: 'zzz-map14' });
       const look = await match.steps(p.userId, c, { withBasis: true, at: blossom });
-      expect(look.steps.find(s => s.isLead)!.coffeeId).toBe(p.tiger);
+      expect(look.steps.some(s => s.isLead)).toBe(false);
     });
   });
 

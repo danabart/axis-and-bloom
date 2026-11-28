@@ -199,7 +199,7 @@ describe('the lead and the other steps (B2)', () => {
   // Ella map 10: step_away is retired; a step no answer supports opens with no_support.
   // Follow-up 2026-11-25: with dial_step_reuse_answer on (the seed) Geometric reuses an
   // answer already on the page; with it at 0 it has no unused answer and reads no_support.
-  it('person 85: Geometric reuses an answer (parameter on) or, off, takes an own-family answer (Ella map 15: no_support retired); Benchmark has its own', async () => {
+  it('person 85: Geometric reuses an answer (parameter on) or, off, carries its line alone (Ella map 15: no_support retired; Ella map 16: own_family off, no filler); Benchmark has its own', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
       const copy = await copyOf(c);
@@ -212,7 +212,8 @@ describe('the lead and the other steps (B2)', () => {
       const off = await page(c, p.userId);
       const g = off.steps.find(s => s.name === 'Geometric')!;
       expect(g.text.startsWith(copy.no_support)).toBe(false);
-      expect(g.basis!.choice).toBe('own_family');
+      expect(g.basis!.choice).toBeNull();
+      expect(g.basis!.factCodes).toEqual([]);
       expect(off.steps.find(s => s.name === 'Benchmark')!.text.startsWith(copy.no_support)).toBe(false);
     });
   });

@@ -26,7 +26,10 @@ import type { ApiFetch } from '../../lib/catalogWrites';
 import { getSaidBack, setSaidBack, searchMapCustomers, getReasons, getReasonChoices, setReasonChoice, getSpotEvents, setSpotEvent,
   type SaidBackFact, type MapCustomerHit, type ReasonChoice, type SpotEventConfig } from '../../lib/mapAdmin';
 import EvidenceParametersCard from './EvidenceParametersCard';
-import type { MapSteps } from '../../lib/mapCustomer';
+import type { MapSteps, MapTextBasis } from '../../lib/mapCustomer';
+
+/** {coffee} in a copy row, else the row as written (Ella map 16: the heading while looking). */
+const fill = (t: string | undefined, coffee: string) => (t ?? '').replace('{coffee}', coffee);
 
 const CARD = 'border border-stone-200 rounded-xl bg-white';
 const INPUT = 'w-full border border-stone-300 rounded px-2 py-1 text-sm';
@@ -141,13 +144,19 @@ export function ReadItAs({ apiFetch }: { apiFetch: ApiFetch }) {
     setMsg('');
     try { setHits(await searchMapCustomers(apiFetch, q.trim())); } catch (err) { setMsg(err instanceof Error ? err.message : 'Search failed'); }
   }
-  async function read(h: MapCustomerHit) {
+  // Ella map 16: read the page as the customer sees it while looking at a coffee (at), or on their spot (no at)
+  async function read(h: MapCustomerHit, at?: number | null) {
     setMsg(''); setPicked(h);
-    try { setPage(await getReasons(apiFetch, h.profile_id)); } catch (err) { setMsg(err instanceof Error ? err.message : 'Read failed'); }
+    try { setPage(await getReasons(apiFetch, h.profile_id, at)); } catch (err) { setMsg(err instanceof Error ? err.message : 'Read failed'); }
   }
-  // Ella map 15: the spot_relation row that gave the card its tag, beside the choice that gave its sentence
-  const basisLine = (b?: { ruleId?: number | null; stepId?: number; copyCodes: string[]; factCodes: string[]; choice?: string | null; tagCode?: string | null }) =>
-    b ? [b.tagCode ? `tag by ${b.tagCode}` : null, b.choice ? `chosen by ${b.choice}` : null, b.ruleId ? `rule ${b.ruleId}` : null, b.stepId ? `step ${b.stepId}` : null, b.copyCodes.length ? `copy ${b.copyCodes.join(', ')}` : null,
+  // Ella map 15: the spot_relation row that gave the card its tag, beside the choice that gave its sentence.
+  // Ella map 16: the distance from the spot, the way taken and the summary's words.
+  const basisLine = (b?: MapTextBasis) =>
+    b ? [b.tagCode ? `tag by ${b.tagCode}` : null,
+         b.distance !== undefined ? (b.distance === null ? 'no way from the spot' : `${b.distance} step${b.distance === 1 ? '' : 's'} from the spot`) : null,
+         b.way && b.way.length ? `way ${b.way.map(w => `${w.word} → ${w.to}`).join(' · ')}` : null,
+         b.summary ? `summary ${b.summary}${b.summaryWords && b.summaryWords.length ? ` (${b.summaryWords.join(', ')})` : ''}` : null,
+         b.choice ? `chosen by ${b.choice}` : null, b.ruleId ? `rule ${b.ruleId}` : null, b.stepId ? `step ${b.stepId}` : null, b.copyCodes.length ? `copy ${b.copyCodes.join(', ')}` : null,
          b.factCodes.length ? `facts ${b.factCodes.join(', ')}` : null].filter(Boolean).join(' · ') : '';
   return (
     <section className={`${CARD} p-4`} data-testid="read-it-as">
@@ -176,7 +185,8 @@ export function ReadItAs({ apiFetch }: { apiFetch: ApiFetch }) {
             <>
               <p className="mt-1 font-medium">{page.position.name}{page.firstBag?.labelCode ? ` · ${page.copy[page.firstBag.labelCode] ?? page.firstBag.labelCode}` : ''}</p>
               {page.firstBag && <p className="text-stone-700" data-testid="read-it-as-first">{page.firstBag.tag ? `${page.firstBag.tag} · ` : ''}{page.firstBag.text ?? page.firstBag.reason}</p>}
-              {page.firstBag?.basis && <p className="text-xs text-stone-400">{basisLine(page.firstBag.basis)}</p>}
+              {page.firstBag?.basis && <p className="text-xs text-stone-400" data-testid="read-it-as-first-basis">{basisLine(page.firstBag.basis)}</p>}
+              {page.lookingAt && <button className={LINK} onClick={() => read(picked)} data-testid="read-it-as-back">Back to the spot</button>}
               {page.spot && (
                 <p className="text-xs text-stone-500 mt-1" data-testid="read-it-as-spot">
                   Spot: {page.spot.name} · set by {page.spot.basis}{page.spot.since ? ` · since ${new Date(page.spot.since).toLocaleString()}` : ''}
@@ -199,9 +209,10 @@ export function ReadItAs({ apiFetch }: { apiFetch: ApiFetch }) {
               <ul className="mt-2 space-y-2">
                 {page.steps.map(s => (
                   <li key={s.stepId} data-testid="read-it-as-step" data-lead={s.isLead ? '1' : '0'}>
-                    <p className="text-xs text-stone-500">{s.isLead ? page.copy.lead_title : page.copy.others_title}</p>
+                    <p className="text-xs text-stone-500">{s.isLead ? page.copy.lead_title : page.lookingAt ? fill(page.copy.steps_title_from, page.position?.name ?? "") : page.copy.others_title}</p>
                     <p>{s.tag && <span className="text-xs text-stone-500" data-testid="read-it-as-tag">{s.tag} · </span>}<strong>{s.name}</strong>: {s.text}</p>
-                    {s.basis && <p className="text-xs text-stone-400">{basisLine(s.basis)}</p>}
+                    {s.basis && <p className="text-xs text-stone-400" data-testid="read-it-as-basis">{basisLine(s.basis)}</p>}
+                    <button className={LINK} onClick={() => read(picked, s.coffeeId)} data-testid="read-it-as-look">Look at {s.name}</button>
                   </li>
                 ))}
               </ul>
@@ -270,6 +281,12 @@ export function ReasonChoicesCard({ apiFetch }: { apiFetch: ApiFetch }) {
       <div className="mt-4">
         <EvidenceParametersCard title="How a step card takes an answer" prefix="dial_step_" testId="step-parameters"
           intro="Whether a card may take an answer already on the page, and whether the lean and own-family answers take one arguing the step's opposite direction last. A save writes a new row; nothing is overwritten."
+          footer="Applies on the next read of the page." />
+      </div>
+      {/* Ella map 16: the comfort zone and the summary's limit */}
+      <div className="mt-4">
+        <EvidenceParametersCard title="How far a coffee is from the spot" prefix="dial_path_" testId="path-parameters"
+          intro="How many steps around the spot count as the comfort zone, and how many kinds of change a looked-at card's summary may name. A save writes a new row; nothing is overwritten."
           footer="Applies on the next read of the page." />
       </div>
     </section>

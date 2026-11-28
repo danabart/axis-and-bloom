@@ -279,8 +279,10 @@ router.put('/spot-events', async (req: AuthRequest, res) => {
 });
 // The picker: customers by email (at least 3 characters)
 router.get('/customers', read('customer search', req => searchCustomersForMap(z.string().trim().min(3).max(120).parse(req.query.q ?? ''))));
-// B3: the composed page for any customer, with the rows each text used; read only (a customer with no decision reads their start rule, C8)
+// B3: the composed page for any customer, with the rows each text used; read only (a customer with no decision reads their start rule, C8).
+// Ella map 16: ?at= reads the page while that customer looks at a coffee (the way, the distance and the summary's words in each basis).
 router.get('/reasons', read('reasons', req =>
-  composedSteps(z.string().uuid().parse(req.query.profileId), undefined, { withBasis: true, readAsRule: true })));
+  composedSteps(z.string().uuid().parse(req.query.profileId), undefined,
+    { withBasis: true, readAsRule: true, at: z.coerce.number().int().positive().optional().parse(req.query.at ?? undefined) ?? null })));
 
 export default router;

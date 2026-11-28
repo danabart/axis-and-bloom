@@ -503,6 +503,17 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **While looking at another coffee** the customer's own spot is a normal card and never the lead (`dial_spot_not_lead_when_looking`).
 - [ ] **Positive and negative** come from `feedback_positive_min_rating` / `feedback_negative_max_rating` everywhere (`v_customer_feedback_current`, `v_customer_timeline`, `getFeedbackCurrent`).
 
+## Ella's Bloom Map 16: every card is measured from your spot (2026-11-27)
+
+- [ ] **Off the spot page, every card is tagged with its distance from the spot** in steps (the fewest published, shown steps, in each step's direction). Beyond `dial_path_comfort_zone_steps` the tag reads "Outside your comfort zone · {n} steps from your spot". The spot is "Your spot".
+- [ ] **A one-step coffee's "Looking at" card is its spot-page step card, word for word** (inside the comfort zone).
+- [ ] **Beyond the comfort zone a card quotes no quiz answer.** It reads the summary of what is different, then the coffee's own line.
+- [ ] **The summary names each kind of change once** ("much" for two steps, "far" for three or more). It never names the spot's coffee and never says "from" or "then".
+- [ ] **No summary when it would not be clean:** a change and its opposite on the way (opposite moves, or the two words of one step pair), or more kinds than `dial_path_max_changes`. Then the card has only the tag and the line.
+- [ ] **While looking, step cards are their line alone** (no quiz answer), and no step is the lead ("Where we'd take you next" is on the spot page only).
+- [ ] **No filler sentence:** `own_family` is off.
+- [ ] **The spot page is as it was:** the same top card, step sentences and lead.
+
 ## Ella's Bloom Map 15: every card says something about you (2026-11-27)
 
 - [ ] **With a usable quiz, every card says something about the customer** (a start rule's lead keeps its lead line). After the reuse pass and the treat, a card tries `family_lean` (the lean counts as support), then `own_family`.

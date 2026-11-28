@@ -20,6 +20,7 @@ import { applyRev2 } from '../scripts/ellaMapReasonsRev2_2026_11_23.js';
 import { applyReasons } from '../scripts/ellaMapReasons_2026_11_20.js';
 import { applyComparisons, planComparisons, DATA_1, DATA_2, LABEL_TAIL } from '../scripts/ellaMapStepComparisons_2026_11_25.js';
 import { applyCards } from '../scripts/ellaMapCardsAboutYou_2026_11_27.js';
+import { applyMeasured } from '../scripts/ellaMapMeasuredFromSpot_2026_11_27.js';
 
 vi.setConfig({ testTimeout: 240_000 });
 afterAll(async () => { await db.end(); });
@@ -34,6 +35,8 @@ async function ensureAll(c: pg.PoolClient) {
   const r = await applyComparisons(tx(c));
   // Ella map 15 (2026-11-27): the late kinds, the tag rows and the two Tiger Stripe pairs (published in the rollback)
   await applyCards(tx(c));
+  // Ella map 16 (2026-11-27): five rows off, one step word renamed (published in the rollback when needed)
+  await applyMeasured(tx(c));
   return r;
 }
 
