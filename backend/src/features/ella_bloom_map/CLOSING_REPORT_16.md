@@ -838,3 +838,91 @@ Summaries the step pairs remove that opposite moves alone would show (the last t
 | The Waverly | La Familia | 3 | Less fruit, more fruit, and lighter. | less fruit / more fruit |
 
 **Dana, 2026-11-28: go ahead with the rule as it stands.** The 13 lost summaries and the option of an explicit opposites list are logged as OT-200. Part E follows.
+
+## Part E, on production (2026-11-28). DONE
+
+1. **Tests before the push.**
+   - The brief 16 tests pass 13 of 13. One pin was updated for the amended rule: Cafè Feminista's reason is now "a change and its opposite" (more delicate and more tropical are the two directions of one step pair); the customer still sees the tag and the line only.
+   - All six lints pass. Backend tsc is clean; frontend tsc shows only the 7 known errors.
+2. **Commit and deploy.**
+   - Committed by path as 93d001e (33 files, the ten screenshots included; not `commerce/CLOSING_REPORT_6.md`, the Genova fonts or `misc/`) and pushed.
+   - The Deploy run succeeded and revision 00911 is serving.
+   - The boot added the 8 copy rows (read back word for word, `path_join` with its space) and the two parameters (1 and 3).
+   - The startup log has no ERROR. `[data-catalog]` reported #6 (dead tables, already there) and #4 (CATALOG.md stale until regenerated in step 5).
+3. **Seed.**
+   - The dry run planned 7 writes: 5 rows off, step #99 renamed, the publish. The copy rows showed as "same".
+   - The apply wrote 6 rows and published "L7 measured from your spot (Ella map 16)" as v9 (18 placements), retiring v8.
+   - A rerun plans 0 writes.
+   - Output: `backend/tmp/em16_seed_prod_dry.md` and `backend/tmp/em16_seed_prod_apply.md`.
+4. **Read back.**
+   - `own_family` and the four `spot_relation` rows are off; `family_lean` and the other step supports are on, in order.
+   - Step #113 (La Familia -> Geometric, the successor of #99) reads "More body", move `bolder`, basis `our_guess`. Its line "Keeps the fruit of {from} and adds weight: bright fruit over caramel." and its card clause are kept.
+   - No step word with a comma is left on the active map.
+   - v9 is active and v8 retired; 18 placements.
+5. **The counts again**, on production (`backend/tmp/em16_counts_prod.md`). They are identical to the test DB, row for row.
+
+| spot | its spot-page card (inside the zone) | summary + line | tag + line only: opposites | tag + line only: over the limit | no way |
+|---|---|---|---|---|---|
+| Amsterdam | 2 | 10 | 3 | 0 | 2 |
+| Benchmark | 3 | 10 | 2 | 0 | 2 |
+| Big City | 1 | 11 | 3 | 0 | 2 |
+| Blossom | 3 | 7 | 4 | 1 | 2 |
+| Brazil | 2 | 6 | 3 | 4 | 2 |
+| Cafè Feminista | 1 | 0 | 14 | 0 | 2 |
+| D.R. Congo | 1 | 8 | 6 | 0 | 2 |
+| Fabricator | 4 | 9 | 2 | 0 | 2 |
+| Geometric | 4 | 9 | 2 | 0 | 2 |
+| Great Heights | 2 | 10 | 3 | 0 | 2 |
+| Half Moon | 1 | 0 | 0 | 0 | 16 |
+| Indonesia | 1 | 6 | 4 | 4 | 2 |
+| La Familia | 3 | 8 | 4 | 0 | 2 |
+| Nightcap Decaf | 1 | 0 | 0 | 0 | 16 |
+| The Daily | 3 | 11 | 1 | 0 | 2 |
+| The Village | 2 | 9 | 3 | 1 | 2 |
+| The Waverly | 1 | 9 | 5 | 0 | 2 |
+| Tiger Stripe | 5 | 9 | 1 | 0 | 2 |
+| **all 18 spots** | 40 | 132 | 60 | 10 | 64 |
+
+   **Tiger Stripe as the spot:**
+
+| coffee | distance | tag | way | the card gets | summary |
+|---|---|---|---|---|---|
+| Amsterdam | 2 | Outside your comfort zone · 2 steps from your spot | Less fruit → The Daily · Bolder → Amsterdam | summary + line | Less fruit, and bolder. |
+| Benchmark | 2 | Outside your comfort zone · 2 steps from your spot | Less fruit → The Daily · Lighter → Benchmark | summary + line | Less fruit, and lighter. |
+| Big City | 4 | Outside your comfort zone · 4 steps from your spot | Less fruit → The Daily · Bolder → Amsterdam · Bolder → Great Heights · Bolder → Big City | summary + line | Less fruit, and far bolder. |
+| Blossom | 1 | One step from your spot | Bolder → Blossom | its spot-page card | - |
+| Brazil | 2 | Outside your comfort zone · 2 steps from your spot | Lighter → Fabricator · Simpler → Brazil | summary + line | Lighter, and simpler. |
+| Cafè Feminista | 4 | Outside your comfort zone · 4 steps from your spot | More fruit → Geometric · Lighter → La Familia · More delicate → The Village · More tropical → Cafè Feminista | tag + line (a change and its opposite) | - |
+| D.R. Congo | 2 | Outside your comfort zone · 2 steps from your spot | More fruit → Geometric · Lighter → D.R. Congo | summary + line | More fruit, and lighter. |
+| Fabricator | 1 | One step from your spot | Lighter → Fabricator | its spot-page card | - |
+| Geometric | 1 | One step from your spot | More fruit → Geometric | its spot-page card | - |
+| Great Heights | 3 | Outside your comfort zone · 3 steps from your spot | Less fruit → The Daily · Bolder → Amsterdam · Bolder → Great Heights | summary + line | Less fruit, and much bolder. |
+| Half Moon | - | A different part of the map | - | tag + line (no way) | - |
+| Indonesia | 2 | Outside your comfort zone · 2 steps from your spot | Bolder → Blossom · Earthier → Indonesia | summary + line | Bolder, and earthier. |
+| La Familia | 2 | Outside your comfort zone · 2 steps from your spot | More fruit → Geometric · Lighter → La Familia | summary + line | More fruit, and lighter. |
+| Nightcap Decaf | - | A different part of the map | - | tag + line (no way) | - |
+| The Daily | 1 | One step from your spot | Less fruit → The Daily | its spot-page card | - |
+| The Village | 3 | Outside your comfort zone · 3 steps from your spot | More fruit → Geometric · Lighter → La Familia · More delicate → The Village | summary + line | More fruit, lighter, and more delicate. |
+| The Waverly | 1 | One step from your spot | More fruit → The Waverly | its spot-page card | - |
+
+6. **Catalog.** CATALOG.md was regenerated from axisandbloom (235 tables, 123 views, 2,013 columns). Its hash 62135b5a… matches the live hash in the boot log.
+7. **Smoke** (`backend/tmp/em16_smoke_prod.mts`, read-only, the deployed code, Dana's account; output `backend/tmp/em16_smoke_prod.md`). 0 problems.
+   - **Her spot page** is word for word as before: Blossom leads, and the step cards have no tags.
+   - **The Daily and Fabricator** are each "One step from your spot", with her spot-page card exactly.
+   - **Further out:**
+
+     | coffee | tag | card |
+     |---|---|---|
+     | Benchmark | 2 steps | "Less fruit, and lighter." and its line |
+     | Amsterdam | 2 steps | "Less fruit, and bolder." and its line |
+     | Great Heights | 3 steps | "Less fruit, and much bolder." and its line |
+     | Big City | 4 steps | "Less fruit, and far bolder." and its line |
+     | The Village | 3 steps | "More fruit, lighter, and more delicate." and its line |
+     | Brazil | 2 steps | "Lighter, and simpler." and its line |
+     | Cafè Feminista | 4 steps | its line only |
+
+     Each tag from 2 steps on reads "Outside your comfort zone · n steps from your spot".
+   - **While looking:** no lead, every step card has a distance tag, and none quotes an answer. No answer appears outside the comfort zone, and no customer text says "elsewhere".
+   - **Not on the map:** `?at=999999` and Half Moon both return 404 NOT_ON_MAP.
+   - The production web.app is behind the Cloudflare bot check, and the API needs a signed-in customer, so the smoke reads through the service, as in briefs 14 and 15. The browser acceptance ran locally on the test DB (above).
+

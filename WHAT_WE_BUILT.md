@@ -7327,7 +7327,7 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
 
 ### 292. Ella's Bloom Map 16: every card is measured from your spot (2026-11-27)
 
-`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_16_MEASURED_FROM_YOUR_SPOT.md` · `CLOSING_REPORT_16.md`. Built on the test DB 2026-11-28 with Dana's 7 answers at the Task 0 STOP; STOP before the push.
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_16_MEASURED_FROM_YOUR_SPOT.md` · `CLOSING_REPORT_16.md`. Built on the test DB 2026-11-28 with Dana's 7 answers at the Task 0 STOP. Opposite words come from step pairs, as Dana amended 2026-11-28 (OT-200). **DONE on production 2026-11-28** (93d001e, rev 00911): the seed switched off 5 rows and renamed step #113, then published L7 = v9 (18 placements, v8 retired).
 
 - **While looking at a coffee (`/map?at=`), every card is measured from the spot** (`matchService.steps`):
   - **The tag is the distance** in steps: the fewest published, shown steps from the spot, in each step's direction (`shortestWays`, over `dialReads.activeStepWords`, now extended with the step id, basis order and move). The tags are "One step from your spot", "{n} steps from your spot", "Outside your comfort zone · …" beyond `dial_path_comfort_zone_steps` (1), "Your spot", and "A different part of the map" when there is no way.
