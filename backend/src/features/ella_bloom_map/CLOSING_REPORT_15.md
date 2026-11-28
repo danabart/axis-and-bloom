@@ -457,3 +457,42 @@ In order, with Dana's go-ahead:
 4. Repeat the item 5 counts.
 5. Run `npm run catalog:md -- --expect-db axisandbloom`.
 6. Smoke-test /map through the API.
+
+## Part E, on production (2026-11-27). DONE
+
+1. **Commit and deploy.** Committed by path as cca65fc (33 files, the eight screenshots included) and pushed. The Deploy run succeeded and revision 00909 is serving. The boot added the kind `spot_relation`, the six copy rows (read back word for word) and `dial_step_opposite_last` = 1 (row 62).
+2. **Seed.**
+   - The dry run planned 11 writes: 4 steps, 6 choices and the publish. The copy rows showed as "same".
+   - The apply wrote 10 rows and published "L6 one change from Tiger Stripe (Ella map 15)" as version 8, with 18 placements, retiring v7.
+   - A rerun plans 0 writes (17 unchanged).
+   - Output: `backend/tmp/em15_seed_prod_apply.md`.
+3. **Read back.**
+   - The four steps are current, in the active version and on the map. Each has your words, direction and line, basis `our_guess`:
+     - Tiger Stripe → The Daily, "Less fruit";
+     - The Daily → Tiger Stripe, "More fruit";
+     - Tiger Stripe → Fabricator, "Lighter";
+     - Fabricator → Tiger Stripe, "More body".
+   - The 13 choice rows are all on, in order:
+     - step_support: family_and_direction 1, family 2, direction 3, treat 4, family_lean 5, own_family 6;
+     - spot_relation: same_family 1, joined_by_step 2, leans_to_spot_family 3, other_direction 4;
+     - lead_source: unchanged.
+   - Version 8 is active and v7 is retired.
+4. **Item 5 again**, counted from the composed pages (`backend/tmp/em15_pages_prod_after.md`):
+
+   | person | predicted | on production |
+   |---|---|---|
+   | Dana | 1 | **0**: The Waverly takes her q4 answer. The prediction missed that Geometric takes her treat answer (q6), which leaves an unused answer for The Waverly. |
+   | 85 | 1 | 1: Geometric reuses "You're still discovering coffee." |
+   | 33 | 0 | 0 |
+   | 23 | 1 | 1. The repeat is on Tiger Stripe ("Coffee is a daily ritual for you…", also on the top card), not on D.R. Congo as predicted. |
+   | 81 | 0 | 0 |
+
+   The customer whose quiz was taken by someone else still reads as drafted: the rule's coffee line only, then The Village.
+5. **Catalog.** CATALOG.md was regenerated from axisandbloom: 235 tables, 123 views, 2,013 columns.
+6. **Smoke** (`backend/tmp/em15_smoke_prod.mts`, read-only, with the deployed code). The /map API needs a signed-in customer: without a token every route returns 401. The production web.app is behind the Cloudflare bot check, so I read Dana's pages through the service instead.
+   - **Her spot:** Blossom leads, "Same family as your spot". Geometric is "Close to your spot". The Daily, Fabricator and The Waverly are "Same family". Every card opens with a sentence about her and every card has a price.
+   - **Looking at Fabricator:** "Same family as your spot" sits above the name. Brazil and Benchmark are taken by `family_lean`. Tiger Stripe is "Your spot", with "More body than Fabricator…".
+   - **Looking at The Village:** "A different direction: Floral". The top card is taken by `own_family`. Both steps read "A different direction: Fruity".
+   - **A coffee not on the map** (`?at=999999`): 404 NOT_ON_MAP.
+   - **"Your answers point elsewhere."** No card says it. The text still exists as the copy row `no_support`, which goes out with the page's copy, but no frontend code reads it (OT-197).
+   - **The customer whose quiz was taken by someone else** has no spot, so they get an empty /map, as before this brief.

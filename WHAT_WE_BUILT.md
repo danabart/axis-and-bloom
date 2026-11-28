@@ -7291,7 +7291,7 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
 
 ### 291. Ella's Bloom Map 15: every card says something about you, and two steps from Tiger Stripe (2026-11-27)
 
-`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_15_CARDS_ABOUT_YOU.md` · `CLOSING_REPORT_15.md`. Built on the test DB 2026-11-27 with Dana's 12 answers; STOP before the production seed.
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_15_CARDS_ABOUT_YOU.md` · `CLOSING_REPORT_15.md`. Built on the test DB 2026-11-27 with Dana's 12 answers. **DONE on production 2026-11-27** (cca65fc, rev 00909): the seed wrote 4 steps and 6 choice rows and published L6 = v8 (18 placements, v7 retired); the copy rows, the kind and `dial_step_opposite_last` came from the boot.
 
 - **Two new support kinds**, rows in "How a card is chosen" (`dial_reason_choice`, step support):
   - `family_lean`: an answer for the family the coffee leans toward (its lane's `toward_archetype`, read by `dialReads.mapCoffees`);
