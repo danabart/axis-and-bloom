@@ -145,8 +145,9 @@ export function ReadItAs({ apiFetch }: { apiFetch: ApiFetch }) {
     setMsg(''); setPicked(h);
     try { setPage(await getReasons(apiFetch, h.profile_id)); } catch (err) { setMsg(err instanceof Error ? err.message : 'Read failed'); }
   }
-  const basisLine = (b?: { ruleId?: number | null; stepId?: number; copyCodes: string[]; factCodes: string[]; choice?: string | null }) =>
-    b ? [b.choice ? `chosen by ${b.choice}` : null, b.ruleId ? `rule ${b.ruleId}` : null, b.stepId ? `step ${b.stepId}` : null, b.copyCodes.length ? `copy ${b.copyCodes.join(', ')}` : null,
+  // Ella map 15: the spot_relation row that gave the card its tag, beside the choice that gave its sentence
+  const basisLine = (b?: { ruleId?: number | null; stepId?: number; copyCodes: string[]; factCodes: string[]; choice?: string | null; tagCode?: string | null }) =>
+    b ? [b.tagCode ? `tag by ${b.tagCode}` : null, b.choice ? `chosen by ${b.choice}` : null, b.ruleId ? `rule ${b.ruleId}` : null, b.stepId ? `step ${b.stepId}` : null, b.copyCodes.length ? `copy ${b.copyCodes.join(', ')}` : null,
          b.factCodes.length ? `facts ${b.factCodes.join(', ')}` : null].filter(Boolean).join(' · ') : '';
   return (
     <section className={`${CARD} p-4`} data-testid="read-it-as">
@@ -174,7 +175,7 @@ export function ReadItAs({ apiFetch }: { apiFetch: ApiFetch }) {
           {page.position && (
             <>
               <p className="mt-1 font-medium">{page.position.name}{page.firstBag?.labelCode ? ` · ${page.copy[page.firstBag.labelCode] ?? page.firstBag.labelCode}` : ''}</p>
-              {page.firstBag && <p className="text-stone-700" data-testid="read-it-as-first">{page.firstBag.text ?? page.firstBag.reason}</p>}
+              {page.firstBag && <p className="text-stone-700" data-testid="read-it-as-first">{page.firstBag.tag ? `${page.firstBag.tag} · ` : ''}{page.firstBag.text ?? page.firstBag.reason}</p>}
               {page.firstBag?.basis && <p className="text-xs text-stone-400">{basisLine(page.firstBag.basis)}</p>}
               {page.spot && (
                 <p className="text-xs text-stone-500 mt-1" data-testid="read-it-as-spot">
@@ -199,7 +200,7 @@ export function ReadItAs({ apiFetch }: { apiFetch: ApiFetch }) {
                 {page.steps.map(s => (
                   <li key={s.stepId} data-testid="read-it-as-step" data-lead={s.isLead ? '1' : '0'}>
                     <p className="text-xs text-stone-500">{s.isLead ? page.copy.lead_title : page.copy.others_title}</p>
-                    <p><strong>{s.name}</strong>: {s.text}</p>
+                    <p>{s.tag && <span className="text-xs text-stone-500" data-testid="read-it-as-tag">{s.tag} · </span>}<strong>{s.name}</strong>: {s.text}</p>
                     {s.basis && <p className="text-xs text-stone-400">{basisLine(s.basis)}</p>}
                   </li>
                 ))}
@@ -265,6 +266,12 @@ export function ReasonChoicesCard({ apiFetch }: { apiFetch: ApiFetch }) {
       })}
       {rows.length === 0 && <p className="text-xs text-stone-500 mt-2">No choices yet.</p>}
       {msg && <p className="text-xs text-stone-700 mt-2" data-testid="reason-msg">{msg}</p>}
+      {/* Ella map 15: the two step-card switches (reuse an answer; the opposite direction last) */}
+      <div className="mt-4">
+        <EvidenceParametersCard title="How a step card takes an answer" prefix="dial_step_" testId="step-parameters"
+          intro="Whether a card may take an answer already on the page, and whether the lean and own-family answers take one arguing the step's opposite direction last. A save writes a new row; nothing is overwritten."
+          footer="Applies on the next read of the page." />
+      </div>
     </section>
   );
 }

@@ -23,6 +23,7 @@ import { applyRev2 } from '../scripts/ellaMapReasonsRev2_2026_11_23.js';
 import { applyReasons } from '../scripts/ellaMapReasons_2026_11_20.js';
 import { applyComparisons } from '../scripts/ellaMapStepComparisons_2026_11_25.js';
 import { applySpot, planSpot } from '../scripts/ellaMapSpot_2026_11_26.js';
+import { applyCards } from '../scripts/ellaMapCardsAboutYou_2026_11_27.js';
 
 vi.setConfig({ testTimeout: 240_000 });
 afterAll(async () => { await db.end(); });
@@ -254,6 +255,8 @@ async function ensureAll(c: pg.PoolClient) {
   await applyRev2(tx(c));
   await applyComparisons(tx(c));
   await applySpot(tx(c));
+  // Ella map 15 (2026-11-27): the late kinds, the tag rows and the two Tiger Stripe pairs (published in the rollback)
+  await applyCards(tx(c));
 }
 const answerId = async (c: pg.PoolClient, code: string) =>
   (await c.query<{ id: string }>(`SELECT id FROM quiz_answer WHERE answer_code = $1 AND is_current`, [code])).rows[0].id;
@@ -302,7 +305,9 @@ describe('walking the map (?at=)', () => {
       expect(look.position!.coffeeId).toBe(blossom);
       expect(look.spot!.coffeeId).toBe(p.tiger);
       expect(look.firstBag!.labelCode).toBe('looking_at_title');
-      expect(look.firstBag!.text).toBe('A darker roast than Tiger Stripe, with a fuller body.');
+      // Ella map 15: the "Looking at" card is built like a step card: her answer for the step's direction, then the line
+      expect(look.firstBag!.text).toBe('A little bitterness tastes serious to you. A darker roast than Tiger Stripe, with a fuller body.');
+      expect(look.firstBag!.basis!.choice).toBe('family_and_direction');
       expect(look.spot!.backLine).toBe('Back to your spot: Tiger Stripe');
       for (const s of look.steps) expect(s.line).toContain('Blossom');
       // W1: her own spot is a normal card, never the lead (parameter on)
@@ -314,7 +319,9 @@ describe('walking the map (?at=)', () => {
       expect(look.steps.filter(s => s.isLead).map(s => s.basis!.choice)).not.toContain('start_rule');
 
       const further = await match.steps(p.userId, c, { withBasis: true, at: brazil });
-      expect(further.firstBag!.text).toBe((await c.query<{ map_line: string }>(`SELECT map_line FROM coffees WHERE id = $1`, [brazil])).rows[0].map_line);
+      // no step joins Tiger Stripe and Brazil: Brazil's map_line, after one of her answers (Ella map 15: family_lean, Brazil leans Chocolate & Nutty)
+      expect(further.firstBag!.text.endsWith((await c.query<{ map_line: string }>(`SELECT map_line FROM coffees WHERE id = $1`, [brazil])).rows[0].map_line)).toBe(true);
+      expect(further.firstBag!.basis!.choice).toBe('family_lean');
       expect(further.spot!.coffeeId).toBe(p.tiger);
     });
   });

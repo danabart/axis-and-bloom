@@ -203,7 +203,12 @@ describe('seed script (D, B5)', () => {
       // every step whose two coffees exist is written; the others are skipped
       const pairs = DATA_2.filter(s => first.plan.coffees[s.from] && first.plan.coffees[s.to]);
       const ids = Object.values(first.plan.coffees).filter(Boolean).map(x => x!.id);
-      const n = (await c.query(`SELECT count(*)::int AS n FROM dial_step WHERE superseded_at IS NULL AND from_coffee_id = ANY($1::int[]) AND to_coffee_id = ANY($1::int[])`, [ids])).rows[0].n;
+      // Ella map 15: later briefs add their own steps between these coffees, so count Data 2's pairs only, both ways
+      const from = pairs.flatMap(s => [first.plan.coffees[s.from]!.id, first.plan.coffees[s.to]!.id]);
+      const to = pairs.flatMap(s => [first.plan.coffees[s.to]!.id, first.plan.coffees[s.from]!.id]);
+      const n = (await c.query(
+        `SELECT count(*)::int AS n FROM dial_step d JOIN unnest($1::int[], $2::int[]) AS p(f, t) ON d.from_coffee_id = p.f AND d.to_coffee_id = p.t
+          WHERE d.superseded_at IS NULL`, [from, to])).rows[0].n;
       expect(n).toBe(pairs.length * 2);
       expect(first.plan.rows.filter(r => r.section === 'step' && r.action === 'skip').length).toBe((DATA_2.length - pairs.length) * 2);
       // every present coffee is placeable in the preview with its Data 1 ring

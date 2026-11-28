@@ -19,6 +19,7 @@ import { dialMapChecks } from './dataCatalogIntegrity.js';
 import { applyRev2 } from '../scripts/ellaMapReasonsRev2_2026_11_23.js';
 import { applyReasons } from '../scripts/ellaMapReasons_2026_11_20.js';
 import { applyComparisons, planComparisons, DATA_1, DATA_2, LABEL_TAIL } from '../scripts/ellaMapStepComparisons_2026_11_25.js';
+import { applyCards } from '../scripts/ellaMapCardsAboutYou_2026_11_27.js';
 
 vi.setConfig({ testTimeout: 240_000 });
 afterAll(async () => { await db.end(); });
@@ -30,7 +31,10 @@ async function ensureAll(c: pg.PoolClient) {
   const n = Number((await c.query(`SELECT count(*) AS n FROM v_dial_said_back WHERE is_current`)).rows[0].n);
   if (n === 0) await applyReasons(tx(c), { publishLabel: `zzz map12 test ${randomUUID()}` });
   await applyRev2(tx(c));
-  return applyComparisons(tx(c));
+  const r = await applyComparisons(tx(c));
+  // Ella map 15 (2026-11-27): the late kinds, the tag rows and the two Tiger Stripe pairs (published in the rollback)
+  await applyCards(tx(c));
+  return r;
 }
 
 async function newProfile(c: pg.PoolClient) {
@@ -151,14 +155,16 @@ describe('the treat: step cards only, last, its family, switchable', () => {
     });
   });
 
-  it('only when its family is the destination\'s: a treat for another family gives no_support', async () => {
+  it('only when its family is the destination\'s: a treat for another family is not used (Ella map 15: the lean answer instead)', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureAll(c);
-      const noSupport = (await c.query<{ text: string }>(`SELECT text FROM v_dial_customer_copy WHERE code = 'no_support'`)).rows[0].text;
       const p = await danaLike(c, { treat: 'v7_q6_a' }); // the treat for Chocolate & Nutty; Geometric is Fruity
       const r = await page(c, p.userId);
       expect(treatOn(r).steps).toEqual([]);
-      expect(r.steps.find(s => s.name === 'Geometric')!.text.startsWith(noSupport)).toBe(true);
+      // Geometric leans toward Chocolate & Nutty: family_lean, tried after the treat, takes her unused answer with no direction
+      const g = r.steps.find(s => s.name === 'Geometric')!;
+      expect(g.basis!.choice).toBe('family_lean');
+      expect(g.text.startsWith(await said(c, 'v7_q1_a'))).toBe(true);
     });
   });
 
@@ -172,8 +178,9 @@ describe('the treat: step cards only, last, its family, switchable', () => {
       await setParameterInTx(tx(c), { key: 'dial_step_reuse_answer', value: 0, adminId: 'zzz-map12' });
       const off = await page(c, p.userId);
       const g = off.steps.find(s => s.name === 'Geometric')!;
-      // the lead (The Waverly) takes the feeling; Geometric has no unused answer: the treat
-      expect(off.steps.find(s => s.isLead)!.name).toBe('The Waverly');
+      // the lead takes the feeling; Geometric has no unused answer: the treat. Ella map 15: The Daily (a "different"
+      // step from Tiger Stripe) ties with The Waverly on support and comes first in step order
+      expect(off.steps.find(s => s.isLead)!.name).toBe('The Daily');
       expect(r.steps.find(s => s.name === 'Geometric')!.basis!.factCodes).toEqual(['different']); // with reuse on, the feeling again
       expect(g.basis!.choice).toBe('treat');
     });

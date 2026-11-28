@@ -350,6 +350,8 @@ export interface MapCoffee {
   map_line: string | null;
   /** Ella map 10: the family the placement's quiz branch comes from (dial_wedge.branches_from_code); null for none */
   family_branches_from_code: string | null;
+  /** Ella map 15: the family the coffee's lane leans toward (v_dial_wedge_lane.toward_archetype); null in the middle lane */
+  lean_family_code: string | null;
 }
 
 function wordsOf(raw: unknown): string[] {
@@ -363,10 +365,11 @@ export async function mapCoffees(coffeeIds?: number[], runner: Runner = db): Pro
     `SELECT av.coffee_id, av.map_name, (c.is_active AND av.is_sellable) AS is_sellable, av.in_stock,
             av.weight_oz, av.size_label, av.price_cents, av.has_sku, av.has_price,
             p.archetype_code::text AS family_code, p.family_branches_from_code,
-            c.flavor_descriptors_roaster AS roaster_words, av.map_line
+            c.flavor_descriptors_roaster AS roaster_words, av.map_line, wl.toward_archetype::text AS lean_family_code
        FROM v_dial_coffee_availability av
        JOIN v_coffee c ON c.id = av.coffee_id
        JOIN v_dial_placement p ON p.coffee_id = av.coffee_id
+       LEFT JOIN v_dial_wedge_lane wl ON wl.archetype_code::text = p.archetype_code::text AND wl.lane_id = p.lane_id
       WHERE ($1::int[] IS NULL OR av.coffee_id = ANY($1::int[]))`, [coffeeIds ?? null]);
   return new Map(r.rows.map(x => [x.coffee_id, {
     ...x, weight_oz: x.weight_oz === null ? null : Number(x.weight_oz), roaster_words: wordsOf(x.roaster_words),

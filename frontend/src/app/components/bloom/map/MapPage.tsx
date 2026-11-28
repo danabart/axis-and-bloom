@@ -194,6 +194,8 @@ export function StepCard({ step, copy, onAdd, onLook, open = false, onToggle = (
 }) {
   return (
     <div className={`rounded-xl bg-white border p-4 ${step.isLead ? 'border-[#2f6f68]' : 'border-[#e8e4dc]'} ${open ? 'lg:col-span-2' : ''}`} data-testid="step-card" data-lead={step.isLead ? '1' : '0'} data-open={open ? '1' : '0'}>
+      {/* Ella map 15: how this coffee relates to the customer's spot, above its name */}
+      {step.tag && <p className={`${EYEBROW} ${SOFT} mb-1`} data-testid="step-tag">{step.tag}</p>}
       <h3 className={`text-lg font-semibold ${INK}`} data-testid="step-coffee">
         {onLook
           ? <button type="button" onClick={onLook} data-testid="step-look" className="text-left underline decoration-[#e8e4dc] underline-offset-4 hover:decoration-[#2f6f68] min-h-[44px]">{step.name}</button>
@@ -243,6 +245,8 @@ function TopRow({ face, data, copy, added, onAddFirstBag, open, onToggle, onLook
               {topLabel ?? (pos.hasBag ? copy.here_title : copy.first_bag_title)}
             </p>
           </div>
+          {/* Ella map 15: the "Looking at" card carries its tag above the name, like a step card; the spot's own card has none */}
+          {looking && top?.tag && <p className={`${EYEBROW} ${SOFT} mt-2`} data-testid="position-tag">{top.tag}</p>}
           <h2 className={`text-2xl font-semibold ${INK} mt-1`} data-testid="position-name">{pos.name}</h2>
           {!top && pos.notes.length > 0 && <p className={`text-base ${INK} mt-1`}>{pos.notes.join(', ')}</p>}
           {top && (
@@ -333,6 +337,8 @@ export default function MapPage() {
   if (!pos) return <main className="max-w-md mx-auto px-4 py-10" data-testid="map-empty" />;
   const lead = data.steps.find(s => s.isLead) ?? null;
   const others = data.steps.filter(s => !s.isLead);
+  // Ella map 15 (Dana Q6a): while looking, "One step from {coffee}" heads the steps; with no lead it takes the place of steps_title
+  const fromTitle = data.lookingAt && copy.steps_title_from ? copy.steps_title_from.replace('{coffee}', pos.name) : null;
 
   return (
     <main className="max-w-md lg:max-w-6xl mx-auto px-4 lg:px-8 py-6 lg:py-10" style={{ fontFamily: 'Lato, sans-serif' }} data-testid="map-page">
@@ -344,6 +350,7 @@ export default function MapPage() {
         open={openPanel === 'top'} onToggle={() => toggle('top')} onLook={look} onBack={back} />
 
       <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+        {fromTitle && lead && <h2 className={`text-xl font-semibold ${INK} mb-3 lg:col-span-2`} data-testid="steps-from-title">{fromTitle}</h2>}
         {lead && (
           <section className="mb-6 lg:mb-0 lg:col-span-2" data-testid="lead-step">
             <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="lead-title">{copy.lead_title}</p>
@@ -353,7 +360,9 @@ export default function MapPage() {
         )}
         {others.length > 0 && (
           <section className="lg:col-span-2" data-testid="steps">
-            <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="others-title">{lead ? copy.others_title : copy.steps_title}</p>
+            {fromTitle && !lead
+              ? <h2 className={`text-xl font-semibold ${INK} mb-3`} data-testid="steps-from-title">{fromTitle}</h2>
+              : <p className={`${EYEBROW} ${SOFT} mb-3`} data-testid="others-title">{lead ? copy.others_title : copy.steps_title}</p>}
             <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start" data-testid="steps-grid">
               {others.map(s => <StepCard key={s.stepId} step={s} copy={copy} onAdd={() => choose(s)} onLook={() => look(s.coffeeId)}
                 open={openPanel === `step:${s.stepId}`} onToggle={() => toggle(`step:${s.stepId}`)} />)}

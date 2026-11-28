@@ -502,3 +502,14 @@ Full record: `backend/src/features/website_handoff/CLOSING_REPORT_9.md`. Tests: 
 - [ ] **The rules are rows:** "What moves a spot" on `/admin/map` (effect, switch) and its numbers (`dial_spot_*`, `feedback_*`) change the spot on the next read.
 - [ ] **While looking at another coffee** the customer's own spot is a normal card and never the lead (`dial_spot_not_lead_when_looking`).
 - [ ] **Positive and negative** come from `feedback_positive_min_rating` / `feedback_negative_max_rating` everywhere (`v_customer_feedback_current`, `v_customer_timeline`, `getFeedbackCurrent`).
+
+## Ella's Bloom Map 15: every card says something about you (2026-11-27)
+
+- [ ] **With a usable quiz, every card says something about the customer** (a start rule's lead keeps its lead line). After the reuse pass and the treat, a card tries `family_lean` (the lean counts as support), then `own_family`.
+- [ ] **Neither `family_lean` nor `own_family` ever decides the lead.**
+- [ ] **No card rules a coffee out:** no customer text says "Your answers point elsewhere." or predicts a dislike. A card no row supports carries its line alone.
+- [ ] **The opposite direction is taken last** by `family_lean` and `own_family` while `dial_step_opposite_last` is 1.
+- [ ] **Every step card and the "Looking at" card carry a tag relative to the spot.** The first `spot_relation` row that holds gives it: same family, joined by a published step, leans to the spot's family, otherwise "A different direction: {family}". The spot as a card is "Your spot"; the spot's own top card has no tag.
+- [ ] **The "Looking at" card** reads tag, a sentence about the customer, then the line. While looking, the heading names the coffee ("One step from {coffee}").
+- [ ] **A quiz taken by someone else** gives no sentence about the customer: the top card is the rule's coffee line. The customer's own setup feeling is still used.
+- [ ] **Tiger Stripe has five steps:** The Daily and Fabricator are one step each way. There is no step between Tiger Stripe and Benchmark.

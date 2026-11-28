@@ -7288,3 +7288,39 @@ Dana 2026-11-25, after brief 10. Code and one parameter row; no other data.
   - `dialMap7`, `9`, `10` and `12` are updated: a step no longer moves the spot.
   - Frontend `mapWalk.test.tsx`.
 - **After deploy:** run the seed with `--apply` on production, then `catalog:md` against prod, and commit CATALOG.md.
+
+### 291. Ella's Bloom Map 15: every card says something about you, and two steps from Tiger Stripe (2026-11-27)
+
+`backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_15_CARDS_ABOUT_YOU.md` · `CLOSING_REPORT_15.md`. Built on the test DB 2026-11-27 with Dana's 12 answers; STOP before the production seed.
+
+- **Two new support kinds**, rows in "How a card is chosen" (`dial_reason_choice`, step support):
+  - `family_lean`: an answer for the family the coffee leans toward (its lane's `toward_archetype`, read by `dialReads.mapCoffees`);
+  - `own_family`: one of the customer's own-family answers.
+- **The order.** The existing rows are unchanged. After the reuse pass, the late kinds go in row order: treat 4, family_lean 5, own_family 6. Neither late kind ever decides the lead, which is chosen as before.
+- **Direction preference** for `family_lean` and `own_family`:
+  - an answer with no direction first, then the step's own direction, then another;
+  - unused before used;
+  - an answer arguing the opposite direction (`dial_move.opposite_move_id`, read again through `dialReads.moveOpposites`) only when no other is left.
+  - Switch: `dial_step_opposite_last` (1).
+- **"Your answers point elsewhere." is retired:** a card no row supports carries its line alone. `no_support` stays in the table, read by nothing.
+- **A tag on every card, relative to the spot.** A new kind, `spot_relation`, seeded in `schema.sql`, with rows in order:
+  - `same_family` (placement families only);
+  - `joined_by_step` (a published step either way, `dialReads.activeStepWords`);
+  - `leans_to_spot_family`;
+  - `other_direction` ("A different direction: {family}").
+
+  The words are copy rows `tag_<code>`. The spot as a card is "Your spot" (`tag_your_spot`); the spot's own top card has no tag.
+- **The "Looking at" card** is built like a step card: the tag, a sentence chosen by the same rows (taken first in page order; direction kinds only when a step joins the spot to it; never the treat), then the line.
+- **No usable quiz** (one taken by someone else): the top card is the rule's coffee line only, and no card speaks from that quiz. The customer's own setup feeling still does.
+- **`/map`:**
+  - the tag above the coffee's name on step cards and the "Looking at" card;
+  - while looking, the heading "One step from {coffee}" (`steps_title_from`), above the lead's title, or in place of "One step away" when there is no lead.
+- **`/admin/map`:**
+  - the tag rows are their own group in "How a card is chosen", which also gains the `dial_step_` switches;
+  - "Read it as" shows each card's tag and the row that gave it.
+- **Data 1:** four steps by Dana's one-change rule, basis `our_guess`, published as `L<n> one change from Tiger Stripe (Ella map 15)`:
+  - Tiger Stripe ↔ The Daily: Less fruit / More fruit;
+  - Tiger Stripe ↔ Fabricator: Lighter / More body.
+- **Seed:** `backend/src/scripts/ellaMapCardsAboutYou_2026_11_27.ts`, through `setStepInTx`, `setReasonChoiceInTx`, `setCustomerCopyInTx` and `publishInTx`. It refuses if a placement would move; a row edited since is kept.
+- **Integrity:** check 15 knows the new codes; checks 9 and 10 gain the copy codes and the key.
+- **Tests:** new `dialMap15.test.ts` (Dana's production pages word for word, the late kinds, the opposite switch, the tags, the proxy quiz, no "elsewhere"); earlier pins updated; frontend `mapTags.test.tsx`.

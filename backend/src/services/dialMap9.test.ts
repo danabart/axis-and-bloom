@@ -114,7 +114,7 @@ describe('the first bag (B2)', () => {
     });
   });
 
-  it('no stored answers, a proxy-taken quiz, and Q6 alone all fall back to customer_reason, nothing quoted', async () => {
+  it("no stored answers and Q6 alone fall back to customer_reason; a proxy-taken quiz to the rule's coffee line (Ella map 15, Dana Q9a); nothing quoted", async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
       for (const f of [
@@ -125,7 +125,10 @@ describe('the first bag (B2)', () => {
         const p = await person(c, f);
         await quizDecide(c, p);
         const r = await page(c, p.userId);
-        expect(r.firstBag!.text).toBe(r.firstBag!.reason);
+        if (f.proxy) {
+          const line = (await c.query<{ coffee_line: string | null }>(`SELECT coffee_line FROM v_dial_start WHERE quiz_session_id = $1`, [p.sessionId])).rows[0].coffee_line;
+          expect(r.firstBag!.text).toBe(line);
+        } else expect(r.firstBag!.text).toBe(r.firstBag!.reason);
         expect(r.firstBag!.basis!.factCodes).toEqual([]);
         for (const s of r.steps) expect(s.basis!.factCodes.filter(x => x.startsWith('v7_'))).toEqual([]);
       }
@@ -196,7 +199,7 @@ describe('the lead and the other steps (B2)', () => {
   // Ella map 10: step_away is retired; a step no answer supports opens with no_support.
   // Follow-up 2026-11-25: with dial_step_reuse_answer on (the seed) Geometric reuses an
   // answer already on the page; with it at 0 it has no unused answer and reads no_support.
-  it('no_support: person 85, Geometric reuses an answer (parameter on) or reads no_support (off); Benchmark has its own', async () => {
+  it('person 85: Geometric reuses an answer (parameter on) or, off, takes an own-family answer (Ella map 15: no_support retired); Benchmark has its own', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureReasons(c);
       const copy = await copyOf(c);
@@ -207,7 +210,9 @@ describe('the lead and the other steps (B2)', () => {
       expect(r.steps.find(s => s.name === 'Benchmark')!.text.startsWith(copy.no_support)).toBe(false);
       await setParameterInTx(tx(c), { key: 'dial_step_reuse_answer', value: 0, adminId: 'zzz-map9' });
       const off = await page(c, p.userId);
-      expect(off.steps.find(s => s.name === 'Geometric')!.text.startsWith(copy.no_support)).toBe(true);
+      const g = off.steps.find(s => s.name === 'Geometric')!;
+      expect(g.text.startsWith(copy.no_support)).toBe(false);
+      expect(g.basis!.choice).toBe('own_family');
       expect(off.steps.find(s => s.name === 'Benchmark')!.text.startsWith(copy.no_support)).toBe(false);
     });
   });

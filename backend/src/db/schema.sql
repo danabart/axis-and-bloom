@@ -14377,6 +14377,40 @@ LEFT JOIN LATERAL (
 -- END ELLA'S BLOOM MAP 14 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN ELLA'S BLOOM MAP 15 block (2026-11-27): every card says something about you
+-- backend/src/features/ella_bloom_map/CLAUDE_CODE_PROMPT_ELLA_MAP_15_CARDS_ABOUT_YOU.md
+-- No new table or view. The kind's table is seed-written (Dana, Task 0 Q3);
+-- its rows, the copy rows and the steps go in through the writers
+-- (script ellaMapCardsAboutYou_2026_11_27).
+-- ═══════════════════════════════════════════════════════════════════════════
+INSERT INTO dial_reason_choice_kind (code, label, sort_order) VALUES
+  ('spot_relation', 'How a card''s coffee relates to the spot (its tag)', 3)
+ON CONFLICT (code) DO NOTHING;
+
+-- The tag words (tag_<spot_relation code>, tag_your_spot) and the heading while
+-- looking, insert if missing (the script writes them too, through the writer).
+INSERT INTO dial_customer_copy (code, text, decided_by)
+SELECT v.code, v.text, 'seed' FROM (VALUES
+  ('tag_same_family',          'Same family as your spot'),
+  ('tag_joined_by_step',       'Close to your spot'),
+  ('tag_leans_to_spot_family', 'Close to your spot'),
+  ('tag_other_direction',      'A different direction: {family}'),
+  ('tag_your_spot',            'Your spot'),
+  ('steps_title_from',         'One step from {coffee}')
+) AS v(code, text)
+WHERE NOT EXISTS (SELECT 1 FROM dial_customer_copy c WHERE c.code = v.code);
+
+-- Dana Q10: family_lean and own_family take an answer arguing the step's
+-- opposite direction (dial_move.opposite_move_id) only when no other answer,
+-- used or unused, is left (insert if missing; not versioned).
+INSERT INTO evidence_parameter (key, value, note)
+SELECT 'dial_step_opposite_last', 1, 'Ella map 15: 1 = the family_lean and own_family supports prefer an answer with no direction, then the step''s own direction, then another direction, unused before used, and take one arguing the opposite direction (dial_move.opposite_move_id) only when no other answer is left. 0 = unused first, then used, in answer order. Range: integer 0 <= value <= 1.'
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = 'dial_step_opposite_last');
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END ELLA'S BLOOM MAP 15 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.

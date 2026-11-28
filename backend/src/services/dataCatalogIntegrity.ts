@@ -231,8 +231,10 @@ export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_availa
   'add_first_bag', 'added_to_cart',
   // Ella map 9 (2026-11-20): the personal text (its frames told_us_*, also_said, asked_for, step_* are read by nothing since Ella map 10)
   'founder_pick', 'lead_title', 'others_title', 'kitchen', 'price_add',
-  // Ella map 10 (2026-11-24)
+  // Ella map 10 (2026-11-24; unread since Ella map 15, kept)
   'no_support',
+  // Ella map 15 (2026-11-27): the card tags and the heading while looking
+  'tag_same_family', 'tag_joined_by_step', 'tag_leans_to_spot_family', 'tag_other_direction', 'tag_your_spot', 'steps_title_from',
   // Ella map 12 (2026-11-26): the /map button that opens the coffee's panel
   'more_about',
   // Ella map 13 (2026-11-26): the /map panel's headings
@@ -240,6 +242,8 @@ export const DIAL_COPY_CODES = ['start_at_base', 'start_here', 'no_longer_availa
   // Ella map 14 (2026-11-27): the walk and the trail
   'looking_at_title', 'back_to_spot', 'trail_moved'];
 export const DIAL_PARAMETER_KEYS = [
+  // Ella map 15: the family_lean and own_family supports take the opposite direction last
+  'dial_step_opposite_last',
   'dial_ring_cut_1', 'dial_ring_cut_2', 'dial_size_cut_1', 'dial_size_cut_2', 'dial_cut_margin_flag',
   'dial_w_ring', 'dial_w_body', 'dial_w_sweet', 'dial_w_lane', 'dial_cap_different',
   'dial_min_grade_rank_first_match', 'dial_min_grade_rank_hop_target',

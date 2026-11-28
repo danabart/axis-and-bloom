@@ -19,6 +19,7 @@ import { dialMapChecks } from './dataCatalogIntegrity.js';
 import { applyRev2 } from '../scripts/ellaMapReasonsRev2_2026_11_23.js';
 import { applyReasons } from '../scripts/ellaMapReasons_2026_11_20.js';
 import { applyComparisons } from '../scripts/ellaMapStepComparisons_2026_11_25.js';
+import { applyCards } from '../scripts/ellaMapCardsAboutYou_2026_11_27.js';
 
 vi.setConfig({ testTimeout: 240_000 });
 afterAll(async () => { await db.end(); });
@@ -31,6 +32,8 @@ async function ensureRev2(c: pg.PoolClient) {
   await applyRev2(tx(c));
   // Ella map 12 (2026-11-26): the step lines compare to the position coffee and the treat row is on (published in the rollback)
   await applyComparisons(tx(c));
+  // Ella map 15 (2026-11-27): the late kinds, the tag rows and the two Tiger Stripe pairs (published in the rollback)
+  await applyCards(tx(c));
 }
 
 interface Fixture {
@@ -125,7 +128,10 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
         ['Blossom', true, 'For you, a good cup is strong and satisfying. A darker roast than Tiger Stripe, with a fuller body.'],
         // nothing else supports Geometric, used or not: the treat answer, whose family is Geometric's
         ['Geometric', false, "Next to your coffee, you'd reach for something fresh and lively. More fruit than Tiger Stripe: fruit comes first here, sweeter and lighter, with the chocolate behind it."],
-        ['The Waverly', false, "Coffee is a daily ritual for you, and you're particular about it. Close to Tiger Stripe: chocolate underneath, with more fruit on top, fig and orange."],
+        // Ella map 15: The Daily and Fabricator are one step from Tiger Stripe; each answer once
+        ['The Daily', false, "Coffee is a daily ritual for you, and you're particular about it. Tiger Stripe without the fruit: chocolate and caramel, with a bit more bite."],
+        ['Fabricator', false, 'You taste a black coffee first, then make it richer. Tiger Stripe with a different accent: hazelnut, citrus and cinnamon where the cherry was, in a lighter body.'],
+        ['The Waverly', false, 'A coffee with no bitterness would bother you. Close to Tiger Stripe: chocolate underneath, with more fruit on top, fig and orange.'],
       ]);
     });
   });
@@ -151,6 +157,8 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
       expect(cards(r33)).toEqual([
         ['Amsterdam', true, 'The next size up in strength: darker and smoother.'],
         ['Benchmark', false, 'For you, a good cup is smooth and easy the whole way. The same chocolate as The Daily, rounder and softer.'],
+        // Ella map 15: the new step from The Daily
+        ['Tiger Stripe', false, 'With a black coffee, your first thought is what flavors are in it. The Daily with a fruit edge: chocolate first, cherry behind. Built for espresso.'],
       ]);
       const r23 = await read(P23);
       expect(r23.firstBag!.text).toBe("Bitter coffee tastes burnt to you. For you, a good cup feels alive and changes as you drink it. Coffee is a daily ritual for you, and you're particular about it. So: bright fruit, with caramel under it to make it an everyday cup.");
@@ -181,15 +189,15 @@ describe('the worked pages, word for word (design Rev 2; Dana 2026-11-24 on the 
         const firstUse = [...r.firstBag!.basis!.factCodes, ...r.steps.filter(s => s.isLead).flatMap(s => s.basis!.factCodes)];
         expect(new Set(firstUse).size).toBe(firstUse.length);
       }
-      // with the parameter off, each answer is used once per page and the reusing cards read no_support
+      // with the parameter off, each answer is used once per page; Ella map 15: the reusing cards take a
+      // late kind instead of no_support (own_family for 85, family_lean for 23)
       await setParameterInTx(tx(c), { key: 'dial_step_reuse_answer', value: 0, adminId: 'zzz-map10' });
-      const copy = await copyOf(c);
       for (const r of [await read(P85), await read(P23)]) {
         const facts = [...r.firstBag!.basis!.factCodes, ...r.steps.flatMap(s => s.basis!.factCodes)];
         expect(new Set(facts).size).toBe(facts.length);
       }
-      expect(cards(await read(P85)).find(x => x[0] === 'Geometric')![2]).toBe(`${copy.no_support} Keeps the fruit of La Familia and adds weight: bright fruit over caramel.`);
-      expect(cards(await read(P23)).find(x => x[0] === 'Tiger Stripe')![2]).toBe(`${copy.no_support} More chocolate and body than Geometric, with the fruit behind.`);
+      expect(cards(await read(P85)).find(x => x[0] === 'Geometric')![2]).toBe('You smooth a black coffee before you try it. Keeps the fruit of La Familia and adds weight: bright fruit over caramel.');
+      expect(cards(await read(P23)).find(x => x[0] === 'Tiger Stripe')![2]).toBe('With a black coffee, your first thought is what flavors are in it. More chocolate and body than Geometric, with the fruit behind.');
     });
   });
 });
@@ -235,14 +243,17 @@ describe('the top card in each state (B2)', () => {
     });
   });
 
-  it("no usable answer and a rule that names the coffee: the rule's customer_reason; a proxy quiz and a never-quoted row are not used", async () => {
+  it("a quiz taken by someone else: the rule's coffee line only (Ella map 15, Dana Q9a); a proxy quiz and a never-quoted row are not used", async () => {
     await withRollback(async ({ client: c }) => {
       await ensureRev2(c);
       const proxy = await person(c, { ...P85, proxy: true });
       await quizDecide(c, proxy);
       const r = await page(c, proxy.userId);
       expect(r.firstBag!.labelCode).toBe('founder_pick');
-      expect(r.firstBag!.text).toBe(r.firstBag!.reason);
+      const line = (await c.query<{ coffee_line: string | null }>(`SELECT coffee_line FROM v_dial_start WHERE quiz_session_id = $1`, [proxy.sessionId])).rows[0].coffee_line;
+      expect(line).toBeTruthy();
+      expect(r.firstBag!.text).toBe(line);
+      expect(r.firstBag!.text).not.toBe(r.firstBag!.reason);
       expect([...r.firstBag!.basis!.factCodes, ...r.steps.flatMap(s => s.basis!.factCodes)].filter(f => f.startsWith('v7_'))).toEqual([]);
       // v7_q1_b is never quoted (is_quoted false): 33's page never carries it
       const p = await person(c, P33);
@@ -253,10 +264,9 @@ describe('the top card in each state (B2)', () => {
 });
 
 describe('how a card is chosen is data (dial_reason_choice)', () => {
-  it('a support kind switched off is skipped; reordering changes the pick; all off gives no_support', async () => {
+  it('a support kind switched off is skipped; reordering changes the pick; all off, a card carries its line alone', async () => {
     await withRollback(async ({ client: c }) => {
       await ensureRev2(c);
-      const copy = await copyOf(c);
       const p = await danaLike(c);
       const blossom = async () => (await page(c, p.userId)).steps.find(s => s.name === 'Blossom')!;
       expect((await blossom()).basis!.choice).toBe('family_and_direction');
@@ -267,10 +277,14 @@ describe('how a card is chosen is data (dial_reason_choice)', () => {
       await choice(c, 'step_support', 'family_and_direction', { isActive: true });
       await choice(c, 'step_support', 'family', { sortOrder: 0 });
       expect((await blossom()).basis!.choice).toBe('family');
-      // Ella map 12: treat too, or a step of the treat's family would carry it
-      for (const code of ['family_and_direction', 'family', 'direction', 'treat']) await choice(c, 'step_support', code, { isActive: false });
+      // Ella map 12: treat too, or a step of the treat's family would carry it; Ella map 15: and the two late kinds.
+      // no_support is retired (Ella map 15): a card no row supports carries its line alone.
+      for (const code of ['family_and_direction', 'family', 'direction', 'treat', 'family_lean', 'own_family']) await choice(c, 'step_support', code, { isActive: false });
       const r = await page(c, p.userId);
-      for (const s of r.steps.filter(x => !x.isLead)) expect(s.text.startsWith(copy.no_support)).toBe(true);
+      for (const s of r.steps.filter(x => !x.isLead)) {
+        expect(s.basis!.factCodes).toEqual([]);
+        expect(s.text).toBe(s.line);
+      }
     });
   });
 
